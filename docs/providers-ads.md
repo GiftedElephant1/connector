@@ -16,6 +16,8 @@ The resource list is a small verification preview: LinkedIn and X return at most
 
 ## LinkedIn Campaign Manager
 
+For **“The redirect_uri does not match the registered value”**, follow the [LinkedIn redirect repair instructions](providers-linkedin.md). The member and advertising connections use different callback paths with the same saved Client ID. Register both URLs in that developer app when using both connectors.
+
 Enable LinkedIn's **Advertising API** product and obtain the access tier required for your account. The app requests `r_ads rw_ads r_ads_reporting`; the separate LinkedIn profile connection has its own OAuth grant. Add the Campaign Manager callback to the same client registration if sharing its client ID with the LinkedIn profile adapter. Existing connections must reconnect to consent to the expanded advertising scopes. Set `LINKEDIN_ENABLE_CONVERSIONS=true` only after your app is approved for `rw_conversions`; this adds that scope to subsequent authorizations and enables the conversion action.
 
 LinkedIn versions have a support lifecycle. `LINKEDIN_API_VERSION` must be a currently supported `YYYYMM` release. The pinned January 2026 default is explicit so upgrades can be reviewed instead of silently following the calendar. A release header alone does not confer Advertising API approval. Programmatic refresh is attempted only when LinkedIn actually provides a refresh token; otherwise reconnect when the access token expires.

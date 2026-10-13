@@ -44,6 +44,8 @@ Configure Login Kit, Display API and Content Posting API for a web application, 
 
 ## LinkedIn
 
+If LinkedIn says **“The redirect_uri does not match the registered value”**, follow the [LinkedIn redirect repair instructions](providers-linkedin.md). The LinkedIn card’s **Check LinkedIn setup** button shows both exact redirect URLs and the Client ID to match, even when credentials are already saved.
+
 Add **Sign In with LinkedIn using OpenID Connect** and **Share on LinkedIn** to a LinkedIn developer app. Follow LinkedIn's requirements for an associated company page and app verification. LinkedIn Campaign Manager is a separate connection with separate product access. `w_member_social` supports member publishing; comment-read access additionally requires restricted `r_member_social` approval. Only after that approval, set `LINKEDIN_ENABLE_MEMBER_READ=true` and reconnect. Do not enable it for ordinary Sign In / Share applications: LinkedIn will reject an unauthorized scope. `LINKEDIN_API_VERSION` defaults to `202601` and must be updated to a supported release before that version is retired.
 
 - Authorize: `https://www.linkedin.com/oauth/v2/authorization`

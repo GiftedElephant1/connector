@@ -1696,6 +1696,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                             )}
                           </div>
                           {provider.id === "tiktok" && <button className="button button-secondary full-width tiktok-open-studio" onClick={() => setPage("tiktok")}>TikTok publishing</button>}
+                          {(provider.id === "linkedin" || provider.id === "linkedin-ads") && <button className="button button-secondary full-width" disabled={!!busy} onClick={() => { setConfigureOnly(true); setDialog({ type: "setup", provider }); }}>Check LinkedIn setup</button>}
                         </article>
                       );
                     })}

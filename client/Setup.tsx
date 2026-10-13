@@ -3,6 +3,7 @@ import type { Provider } from "./App";
 import { ConnectorUpdates } from "./Updates";
 import { TikTokReview } from "./TikTokReview";
 import { XSetup } from "./XSetup";
+import { LinkedInSetup } from "./LinkedInSetup";
 import "./setup.css";
 
 export type ApiRequest = <T>(path: string, options?: RequestInit) => Promise<T>;
@@ -365,6 +366,7 @@ export function ProviderSetup({
             </li>
             {settings.callbackUrl && (
               <li>
+                {provider.id === "linkedin" || provider.id === "linkedin-ads" ? <LinkedInSetup callbackUrl={settings.callbackUrl} clientId={values.LINKEDIN_CLIENT_ID ?? settings.fields.find(field => field.key === "LINKEDIN_CLIENT_ID")?.value ?? ""} /> : <>
                 <strong>Add this redirect address</strong>
                 <p>
                   In the developer portal’s OAuth or redirect settings, paste
@@ -374,6 +376,7 @@ export function ProviderSetup({
                   label="Redirect address"
                   value={settings.callbackUrl}
                 />
+                </>}
               </li>
             )}
             <li>

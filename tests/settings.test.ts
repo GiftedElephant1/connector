@@ -98,6 +98,61 @@ test('saved provider settings take effect immediately while secret values remain
   assert.equal(f.env.DISCORD_CLIENT_SECRET, '');
 });
 
+for (const providerId of ['linkedin', 'linkedin-ads']) {
+  test(`${providerId} uses the displayed redirect address for authorization and token exchange after an origin change`, async t => {
+    const origins = ['https://connector-before.ngrok-free.dev', 'https://connector-after.ngrok-free.dev'];
+    const env = { LINKEDIN_CLIENT_ID: 'test-linkedin-app', LINKEDIN_CLIENT_SECRET: 'test-linkedin-secret' };
+    let expectedRedirect = '';
+    let exchanges = 0;
+    t.mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      assert.equal(String(input), 'https://www.linkedin.com/oauth/v2/accessToken');
+      assert.equal(init?.method, 'POST');
+      const body = new URLSearchParams(String(init?.body));
+      assert.equal(body.get('redirect_uri'), expectedRedirect);
+      assert.equal(body.get('client_id'), env.LINKEDIN_CLIENT_ID);
+      assert.equal(body.get('client_secret'), env.LINKEDIN_CLIENT_SECRET);
+      assert.equal(body.get('code'), 'test-authorization-code');
+      exchanges++;
+      return Response.json({ access_token: 'test-linkedin-token', expires_in: 3600 });
+    });
+    const f = await fixture(t, { localOrigin: configTemplate.origin }, env, {
+      verifyConnection: async () => ({ accountName: 'Test LinkedIn account', resources: [] }),
+    }, { origin: origins[0], secureCookies: true });
+    const headers = (origin: string) => ({ host: new URL(origin).host, origin });
+    const cookie = await f.login(f.config.password, headers(origins[0]));
+
+    for (const origin of origins) {
+      if (f.config.origin !== origin) {
+        const updated = await f.mutate('/api/settings', { values: { APP_ORIGIN: origin } }, cookie, headers(f.config.origin), 'PUT');
+        assert.equal(updated.status, 200);
+      }
+      const setupResponse = await f.request(`/api/settings/providers/${providerId}`, { headers: { cookie, ...headers(origin) } });
+      assert.equal(setupResponse.status, 200);
+      const setup = await setupResponse.json() as { callbackUrl: string };
+      expectedRedirect = `${origin}/api/oauth/${providerId}/callback`;
+      assert.equal(setup.callbackUrl, expectedRedirect);
+
+      const started = await f.mutate(`/api/oauth/${providerId}/start`, {}, cookie, headers(origin));
+      assert.equal(started.status, 200);
+      const authorization = new URL((await started.json() as { url: string }).url);
+      assert.equal(authorization.origin + authorization.pathname, 'https://www.linkedin.com/oauth/v2/authorization');
+      assert.equal(authorization.searchParams.get('client_id'), env.LINKEDIN_CLIENT_ID);
+      assert.equal(authorization.searchParams.get('redirect_uri'), setup.callbackUrl);
+      assert.equal(authorization.searchParams.has('client_secret'), false);
+      const state = authorization.searchParams.get('state');
+      assert.ok(state);
+
+      const callback = await f.request(`/api/oauth/${providerId}/callback?state=${state}&code=test-authorization-code`, {
+        headers: { cookie, ...headers(origin) },
+      });
+      assert.equal(callback.status, 302);
+      assert.equal(callback.headers.get('location'), `/?connected=${providerId}`);
+      assert.equal(f.store.credential(providerId)?.accessToken, 'test-linkedin-token');
+    }
+    assert.equal(exchanges, origins.length);
+  });
+}
+
 test('settings reject runtime controls, invalid values, and partial changes', async t => {
   const f = await fixture(t);
   const cookie = await f.login();
