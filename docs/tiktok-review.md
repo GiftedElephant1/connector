@@ -145,6 +145,8 @@ Do not say “initial application” for a previously approved application, or s
 
 ## 5. Prepare a real sandbox demonstration
 
+A [clearly labeled simulated walkthrough](demos/README.md) is available to rehearse the interface. It uses fictional account data and sample API responses; it does not replace the real sandbox recording required for review.
+
 The submission needs evidence of a real integration. Automated browser tests, fixture data, screenshots, an AI-generated video, or a recording of only the setup instructions are not a substitute for TikTok authorization and API results. No TikTok sandbox credentials or live account authorization are included with Connector.
 
 1. Sign in to [TikTok for Developers](https://developers.tiktok.com/) and open your application in the Developer Portal.
