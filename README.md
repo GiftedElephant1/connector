@@ -4,6 +4,8 @@ A self-hosted delivery connector for Grok and other MCP clients. Create and mana
 
 The dashboard guides you through setup, account connections, and AI-agent access. The MCP tools handle publishing, scheduling, supported comment/DM replies, analytics, campaign operations, conversion uploads, spend reports, and read-only bank data. Each platform exposes a different subset; discover its exact actions with `list_actions`. Unsupported API features are not simulated.
 
+**Google Workspace** has a separate multi-account area: connect several Google accounts, then give each AI agent its own key and an explicit set of accounts and apps. **Obsidian** reads and writes Markdown notes in the vault on your PC that Obsidian Sync keeps up to date.
+
 ## Start on your Windows PC — no terminal commands
 
 1. [Download the app ZIP](https://github.com/GiftedElephant1/connector/archive/refs/heads/main.zip), choose **Extract All**, and open the extracted folder. A smaller `Connector-Windows.zip` is also available from successful **Package Windows app** workflow artifacts.
@@ -16,6 +18,14 @@ The dashboard guides you through setup, account connections, and AI-agent access
 The launcher supports Windows 10/11 x64 and ARM64 and needs Internet access for its first installation. It uses port 3000. Closing the launcher stops Connector; closing only the browser leaves it running. See [Windows use and troubleshooting](docs/windows.md).
 
 The Connect buttons use official authentication. Platforms still require their own developer applications, permissions, and approvals; this self-hosted app does not include centrally approved OAuth registrations. AI API keys connect developer API accounts, not consumer chat subscriptions. Plaid opens its own bank picker after application setup; WhatsApp uses its Business Cloud API credentials. A truly setup-free hosted service would require the operator to register and obtain approval for those platform applications.
+
+## Add future connectors without reconnecting existing accounts
+
+Open **Settings → Updates and new connectors** to download an update or prepare a connector request to copy into your conversation with the developer. A new platform needs an official API integration before it becomes available, followed by its own account authorization.
+
+On Windows, extract the new download, stop Connector, and double-click **Update Connector** in the **new** folder. Select your **existing** Connector folder in the wizard. It prepares the new app before replacing application files and keeps your saved accounts, workspace settings, scheduled jobs, and connector API key in the original installation. Start the app from that original folder after updating. See the [complete update steps](docs/windows.md#update-without-reconnecting-your-accounts).
+
+An app update does not require authorizing every account again. A platform may still require authorization if it revokes access, a token can no longer refresh, or an added action needs new permissions. Keep the same public address for Grok and other clients; if your tunnel address changes, update their connector URL.
 
 ## Connect it in Grok
 
@@ -54,9 +64,13 @@ For code changes, run `npm run build` to rebuild the interface and `npm run dev`
 | Meta | Facebook Pages, Instagram professional accounts, Threads, Meta Business Manager | [Meta setup](docs/providers-meta.md) |
 | Google | YouTube, Google Ads, Google Analytics, Google Search Console | [Google setup](docs/providers-google.md) |
 | Social and websites | X, TikTok, LinkedIn, Reddit, Pinterest, WordPress.com | [Social setup](docs/providers-social.md) |
+| WordPress on another host | Create, read, and edit blog posts and pages through WordPress's own REST API | [WordPress setup](docs/providers-wordpress.md) |
 | Advertising | LinkedIn Campaign Manager, Microsoft Advertising, TikTok Business Manager, X Ads, Reddit Ads | [Advertising setup](docs/providers-ads.md) |
 | Communications | Discord profile/server memberships and bot actions; WhatsApp Business Cloud API | [Discord setup](docs/providers-discord.md), [WhatsApp setup](docs/providers-whatsapp.md) |
+| Email marketing | Mailchimp account, audiences, draft campaigns, campaign content, sending, and reports | [Mailchimp setup](docs/providers-mailchimp.md) |
 | Finance | Plaid accounts, balances, and transactions, read-only | [Plaid setup](docs/providers-plaid.md) |
+| Google Workspace | Sheets, Docs, Slides, Gmail, Drive, Meet, Chat, Tasks, Maps place search, and Voice administrator reports; multiple accounts with separate agent permissions | [Workspace setup](docs/providers-workspace.md) |
+| Notes | Read, create, and edit notes in the Obsidian vault on your PC, including notes synced by Obsidian Sync | [Obsidian setup](docs/providers-obsidian.md) |
 
 Each platform has its own developer app, permissions, and approval process. Click **Connect account** to enter missing application credentials, copy the exact callback address, and continue to official authorization. Change saved details under **Settings → Platform application settings**. These settings are encrypted in SQLite and override matching environment settings without a restart. Existing `.env` configurations remain supported for administrators. API keys and manual developer access tokens are entered in the authenticated dashboard and stored encrypted. Reconnect existing grants after enabling new action permissions.
 
@@ -84,7 +98,7 @@ YouTube has no general DM API. TikTok and LinkedIn messaging are not exposed whe
 
 This is a single-owner app: one connection per platform, with multiple discovered pages/accounts shown inside that connection. Reconnecting a platform replaces its existing credential only after the new credential is verified successfully.
 
-Provider credentials, dashboard settings, queued publication payloads, and saved action results are encrypted with AES-256-GCM before they enter SQLite. A dashboard-chosen password is stored as a salted scrypt hash inside encrypted settings. Browser sessions use HttpOnly cookies, server-side expiry, and CSRF protection. OAuth state is bound to the initiating session and consumed once. Public HTTPS sessions use secure cookies; the explicitly configured local desktop dashboard keeps its own session. Saved provider credentials are never returned in dashboard or tool responses. Only the authenticated owner can reveal the separate connector API key for copying into an AI client. That key grants access to all connected account actions, including read-only bank data.
+Provider credentials, dashboard settings, queued publication payloads, and saved action results are encrypted with AES-256-GCM before they enter SQLite. A dashboard-chosen password is stored as a salted scrypt hash inside encrypted settings. Browser sessions use HttpOnly cookies, server-side expiry, and CSRF protection. OAuth state is bound to the initiating session and consumed once. Public HTTPS sessions use secure cookies; the explicitly configured local desktop dashboard keeps its own session. Saved provider credentials are never returned in dashboard or tool responses. Only the authenticated owner can reveal the general connector API key for copying into an AI client. That key grants access to connected platforms, including read-only bank data and the local Obsidian vault. Google Workspace uses separate agent profile keys, each restricted to its assigned Google accounts and apps.
 
 The desktop launcher uses a random, single-use, ten-minute local sign-in capability, removed from the browser address before normal use. It is not a public registration endpoint. Start and complete account authorization on the public dashboard after enabling HTTPS; local and public hostnames have separate browser sessions.
 

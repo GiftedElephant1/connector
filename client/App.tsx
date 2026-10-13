@@ -17,6 +17,7 @@ import {
   type WorkspaceSettings,
 } from "./Setup";
 import { connectPlaid, returningFromPlaid } from "./plaid-link";
+import { GoogleWorkspace } from "./Workspace";
 
 type Category =
   | "ai"
@@ -41,7 +42,7 @@ export type Provider = {
   name: string;
   category: Category;
   description: string;
-  authType: "api_key" | "oauth" | "link";
+  authType: "api_key" | "oauth" | "link" | "local";
   docsUrl: string;
   callbackUrl?: string;
   configured: boolean;
@@ -670,6 +671,10 @@ function ApiKeyDialog({
   const [visible, setVisible] = useState(false);
   const [error, setError] = useState("");
   const inputId = useId();
+  const localVault = provider.authType === "local";
+  const wordpress = provider.id === "wordpress-self-hosted";
+  const apiKey = provider.category === "ai" || provider.id === "mailchimp";
+  const credentialLabel = wordpress ? "Application password" : apiKey ? "API key" : "Access token";
   const close = () => {
     if (busy) return;
     setKey("");
@@ -708,14 +713,17 @@ function ApiKeyDialog({
         <ProviderMark provider={provider} />
         <div>
           <strong>{provider.name}</strong>
-          <span>Official API connection</span>
+          <span>{localVault ? "Local vault access" : "Official API connection"}</span>
         </div>
       </div>
       <p className="dialog-copy">
-        Add {provider.category === "ai" ? "an API key" : "an access token"} from
-        your {provider.name} developer account. Use the link below to open its
-        developer tools, create or select a key, copy it, and paste it here.
-        Connector will verify access before saving the connection.
+        {localVault
+          ? "Connect the vault folder on the computer running Connector. Obsidian Sync must sync your cloud vault to this folder first. Your AI agents can read, create, and edit its Markdown notes when you ask them to."
+          : wordpress
+            ? "In your WordPress dashboard, open Users → Profile → Application Passwords. Enter Connector as the name, click Add New Application Password, then copy the generated password here. Use your WordPress username and your site's HTTPS address."
+            : provider.id === "mailchimp"
+              ? "In Mailchimp, open Account & billing → Extras → API keys. Create an API key, name it Connector, then copy it here. Keep the server suffix, such as -us21."
+              : `Add ${apiKey ? "an API key" : "an access token"} from your ${provider.name} developer account. Use the link below to create or select a key, then copy it here. Connector verifies access before saving.`}
       </p>
       {provider.id === "whatsapp" && (
         <div className="info-note">
@@ -738,9 +746,7 @@ function ApiKeyDialog({
         </div>
       )}
       <form onSubmit={submit}>
-        <label htmlFor={inputId}>
-          {provider.category === "ai" ? "API key" : "Access token"}
-        </label>
+        {!localVault && <><label htmlFor={inputId}>{credentialLabel}</label>
         <div className="password-field">
           <input
             data-autofocus
@@ -751,9 +757,8 @@ function ApiKeyDialog({
             autoCapitalize="none"
             spellCheck={false}
             placeholder={
-              provider.category === "ai"
-                ? "Paste your API key"
-                : "Paste your developer access token"
+              wordpress ? "Paste the generated Application Password" : apiKey
+                ? "Paste your API key" : "Paste your developer access token"
             }
             value={key}
             onChange={(event) => setKey(event.target.value)}
@@ -768,7 +773,7 @@ function ApiKeyDialog({
           >
             <Icon name={visible ? "eye-off" : "eye"} size={18} />
           </button>
-        </div>
+        </div></>}
         {provider.credentialFields?.map((field) => (
           <div className="extra-credential" key={field.name}>
             <label htmlFor={`${inputId}-${field.name}`}>{field.label}</label>
@@ -799,21 +804,25 @@ function ApiKeyDialog({
                 openai: "https://platform.openai.com/api-keys",
                 anthropic: "https://console.anthropic.com/settings/keys",
                 xai: "https://console.x.ai/",
+                mailchimp: "https://mailchimp.com/help/about-api-keys/",
+                "wordpress-self-hosted": "https://make.wordpress.org/core/2020/11/05/application-passwords-integration-guide/",
               } as Record<string, string>
             )[provider.id] || provider.docsUrl
           }
           target="_blank"
           rel="noopener noreferrer"
         >
-          {provider.category === "ai"
-            ? "Get an API key"
-            : "Developer access documentation"}{" "}
+          {localVault ? "How to find and sync your vault folder" : wordpress ? "WordPress Application Password help" : apiKey ? "Get an API key" : "Developer access documentation"}{" "}
           <Icon name="external" size={14} />
         </a>
         <div className="info-note">
           <Icon name="help" size={18} />
           <p>
-            {provider.category === "ai"
+            {localVault
+              ? "In Obsidian, use Manage vaults to find your vault folder. In Windows File Explorer, open that folder, click the address bar, copy the full path, and paste it above. Keep Obsidian synced to make cloud changes available here."
+              : wordpress ? "This uses an Application Password, separate from your normal sign-in password. Your WordPress role must permit editing pages; an Editor or Administrator can usually do that."
+              : provider.id === "mailchimp" ? "Campaigns are created as drafts. Sending is a separate action that requires your explicit instruction. Mailchimp permissions and sending limits still apply."
+              : provider.category === "ai"
               ? "API access is separate from consumer subscriptions such as ChatGPT Plus, Claude Pro, or Grok. A developer account and API billing may be required."
               : "Use a token issued through the platform’s official developer tools. Account permissions, app approval, and API access levels determine which resources are available."}
           </p>
@@ -838,7 +847,7 @@ function ApiKeyDialog({
             className="button button-primary"
             disabled={
               busy ||
-              !key.trim() ||
+              (!localVault && !key.trim()) ||
               provider.credentialFields?.some(
                 (field) => !fields[field.name]?.trim(),
               )
@@ -856,8 +865,7 @@ function ApiKeyDialog({
           </button>
         </div>
         <p className="secret-note">
-          <Icon name="shield" size={14} /> Credentials are encrypted on the
-          server.
+          <Icon name="shield" size={14} /> {localVault ? "Your selected vault location is saved privately." : "Credentials are encrypted on the server."}
         </p>
       </form>
     </Modal>
@@ -866,7 +874,7 @@ function ApiKeyDialog({
 
 function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
   const [page, setPage] = useState<
-    "connections" | "pipeline" | "schedule" | "settings"
+    "connections" | "pipeline" | "schedule" | "settings" | "workspace"
   >("connections");
   const [providers, setProviders] = useState<Provider[]>([]);
   const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
@@ -928,6 +936,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
   }, [load]);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    if (params.has("workspace")) setPage("workspace");
     if (params.has("connected"))
       setFeedback({
         kind: "success",
@@ -940,7 +949,8 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
           params.get("error") ||
           "The connection could not be completed. Please try again.",
       });
-    if (params.has("connected") || params.has("error")) {
+    if (params.has("connected") || params.has("error") || params.has("workspace")) {
+      params.delete("workspace");
       params.delete("connected");
       params.delete("error");
       const query = params.toString();
@@ -958,7 +968,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
       setDialog({ type: "setup", provider });
       return;
     }
-    if (provider.authType === "api_key") {
+    if (provider.authType === "api_key" || provider.authType === "local") {
       setDialog({ type: "api-key", provider });
       return;
     }
@@ -1177,6 +1187,15 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
             <span>Pipeline</span>
           </button>
           <button
+            className={`nav-item ${page === "workspace" ? "active" : ""}`}
+            onClick={() => setPage("workspace")}
+            aria-current={page === "workspace" ? "page" : undefined}
+            aria-label="Google Workspace"
+          >
+            <Icon name="grid" size={19} />
+            <span>Google Workspace</span>
+          </button>
+          <button
             className={`nav-item ${page === "schedule" ? "active" : ""}`}
             onClick={() => setPage("schedule")}
             aria-current={page === "schedule" ? "page" : undefined}
@@ -1239,6 +1258,8 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                 ? "Connections"
                 : page === "pipeline"
                   ? "Pipeline"
+                  : page === "workspace"
+                    ? "Google Workspace"
                   : page === "settings"
                     ? "Settings"
                     : "Schedule"}
@@ -1300,6 +1321,8 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                 )}
               </section>
             )
+          ) : page === "workspace" ? (
+            <GoogleWorkspace api={api} onSettings={() => setPage("settings")} />
           ) : page === "connections" ? (
             <>
               <section className="page-heading">
@@ -1312,7 +1335,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                 </div>
                 <div className="official-badge">
                   <span />
-                  <span>Official APIs only</span>
+                  <span>Official APIs &amp; local vaults</span>
                 </div>
               </section>
 
@@ -1808,11 +1831,15 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
             <div>
               <dt>Connection method</dt>
               <dd>
-                {dialogProvider.authType === "link"
+                {dialogProvider.authType === "local"
+                  ? "Local synced vault"
+                  : dialogProvider.id === "wordpress-self-hosted"
+                    ? "WordPress Application Password"
+                  : dialogProvider.authType === "link"
                   ? "Plaid secure bank sign-in"
                   : dialogProvider.authType === "oauth"
                     ? "OAuth authorization"
-                    : dialogProvider.category === "ai"
+                    : dialogProvider.category === "ai" || dialogProvider.id === "mailchimp"
                       ? "API key"
                       : "Developer access token"}
               </dd>

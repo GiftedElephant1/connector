@@ -7,8 +7,11 @@ import { socialActions } from './actions-social';
 import { adsActions } from './actions-ads';
 import { plaidActions } from './actions-plaid';
 import { whatsappActions } from './actions-whatsapp';
+import { wordpressActions } from './actions-wordpress';
+import { mailchimpActions } from './actions-mailchimp';
+import { obsidianActions } from './actions-obsidian';
 
-const actions: ActionAdapter[] = [...googleActions, ...metaActions, ...discordActions, ...socialActions, ...adsActions, ...plaidActions, ...whatsappActions];
+const actions: ActionAdapter[] = [...googleActions, ...metaActions, ...discordActions, ...socialActions, ...adsActions, ...plaidActions, ...whatsappActions, ...wordpressActions, ...mailchimpActions, ...obsidianActions];
 const registry = new Map(actions.map(action => [`${action.provider}:${action.definition.id}`, action]));
 if (registry.size !== actions.length) throw new Error('Action identifiers must be unique per provider.');
 export function listActions(provider: string) { return actions.filter(action => action.provider === provider).map(action => action.definition); }
@@ -25,7 +28,7 @@ export function validateValues(adapter: ActionAdapter, input: unknown): ActionVa
   for (const field of fields) {
     const raw = (input as Record<string, unknown>)[field.name] ?? field.default ?? '';
     if (typeof raw !== 'string') throw new ProviderError(`${field.label} must be a string.`);
-    const value = raw.trim();
+    const value = field.preserveWhitespace ? raw : raw.trim();
     if (field.required && !value) throw new ProviderError(`${field.label} is required.`);
     if (value.length > (field.type === 'file' ? 28_000_000 : 50_000)) throw new ProviderError(`${field.label} is too large.`);
     if (value && field.type === 'select' && !field.options?.some(option => option.value === value)) throw new ProviderError(`Choose a valid ${field.label}.`);

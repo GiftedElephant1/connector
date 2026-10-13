@@ -205,3 +205,72 @@ test("WhatsApp explains business setup and Plaid opens the secure picker then ex
     await page.evaluate(() => sessionStorage.getItem("connector-plaid-link")),
   ).toBeNull();
 });
+
+test("updates show the installed version and prepare a local connector request without changing saved settings", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await login(page);
+  const settingsBefore = await (await page.request.get("/api/settings")).json();
+  const installation = await (await page.request.get("/api/installation")).json();
+  const writes: string[] = [];
+  page.on("request", (request) => {
+    if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) {
+      writes.push(`${request.method()} ${new URL(request.url()).pathname}`);
+    }
+  });
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const updates = page.getByRole("region", { name: "Updates and new connectors" });
+  await expect(updates).toContainText(`Installed version ${installation.version}`);
+  await expect(
+    updates.getByRole("link", { name: "Download latest update ↗" }),
+  ).toHaveAttribute(
+    "href",
+    "https://github.com/GiftedElephant1/connector/archive/refs/heads/main.zip",
+  );
+  await expect(updates.getByRole("link", { name: "Open update guide ↗" })).toHaveAttribute(
+    "href",
+    installation.updateGuideUrl,
+  );
+  await expect(updates).toContainText("Update Connector.vbs");
+  await expect(updates).toContainText("existing Connector folder");
+  await expect(updates).toContainText("Reopen your original installation");
+  await updates.getByText("Request another connector", { exact: true }).click();
+  await expect(updates.getByRole("button", { name: "Prepare connector request" })).toBeDisabled();
+  await updates.getByLabel("Platform name", { exact: true }).fill("Slack");
+  await updates.getByLabel("What should the connector do?").fill("Send messages and read replies.");
+  await updates.getByRole("button", { name: "Prepare connector request" }).click();
+  const draft = updates.getByLabel("Your connector request", { exact: true });
+  await expect(draft).toHaveValue(/official API connector for Slack/);
+  await expect(draft).toHaveValue(/Send messages and read replies\./);
+  await expect(draft).toHaveValue(/preserve my existing connected accounts/);
+  await expect(draft).toHaveAttribute("readonly", "");
+  await updates.getByRole("button", { name: "Copy connector request" }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(await draft.inputValue());
+  await expect(updates.getByRole("status")).toHaveText("Copied. Paste this into your Codex chat.");
+  await updates.getByLabel("Platform name", { exact: true }).fill("Bluesky");
+  await expect(draft).toHaveCount(0);
+  expect(writes).toEqual([]);
+  const settingsAfter = await (await page.request.get("/api/settings")).json();
+  expect(settingsAfter).toEqual(settingsBefore);
+});
+
+test("installation details can be retried while connector requests remain available", async ({ page }) => {
+  await login(page);
+  let fail = true;
+  await page.route("**/api/installation", (route) => {
+    if (fail) {
+      fail = false;
+      return route.fulfill({ status: 503, json: { error: "Installation details are temporarily unavailable." } });
+    }
+    return route.continue();
+  });
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const updates = page.getByRole("region", { name: "Updates and new connectors" });
+  await expect(updates.getByRole("alert")).toHaveText("Installation details are temporarily unavailable.");
+  await expect(updates.getByText("Request another connector", { exact: true })).toBeVisible();
+  await updates.getByRole("button", { name: "Retry installation details" }).click();
+  await expect(updates.getByRole("link", { name: "Download latest update ↗" })).toBeVisible();
+  await expect(updates.getByRole("alert")).toHaveCount(0);
+});

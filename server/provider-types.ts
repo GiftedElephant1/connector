@@ -13,7 +13,7 @@ export type ProviderDefinition = {
   name: string;
   category: 'ai' | 'social' | 'communications' | 'advertising' | 'analytics' | 'websites' | 'finance';
   description: string;
-  authType: 'api_key' | 'oauth' | 'link';
+  authType: 'api_key' | 'oauth' | 'link' | 'local';
   docsUrl: string;
   credentialFields?: { name: string; label: string; secret?: boolean }[];
 };

@@ -55,7 +55,7 @@ async function fixture(t: TestContext, options: AppOptions = {}, initialEnv: Nod
 
 test('settings and machine key require owner authentication and all settings mutations require CSRF protection', async t => {
   const f = await fixture(t);
-  for (const path of ['/api/settings', '/api/settings/providers/discord', '/api/settings/pipeline-key', '/api/tunnel']) {
+  for (const path of ['/api/workspace', '/api/installation', '/api/settings', '/api/settings/providers/discord', '/api/settings/pipeline-key', '/api/tunnel']) {
     const result = await f.request(path);
     assert.equal(result.status, 401);
     assert.equal(result.headers.get('cache-control'), 'no-store');

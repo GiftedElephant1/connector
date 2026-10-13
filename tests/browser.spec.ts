@@ -27,7 +27,7 @@ async function login(page: Page) {
   await expect(
     page.getByRole("heading", { name: "Your accounts, connected." }),
   ).toBeVisible();
-  await expect(page.locator(".provider-card")).toHaveCount(25);
+  await expect(page.locator(".provider-card")).toHaveCount(28);
 }
 
 test("real login, full provider catalog, filters, setup callback and logout work", async ({
@@ -163,4 +163,31 @@ test("pipeline explains the direct Grok connector and schedule shows actual empt
   await page.getByRole("button", { name: "Scheduled jobs →" }).click();
   await expect(page.locator("main")).toContainText("Ask your bot to schedule");
   await expect(page.locator(".job-card")).toHaveCount(0);
+});
+
+test("WordPress, Mailchimp, and Obsidian present their actual connection requirements", async ({ page }) => {
+  await login(page);
+  await page.getByLabel("Search platforms").fill("WordPress (your hosting provider)");
+  await page.getByRole("button", { name: "Connect account", exact: true }).click();
+  await expect(page.getByLabel("Application password", { exact: true })).toHaveAttribute("type", "password");
+  await expect(page.getByLabel("WordPress website HTTPS URL")).toHaveAttribute("type", "text");
+  await expect(page.getByLabel("WordPress username")).toHaveAttribute("type", "text");
+  await expect(page.getByRole("dialog")).toContainText("Users → Profile → Application Passwords");
+  await page.keyboard.press("Escape");
+
+  await page.getByLabel("Search platforms").fill("Mailchimp");
+  await page.getByRole("button", { name: "Connect account", exact: true }).click();
+  await expect(page.getByLabel("API key", { exact: true })).toHaveAttribute("type", "password");
+  await expect(page.getByRole("link", { name: "Get an API key" })).toHaveAttribute("href", "https://mailchimp.com/help/about-api-keys/");
+  await expect(page.getByRole("dialog")).toContainText("Campaigns are created as drafts");
+  await page.keyboard.press("Escape");
+
+  await page.getByLabel("Search platforms").fill("Obsidian");
+  await page.getByRole("button", { name: "Connect account", exact: true }).click();
+  await expect(page.getByLabel("Full path to your Obsidian vault folder")).toHaveAttribute("type", "text");
+  await expect(page.getByRole("dialog").locator('input[type="password"]')).toHaveCount(0);
+  await expect(page.getByRole("dialog")).toContainText("read, create, and edit");
+  await expect(page.getByRole("dialog").getByRole("button", { name: "Connect account", exact: true })).toBeDisabled();
+  await page.getByLabel("Full path to your Obsidian vault folder").fill("C:\\Users\\Example\\Documents\\My Vault");
+  await expect(page.getByRole("dialog").getByRole("button", { name: "Connect account", exact: true })).toBeEnabled();
 });

@@ -1,5 +1,6 @@
 import { useEffect, useId, useState, type FormEvent } from "react";
 import type { Provider } from "./App";
+import { ConnectorUpdates } from "./Updates";
 import "./setup.css";
 
 export type ApiRequest = <T>(path: string, options?: RequestInit) => Promise<T>;
@@ -737,9 +738,10 @@ export function WorkspaceSetup({
           <h1>
             Workspace setup<span>.</span>
           </h1>
-          <p>Manage your address, platform credentials, and password here.</p>
+          <p>Manage your updates, address, platform credentials, and password here.</p>
         </div>
       </section>
+      <ConnectorUpdates request={request} />
       <section className="setup-panel" aria-labelledby="public-address-title">
         <div className="setup-panel-heading">
           <div>
@@ -936,7 +938,7 @@ export function WorkspaceSetup({
           {providers
             .filter(
               (provider) =>
-                provider.authType !== "api_key" ||
+                (provider.authType === "oauth" || provider.authType === "link") ||
                 provider.missing.length > 0 ||
                 settings.fields.some((field) =>
                   field.providerIds.includes(provider.id),

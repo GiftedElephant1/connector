@@ -21,9 +21,23 @@ The local app runs at `http://127.0.0.1:3000`. The launcher uses a private, shor
 - Double-click **Start Connector** again next time. The launcher will not start a second copy if another launcher is already running.
 - Keep your PC awake and online for scheduled actions and remote access. Scheduled work cannot execute while the app is stopped.
 
-## Existing installations and updates
+## Update without reconnecting your accounts
 
-The launcher preserves an existing `.env` file and `data` folder. If you already have an installation, stop it first, back up those two items privately, and copy the new release's application files into your existing Connector folder. Keep `.env` and `data` together, including the existing encryption key. Do not commit or upload them to GitHub.
+Updates add new connector code while keeping the existing installation's saved accounts, application settings, password, connector API key, and scheduled jobs. You authorize a new platform once after its connector becomes available. Existing platforms may request authorization again if access is revoked, refresh credentials expire, or a new action needs additional permissions.
+
+1. In Connector, open **Settings → Updates and new connectors** and click **Download latest update**. For an older version without this section, [download the latest app here](https://github.com/GiftedElephant1/connector/archive/refs/heads/main.zip).
+2. Open **Downloads** in File Explorer. Right-click the downloaded ZIP, select **Extract All…**, and then **Extract**. This link downloads a folder named **connector-main**. If you use a GitHub Actions artifact instead, also extract the inner **Connector-Windows.zip**.
+3. Keep the new download separate from your existing installation. In the small Connector window, click **Stop Connector**. Scheduled actions pause while the app is stopped.
+4. Open the **newly downloaded** folder containing **Update Connector.vbs** and double-click **Update Connector**.
+5. Use the wizard's folder picker to select the **original Connector folder** you have been using. Choose the folder containing your existing **Start Connector** file, not the new download.
+6. Start the update in the wizard and wait for it to finish. It installs and builds the new components before changing the old app files. Internet access is needed to download dependencies. Leave the update window open until it finishes.
+7. When the wizard reports success, open Connector from the wizard or double-click **Start Connector** in your **original folder**. Your existing accounts and settings remain there. Connect any newly added platform from the dashboard.
+
+The update wizard uses the private runtime installed by **Start Connector**. If it reports that the runtime is missing, start **Start Connector** from the new download once to install the runtime, stop it, and reopen **Update Connector** to update your original folder. Your existing accounts remain in the original folder. A computer with no existing installation should use **Start Connector** for its first setup.
+
+The wizard leaves the original `.env` and account database in place; it does not reset keys or copy credentials into the new download. Keep those private files together if you back up or move an installation. If you configured a custom data folder, it is preserved; data stored inside an application-code folder must be moved out before the wizard can update safely.
+
+Grok's connector API key stays the same. Its saved URL also continues to work while your public address stays the same. If ngrok assigns a different address after restarting, copy the new connector URL from **Pipeline** into Grok.
 
 The launcher uses port 3000 on your own PC. If another program uses that port, it shows a message and stops rather than taking over that program. Close the other program or previous Connector instance, then try again.
 

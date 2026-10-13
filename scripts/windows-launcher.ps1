@@ -2,6 +2,7 @@
 # Only this launcher's child processes are stopped. Secrets never enter arguments or logs.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'windows-common.ps1')
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
@@ -74,7 +75,7 @@ public sealed class ConnectorChildJob : IDisposable {
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Connector'
-$form.ClientSize = New-Object System.Drawing.Size(550, 255)
+$form.ClientSize = New-Object System.Drawing.Size(550, 310)
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
@@ -113,6 +114,18 @@ $logButton.Location = New-Object System.Drawing.Point(182, 182)
 $logButton.Size = New-Object System.Drawing.Size(145, 38)
 $logButton.Add_Click({ if (Test-Path $script:logPath) { Start-Process notepad.exe -ArgumentList ('"' + $script:logPath + '"') } })
 $form.Controls.Add($logButton)
+
+$updateButton = New-Object System.Windows.Forms.Button
+$updateButton.Text = 'Get updates'
+$updateButton.Location = New-Object System.Drawing.Point(24, 238)
+$updateButton.Size = New-Object System.Drawing.Size(145, 38)
+$updateButton.Add_Click({
+    [void][System.Windows.Forms.MessageBox]::Show(
+        "Download Connector-Windows from the newest successful Package Windows app run. Extract both ZIP layers.`r`n`r`nThen click Stop Connector here. Open Update Connector in the NEW download and choose this EXISTING Connector folder to keep your connected accounts and settings.`r`n`r`nExisting folder:`r`n" + $script:root,
+        'Update without reconnecting accounts', 'OK', 'Information')
+    Start-Process 'https://github.com/GiftedElephant1/connector/actions/workflows/windows-release.yml'
+})
+$form.Controls.Add($updateButton)
 
 $stopButton = New-Object System.Windows.Forms.Button
 $stopButton.Text = 'Cancel'
@@ -203,23 +216,15 @@ try {
     catch { throw 'Port 3000 is already in use. Close the other Connector instance or application using it, then open Start Connector again.' }
     finally { $probe.Stop() }
 
-    $processor = $env:PROCESSOR_ARCHITECTURE
-    if ($env:PROCESSOR_ARCHITEW6432) { $processor = $env:PROCESSOR_ARCHITEW6432 }
-    if ($processor -eq 'ARM64') {
-        $architecture = 'arm64'
-        $archiveSha = '92b9f9b0c0c123e11e4afc535f0ec19cd987465eea506427553a49971364158a'
-        $nodeSha = '91e25b2ef61ee30a9e6afce0f336b4d55d688c3717244e496fa11d69fc3a1717'
-    } elseif ($processor -eq 'AMD64') {
-        $architecture = 'x64'
-        $archiveSha = 'ca2742695be8de44027d71b3f53a4bdb36009b95575fe1ae6f7f0b5ce091cb88'
-        $nodeSha = 'd14ba95cdce1ef7dc9ad3ac74949ca5db38b27378ee30f30a23cf26f9e875a11'
-    } else { throw 'Connector requires 64-bit Windows 10 or later (Intel/AMD x64 or ARM64).' }
-
-    $nodeVersion = '24.13.0'
-    $archiveName = "node-v$nodeVersion-win-$architecture.zip"
-    $runtimeRoot = Join-Path $script:stateRoot 'runtime'
-    $script:nodeDirectory = Join-Path $runtimeRoot "node-v$nodeVersion-win-$architecture"
-    $script:nodeExe = Join-Path $script:nodeDirectory 'node.exe'
+    $runtime = Get-ConnectorRuntimeSpecification $script:stateRoot
+    $architecture = $runtime.Architecture
+    $archiveSha = $runtime.ArchiveSha
+    $nodeSha = $runtime.NodeSha
+    $nodeVersion = $runtime.Version
+    $archiveName = $runtime.ArchiveName
+    $runtimeRoot = $runtime.RuntimeRoot
+    $script:nodeDirectory = $runtime.Directory
+    $script:nodeExe = $runtime.NodeExe
     $runtimeReady = (Test-Path $script:nodeExe) -and ((Get-FileHash -LiteralPath $script:nodeExe -Algorithm SHA256).Hash.ToLowerInvariant() -eq $nodeSha)
     if (-not $runtimeReady) {
         Write-Status 'Downloading the private runtime from nodejs.org. The first launch needs an Internet connection.'
@@ -242,6 +247,11 @@ try {
             if (Test-Path $script:nodeDirectory) { Remove-Item -LiteralPath $script:nodeDirectory -Recurse -Force }
             Move-Item -LiteralPath $extracted -Destination $script:nodeDirectory
         } finally { if (Test-Path $downloadRoot) { Remove-Item -LiteralPath $downloadRoot -Recurse -Force } }
+    }
+
+    if (Test-Path -LiteralPath (Join-Path $script:root '.connector-update\journal.json')) {
+        Write-Status 'Recovering an interrupted update before opening your saved accounts...'
+        Run-NodeStep 'scripts/update.mjs --recover-only --target .' 'The interrupted update could not be recovered. Open Update Connector from the new download and select this existing folder to try recovery again.'
     }
 
     $npmCli = Join-Path $script:nodeDirectory 'node_modules\npm\bin\npm-cli.js'
@@ -316,7 +326,7 @@ try {
         $stopButton.Text = 'Close'
         # Known errors are ours; unexpected exception details can include URLs or environment values.
         $message = $_.Exception.Message
-        $known = @('Port 3000 ', 'Extract the entire ', 'Connector requires ', 'The official runtime ', 'Runtime download ', 'The extracted runtime ', 'Component installation ', 'Private configuration ', 'The dashboard ', 'Connector stopped ', 'Connector did not ', 'Connector has stopped.')
+        $known = @('Port 3000 ', 'Extract the entire ', 'Connector requires ', 'The official runtime ', 'Runtime download ', 'The extracted runtime ', 'Component installation ', 'Private configuration ', 'The dashboard ', 'The interrupted update ', 'Connector stopped ', 'Connector did not ', 'Connector has stopped.')
         if (-not ($known | Where-Object { $message.StartsWith($_) })) { $message = 'Connector could not complete setup. Check your Internet connection, free disk space, and permission to run applications in this folder, then try again.' }
         Write-Status $message
         while (-not $script:cancelled) { [System.Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 100 }

@@ -123,6 +123,7 @@
 }
 .setup-form input,
 .setup-form select,
+.setup-form textarea,
 .copy-row input {
   width: 100%;
   min-width: 0;
@@ -136,12 +137,45 @@
 }
 .setup-form input:focus,
 .setup-form select:focus,
+.setup-form textarea:focus,
 .copy-row input:focus {
   outline: 2px solid #7eb69a;
   outline-offset: 1px;
 }
 .setup-form > .button {
   margin-top: 22px;
+}
+.setup-form textarea {
+  display: block;
+  line-height: 1.6;
+  resize: vertical;
+}
+.connector-updates .update-steps {
+  gap: 15px;
+}
+.connector-updates .setup-panel-heading {
+  flex-wrap: wrap;
+}
+.connector-updates .eyebrow {
+  margin-bottom: 8px;
+}
+.connector-request-result {
+  border-top: 1px solid #e9efeb;
+  margin-top: 22px;
+  padding-top: 4px;
+}
+.connector-request-result textarea {
+  background: #fafcfb;
+}
+.connector-request-result .setup-button-row {
+  align-items: center;
+  margin-top: 12px;
+}
+.connector-request-result .setup-button-row .setup-help {
+  margin-top: 0;
+}
+.updates-error .button {
+  margin-top: 12px;
 }
 .setup-form > .setup-help {
   margin-bottom: 14px;
@@ -438,11 +472,12 @@
   .sidebar {
     flex-wrap: wrap;
   }
-  .sidebar nav {
+  .app-layout .sidebar nav {
     order: 3;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     width: 100%;
     margin-left: 0;
-    justify-content: space-between;
   }
   .sidebar nav .nav-item > span:nth-child(2) {
     display: inline !important;

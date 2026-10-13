@@ -32,7 +32,19 @@ All values in `values` are **strings**, including numbers, dates and boolean cho
 
 ## Write authorization and retries
 
-The caller must obtain the account owner's authorization for the intended content, target, timing, campaign/budget change or conversion event before sending `confirmed: true`. This flag records caller confirmation; it is not independent proof that a human clicked a button in Grok. Use the client's own approval controls when available. A pipeline API key confers access to all connected accounts in this single-owner app.
+The caller must obtain the account owner's authorization for the intended content, target, timing, campaign/budget change, note edit, or conversion event before sending `confirmed: true`. This flag records caller confirmation; it is not independent proof that a human clicked a button in Grok. Use the client's own approval controls when available. The original pipeline API key grants access to the standard platform connections, including WordPress, Mailchimp, and the selected Obsidian vault. Google Workspace uses separate, restricted agent keys described below.
+
+## Google Workspace accounts and agent keys
+
+Open **Google Workspace** in the dashboard, connect each Google account, and create an AI agent profile. Select the permitted apps for each account and optionally choose a default account. Copy that profile's key and the same public `/mcp` URL into a separate Google Workspace connector in the AI client. Keep the original general Connector entry if the agent also uses social media, advertising, or Obsidian.
+
+Google profile keys expose three tools: `list_workspace_accounts`, `list_workspace_actions`, and `run_workspace_action`. Have the agent list its permitted accounts, inspect an app's action schema, then pass the chosen `accountId` when calling an action. If no default exists, an explicit account selection is required. The server checks account and app access on every call; a supplied account ID cannot expand the profile's permissions.
+
+The original key cannot access the new Workspace tools. Workspace profile keys cannot invoke the general platform tools, scheduling endpoints, or optional server-side Grok bot. Changing permissions keeps a profile key valid with its new restrictions; replacing or deleting it removes the old key's access. Each agent can have different accounts and different apps, even on the same connected Google account.
+
+Workspace writes require `confirmed: true` and a `requestId`, using the same retry rules as other writes. Their encrypted receipts are kept separately from the general scheduled-job list. Workspace actions are immediate; native task due dates and meeting-space creation are supported where listed, but generic Workspace scheduling is not provided.
+
+See [Workspace setup](providers-workspace.md) for scopes, app approvals, Maps project keys, and the Voice administrator-report limitation.
 
 Every write and scheduled publication requires a `requestId`: 8–128 letters, digits, hyphens or underscores. Generate a UUID for each intended write and **reuse it on transport retries**. Reusing an ID with different inputs is rejected. A completed identical submission returns its saved result. Running, failed or uncertain immediate writes cannot be rerun under the same ID.
 

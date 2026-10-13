@@ -10,6 +10,8 @@ export interface ActionField {
   placeholder?: string;
   options?: { value: string; label: string }[];
   default?: string;
+  /** Preserve significant whitespace in note/document content. */
+  preserveWhitespace?: boolean;
 }
 export interface ActionDefinition {
   id: string;

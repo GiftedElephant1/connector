@@ -240,6 +240,10 @@ export function Pipeline({
         </button>
       </section>
       <AgentConnection request={request} onSettings={onSettings} />
+      <p className="setup-help">
+        For Google accounts with different permissions for each AI agent, open
+        Google Workspace in the sidebar and create a separate agent connection.
+      </p>
       <section className="action-panel pipeline-capabilities">
         <div className="action-panel-heading">
           <h2>Available capabilities</h2>

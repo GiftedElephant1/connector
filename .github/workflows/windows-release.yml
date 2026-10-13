@@ -17,13 +17,16 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - name: Check Windows launcher syntax
+      - name: Check Windows launcher and updater
         shell: powershell
         run: |
-          $parseErrors = $null
-          $tokens = $null
-          [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD\scripts\windows-launcher.ps1", [ref]$tokens, [ref]$parseErrors)
-          if ($parseErrors.Count -gt 0) { $parseErrors | Format-List; exit 1 }
+          foreach ($scriptFile in Get-ChildItem scripts\windows-*.ps1) {
+            $parseErrors = $null
+            $tokens = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($scriptFile.FullName, [ref]$tokens, [ref]$parseErrors)
+            if ($parseErrors.Count -gt 0) { $parseErrors | Format-List; exit 1 }
+          }
+          & .\tests\windows-update.ps1
       - run: npm ci
       - run: npm test
       - run: npm run build
@@ -35,12 +38,15 @@ jobs:
           Expand-Archive -LiteralPath artifacts\Connector-Windows.zip -DestinationPath "$env:RUNNER_TEMP\connector-package"
           $packageRoot = "$env:RUNNER_TEMP\connector-package\Connector"
           if (-not (Test-Path "$packageRoot\Start Connector.vbs")) { throw 'Launcher is missing from the package.' }
+          if (-not (Test-Path "$packageRoot\Update Connector.vbs")) { throw 'Update wizard is missing from the package.' }
           if (Test-Path "$packageRoot\.env") { throw 'Private settings must not be packaged.' }
           if (Test-Path "$packageRoot\data") { throw 'Account data must not be packaged.' }
           npm.cmd ci --prefix "$packageRoot"
           if ($LASTEXITCODE -ne 0) { throw 'Packaged dependency installation failed.' }
           npm.cmd run build --prefix "$packageRoot"
           if ($LASTEXITCODE -ne 0) { throw 'Packaged dashboard build failed.' }
+          node --import tsx tests/update-smoke.mjs "$packageRoot"
+          if ($LASTEXITCODE -ne 0) { throw 'Existing-account upgrade verification failed.' }
       - uses: actions/upload-artifact@v6
         with:
           name: Connector-Windows

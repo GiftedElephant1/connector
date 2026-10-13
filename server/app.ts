@@ -12,6 +12,8 @@ import { mountPipeline } from './pipeline-http';
 import { hydrateSettings, passwordMatches, providerSettings, savePassword, saveSettings, settingsSnapshot, updatePublicOrigin } from './settings';
 import { mountTunnel, type PublicTunnel } from './tunnel';
 import { mountPlaid, removePlaidItem } from './providers-plaid';
+import { installation } from './installation';
+import { WorkspaceAccounts, mountWorkspace } from './workspace-accounts';
 
 export type ProviderService = Pick<typeof providers, 'providerCatalog' | 'getProvider' | 'getProviderSetup' | 'createOAuthRequest' | 'exchangeOAuthCode' | 'refreshCredential' | 'verifyConnection'>;
 
@@ -70,7 +72,8 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
     strictTransportSecurity: isSecureRequest(req) ? undefined : false,
     referrerPolicy: { policy: 'no-referrer' },
   })(req, res, next));
-  mountPipeline(app, config, store, pipeline, env);
+  const workspaceAccounts = new WorkspaceAccounts(config, store, env);
+  mountPipeline(app, config, store, pipeline, env, { accounts: workspaceAccounts });
   app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
   app.use(express.json({ limit: '24kb' }));
   app.use('/api', (req, _res, next) => {
@@ -102,6 +105,8 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
     if (!store.validSession(sessionToken(req))) return next(new RequestError('Sign in to continue.', 401));
     next();
   });
+  app.get('/api/installation', (_req, res) => res.json(installation));
+  mountWorkspace(app, workspaceAccounts, sessionToken, { localOrigin });
   app.get('/api/settings', (_req, res) => res.json(settingsSnapshot(config, store, env, localOrigin)));
   app.put('/api/settings', (req, res) => {
     saveSettings(config, store, env, req.body, localOrigin);
@@ -136,10 +141,10 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
   app.post('/api/connections/:provider/api-key', async (req, res) => {
     const id = String(req.params.provider);
     const provider = service.getProvider(id);
-    if (provider.authType !== 'api_key') throw new RequestError('Use the official authorization flow for this platform.');
+    if (provider.authType !== 'api_key' && provider.authType !== 'local') throw new RequestError('Use the official authorization flow for this platform.');
     const fields: Record<string, string> = {};
     for (const field of provider.credentialFields || []) fields[field.name] = stringValue(req.body?.fields?.[field.name], field.label);
-    const credential: providers.Credential = { accessToken: stringValue(req.body?.apiKey, 'API key or access token'), ...(Object.keys(fields).length ? { fields } : {}) };
+    const credential: providers.Credential = { accessToken: provider.authType === 'local' ? 'local-vault' : stringValue(req.body?.apiKey, 'API key or access token'), ...(Object.keys(fields).length ? { fields } : {}) };
     const account = await service.verifyConnection(id, credential, env);
     const connection = store.save(id, credential, account);
     res.json({ connection });

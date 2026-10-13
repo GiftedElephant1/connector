@@ -66,6 +66,8 @@ const setupUrls: Record<string, string> = {
   reddit: 'https://www.reddit.com/prefs/apps', 'reddit-ads': 'https://www.reddit.com/prefs/apps',
   pinterest: 'https://developers.pinterest.com/', wordpress: 'https://developer.wordpress.com/apps/',
   'microsoft-ads': 'https://entra.microsoft.com/', discord: 'https://discord.com/developers/applications', plaid: 'https://dashboard.plaid.com/team/keys',
+  'wordpress-self-hosted': 'https://make.wordpress.org/core/2020/11/05/application-passwords-integration-guide/',
+  mailchimp: 'https://mailchimp.com/help/about-api-keys/',
 };
 const overrideName = 'provider-overrides';
 const passwordName = 'owner-password';

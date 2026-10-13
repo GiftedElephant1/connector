@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 // Dependency-free ZIP writer. Allowlisted source files only; never archive the workspace wholesale.
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const output = resolve(process.argv[2] ?? join(root, 'artifacts'));
-const rootFiles = ['Start Connector.vbs', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', '.env.example', 'README.md'];
+const rootFiles = ['Start Connector.vbs', 'Update Connector.vbs', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', '.env.example', 'README.md'];
 const directories = ['client', 'server', 'scripts', 'docs'];
 const bannedNames = new Set(['node_modules', 'data', '.git', '.codex', '.agents', 'dist', 'artifacts']);
 const files = [];
