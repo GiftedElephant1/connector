@@ -1,0 +1,32 @@
+.tiktok-review .eyebrow { margin-bottom: 8px; }
+.review-contents { margin-top: 26px; min-width: 0; }
+.review-contents h3 { font-size: 16px; line-height: 1.5; margin: 26px 0 9px; }
+.review-contents h3:first-child { margin-top: 0; }
+.review-contents .setup-help { max-width: 780px; }
+.review-copy { margin-top: 15px; }
+.review-copy .setup-button-row { align-items: center; margin-top: 9px; }
+.review-copy .setup-button-row .setup-help { margin: 0; }
+.review-copy textarea { background: #fafcfb; }
+.review-preview-links { display: flex; flex-wrap: wrap; gap: 16px; margin: 17px 0; font-size: 13px; }
+.review-preview-links a { text-decoration: underline; }
+.review-icon-row { display: flex; align-items: center; flex-wrap: wrap; gap: 18px; margin: 18px 0; }
+.review-icon-row img { width: 80px; height: 80px; border-radius: 15px; border: 1px solid #dce7df; }
+.review-recording-steps { padding-left: 24px; max-width: 780px; color: #526c5c; font-size: 13px; line-height: 1.75; }
+.review-recording-steps li { padding-left: 5px; margin: 12px 0; }
+.review-demo-files { margin-top: 20px; }
+.review-demo-files input[type="file"] { padding: 11px; font-size: 13px; }
+.review-video { margin: 20px 0; }
+.review-video figcaption { font-size: 13px; margin-bottom: 9px; overflow-wrap: anywhere; }
+.review-video video { width: 100%; max-height: 400px; border-radius: 8px; background: #152d22; }
+.provider-setup > .tiktok-review { margin: 18px 0; padding: 19px; background: #fafcfb; }
+.provider-setup > .tiktok-review h2 { font-size: 18px; }
+.public-policy-links { display: inline-flex; flex-wrap: wrap; gap: 14px; }
+.public-policy-links a { text-decoration: underline; }
+.tiktok-open-studio { margin-top: 10px; }
+@media (max-width: 600px) {
+  .review-contents h3 { font-size: 15px; }
+  .review-icon-row { align-items: flex-start; }
+  .review-demo-files input[type="file"] { max-width: 100%; font-size: 11px; }
+  .provider-setup > .tiktok-review { padding: 14px; }
+  .review-copy textarea { font-size: 13px; }
+}

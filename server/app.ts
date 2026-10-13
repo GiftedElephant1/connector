@@ -15,6 +15,7 @@ import { mountPlaid, removePlaidItem } from './providers-plaid';
 import { installation } from './installation';
 import { WorkspaceAccounts, mountWorkspace } from './workspace-accounts';
 import { McpOAuth, mountOAuthPublic, mountOAuthOwner } from './mcp-oauth';
+import { LegalPages, mountLegalPublic, mountLegalOwner } from './legal';
 
 export type ProviderService = Pick<typeof providers, 'providerCatalog' | 'getProvider' | 'getProviderSetup' | 'createOAuthRequest' | 'exchangeOAuthCode' | 'refreshCredential' | 'verifyConnection'>;
 
@@ -68,13 +69,15 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
   app.disable('x-powered-by');
   app.use((req, res, next) => helmet({
     contentSecurityPolicy: {
-      directives: { defaultSrc: ["'self'"], scriptSrc: ["'self'", 'https://cdn.plaid.com'], styleSrc: ["'self'"], imgSrc: ["'self'", 'data:'], connectSrc: ["'self'", 'https://*.plaid.com'], frameSrc: ['https://cdn.plaid.com'], formAction: ["'self'"], frameAncestors: ["'none'"], upgradeInsecureRequests: isSecureRequest(req) ? [] : null },
+      directives: { defaultSrc: ["'self'"], scriptSrc: ["'self'", 'https://cdn.plaid.com'], styleSrc: ["'self'"], imgSrc: ["'self'", 'data:'], mediaSrc: ["'self'", 'https:', 'blob:'], connectSrc: ["'self'", 'https://*.plaid.com'], frameSrc: ['https://cdn.plaid.com'], formAction: ["'self'"], frameAncestors: ["'none'"], upgradeInsecureRequests: isSecureRequest(req) ? [] : null },
     },
     strictTransportSecurity: isSecureRequest(req) ? undefined : false,
     referrerPolicy: { policy: 'no-referrer' },
   })(req, res, next));
   const workspaceAccounts = new WorkspaceAccounts(config, store, env);
   const mcpOAuth = new McpOAuth(config, store, workspaceAccounts);
+  const legal = new LegalPages(config, store);
+  mountLegalPublic(app, legal);
   mountOAuthPublic(app, mcpOAuth);
   mountPipeline(app, config, store, pipeline, env, { accounts: workspaceAccounts, oauth: mcpOAuth });
   app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
@@ -109,6 +112,7 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
     next();
   });
   app.get('/api/installation', (_req, res) => res.json(installation));
+  mountLegalOwner(app, legal);
   mountOAuthOwner(app, mcpOAuth, sessionToken);
   mountWorkspace(app, workspaceAccounts, sessionToken, { localOrigin });
   app.get('/api/settings', (_req, res) => res.json(settingsSnapshot(config, store, env, localOrigin)));

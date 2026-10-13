@@ -26,6 +26,8 @@ Enable OAuth 2.0 in an X developer app configured as a confidential web applicat
 
 ## TikTok
 
+See the [TikTok app-review guide](tiktok-review.md) for the built-in public policy URLs, icon, copy-ready app description and scope explanation, and a step-by-step real sandbox recording checklist. The Settings review panel prepares these materials; a real TikTok sandbox authorization and demonstration still require your developer app and test account.
+
 Configure Login Kit, Display API and Content Posting API for a web application, register the callback, and obtain access to the requested scopes. TikTok requires review for production use; sandbox accounts must be registered as test users in the developer portal. Login Kit is distinct from TikTok for Business and its advertiser permissions. This adapter uses the confidential web flow; desktop-only PKCE requirements are not applied to the web flow.
 
 - Authorize: `https://www.tiktok.com/v2/auth/authorize/`

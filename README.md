@@ -21,6 +21,8 @@ The launcher supports Windows 10/11 x64 and ARM64 and needs Internet access for 
 
 The Connect buttons use official authentication. Social, advertising, Google, and other destination platforms may still require their own developer applications, permissions, and approvals; this self-hosted app does not include centrally approved registrations for those services. This is separate from connecting your AI app, which does not need an AI developer key. Plaid opens its own bank picker after application setup; WhatsApp uses its Business Cloud API credentials.
 
+For TikTok's developer review, open **Settings → TikTok app review**. Save your public operator name and contact email to publish the **Terms of Service** and **Privacy Policy**, then copy the generated HTTPS URLs, download the app icon, and copy the product/scope explanation. The [TikTok review guide](docs/tiktok-review.md) walks through the real sandbox demo recording and submission fields. The public pages are available without dashboard sign-in while Connector and its public connection remain running. TikTok decides whether this self-hosted, single-owner app is eligible for its products; preparing these materials does not guarantee approval.
+
 ## Add future connectors without reconnecting existing accounts
 
 Open **Settings → Updates and new connectors** to download an update or prepare a connector request to copy into your conversation with the developer. A new platform needs an official API integration before it becomes available, followed by its own account authorization.

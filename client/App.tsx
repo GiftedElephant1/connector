@@ -19,6 +19,7 @@ import {
 import { connectPlaid, returningFromPlaid } from "./plaid-link";
 import { GoogleWorkspace } from "./Workspace";
 import { AiAuthorization } from "./AiConnections";
+import { TikTokPublish } from "./TikTokPublish";
 
 type Category =
   | "ai"
@@ -650,6 +651,11 @@ function Login({
           <Icon name="shield" size={15} /> A private workspace for your official
           API connections.
         </p>
+        <nav className="public-policy-links login-footnote" aria-label="Public app information">
+          <a href="/about">About</a>
+          <a href="/terms">Terms</a>
+          <a href="/privacy">Privacy</a>
+        </nav>
       </section>
     </main>
   );
@@ -874,7 +880,7 @@ function ApiKeyDialog({
 
 function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
   const [page, setPage] = useState<
-    "connections" | "pipeline" | "schedule" | "settings" | "workspace"
+    "connections" | "pipeline" | "schedule" | "settings" | "workspace" | "tiktok"
   >("connections");
   const [providers, setProviders] = useState<Provider[]>([]);
   const [authorizationId, setAuthorizationId] = useState(() => new URLSearchParams(window.location.search).get("authorize"));
@@ -1170,9 +1176,9 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
         <div className="sidebar-label">WORKSPACE</div>
         <nav aria-label="Main navigation">
           <button
-            className={`nav-item ${page === "connections" ? "active" : ""}`}
+            className={`nav-item ${page === "connections" || page === "tiktok" ? "active" : ""}`}
             onClick={() => setPage("connections")}
-            aria-current={page === "connections" ? "page" : undefined}
+            aria-current={page === "connections" || page === "tiktok" ? "page" : undefined}
             aria-label="Connections"
           >
             <Icon name="grid" size={19} />
@@ -1264,6 +1270,8 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                     ? "Google Workspace"
                   : page === "settings"
                     ? "Settings"
+                    : page === "tiktok"
+                      ? "TikTok publishing"
                     : "Schedule"}
             </strong>
           </div>
@@ -1334,6 +1342,19 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
             )
           ) : page === "workspace" ? (
             <GoogleWorkspace api={api} onSettings={() => setPage("settings")} onAiConnections={() => setPage("pipeline")} />
+          ) : page === "tiktok" ? (
+            <>
+              <button className="text-button" onClick={() => setPage("connections")}>← Back to connections</button>
+              <TikTokPublish
+                request={api}
+                onAuthError={fail}
+                connected={providers.some((provider) => provider.id === "tiktok" && provider.connection?.status === "connected")}
+                onConnect={() => {
+                  const provider = providers.find((item) => item.id === "tiktok");
+                  if (provider) void connect(provider);
+                }}
+              />
+            </>
           ) : page === "connections" ? (
             <>
               <section className="page-heading">
@@ -1674,6 +1695,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                               </button>
                             )}
                           </div>
+                          {provider.id === "tiktok" && <button className="button button-secondary full-width tiktok-open-studio" onClick={() => setPage("tiktok")}>TikTok publishing</button>}
                         </article>
                       );
                     })}
@@ -1713,6 +1735,11 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                   Built around official APIs{" "}
                   <span className="footer-dot">·</span> Connector
                 </span>
+                <nav className="public-policy-links" aria-label="Public app information">
+                  <a href="/about" target="_blank" rel="noopener noreferrer">About</a>
+                  <a href="/terms" target="_blank" rel="noopener noreferrer">Terms</a>
+                  <a href="/privacy" target="_blank" rel="noopener noreferrer">Privacy</a>
+                </nav>
               </footer>
             </>
           ) : page === "pipeline" ? (
