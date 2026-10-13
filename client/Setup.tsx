@@ -2,6 +2,7 @@ import { useEffect, useId, useState, type FormEvent } from "react";
 import type { Provider } from "./App";
 import { ConnectorUpdates } from "./Updates";
 import { TikTokReview } from "./TikTokReview";
+import { XSetup } from "./XSetup";
 import "./setup.css";
 
 export type ApiRequest = <T>(path: string, options?: RequestInit) => Promise<T>;
@@ -339,7 +340,9 @@ export function ProviderSetup({
           ? "Connect a bank through Plaid’s secure account picker. First, add your Plaid application details below."
           : `Give Connector permission to connect to ${provider.name}. Add these application details once; future connections use the platform’s sign-in screen.`}
       </p>
+      {provider.id === "tiktok" && <p className="setup-help">New to TikTok for Developers? Open Prepare TikTok submission below for the full account-registration, web-app creation, sandbox, and connection instructions, including every application field.</p>}
       {provider.id === "tiktok" && <TikTokReview request={request} />}
+      {provider.id === "x" && <XSetup request={request} />}
       {!settings && !error && <p role="status">Loading connection setup…</p>}
       {settings && (
         <form onSubmit={save} className="setup-form">

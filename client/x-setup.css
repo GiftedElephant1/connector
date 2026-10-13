@@ -1,0 +1,17 @@
+.provider-setup > .x-setup { margin: 18px 0; padding: 20px; background: #fafcfb; }
+.x-setup .eyebrow { margin-bottom: 8px; }
+.x-setup h2 { font-size: 18px; }
+.x-setup-guide { margin-top: 24px; min-width: 0; }
+.x-setup-guide h3 { font-size: 16px; line-height: 1.5; margin: 26px 0 12px; }
+.x-setup-guide h3:first-child { margin-top: 0; }
+.x-setup-guide ol, .x-setup-guide ul { margin: 10px 0 18px; padding-left: 22px; color: #526c5c; font-size: 13px; line-height: 1.8; }
+.x-setup-guide li { margin: 12px 0; padding-left: 4px; }
+.x-setup-guide a:not(.button) { text-decoration: underline; text-underline-offset: 3px; }
+.x-profile-values, .x-setup-urls, .x-use-case { margin-top: 20px; }
+.x-use-case textarea { background: #fff; }
+.x-scope-list { font-size: 13px; line-height: 1.75; color: #526c5c; margin: 16px 0; }
+.x-scope-list > div { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.x-scope-list dt { font-weight: 600; color: #405e50; }
+.x-scope-list dd { margin: 4px 0 0; }
+.x-setup-guide code { overflow-wrap: anywhere; }
+@media (max-width: 600px) { .provider-setup > .x-setup { padding: 14px; } .x-setup-guide h3 { font-size: 15px; } .x-use-case textarea { font-size: 13px; } }

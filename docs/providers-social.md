@@ -17,6 +17,8 @@ Create your own developer application for each service you want to use. Register
 
 ## X (Twitter)
 
+Start with the [complete X developer-account setup guide](providers-x.md), also available under **Connections → X (Twitter) → Connect account → Set up X step by step**. It covers account registration, API access, app creation, OAuth settings, the exact URLs and scopes, and copying the two credentials into Connector without terminal commands.
+
 Enable OAuth 2.0 in an X developer app configured as a confidential web application. API access, product availability, and any billing requirements are controlled by X. The adapter uses authorization code with PKCE S256, client authentication, and a refresh token when `offline.access` is granted. Write and DM scopes are requested for the actions below.
 
 - Authorize: `https://x.com/i/oauth2/authorize`
@@ -26,7 +28,11 @@ Enable OAuth 2.0 in an X developer app configured as a confidential web applicat
 
 ## TikTok
 
-See the [TikTok app-review guide](tiktok-review.md) for the built-in public policy URLs, icon, copy-ready app description and scope explanation, and a step-by-step real sandbox recording checklist. The Settings review panel prepares these materials; a real TikTok sandbox authorization and demonstration still require your developer app and test account.
+Start with the [complete TikTok setup and review guide](tiktok-review.md#1-create-the-developer-account-and-connect-tiktok). It covers developer-account registration and email verification, the real operator profile, creating the Web application, every supplied app/URL field, product and scope selection, redirect/domain verification including the in-app TikTok text-file uploader, sandbox target-user authorization, copying the client key and secret into Connector, and connecting the account. It then covers media-source verification, the real MP4/MOV demo, and final review submission.
+
+The same instructions and copyable values are inside **Connections → TikTok → Connect account → Prepare TikTok submission** when setup is required, or **Settings → TikTok app review → Prepare TikTok submission**. Use **Save and continue** after pasting the **TikTok client key** and **TikTok client secret**. Setup opened from **Connect account** continues to TikTok's OAuth screen; editing settings alone saves the credentials, after which you choose **Connect account**. Creating a TikTok developer application does not require Anthropic, OpenAI, or xAI developer credentials.
+
+This distribution's public operator is **Vectre Pay Inc** and its public contact is **contact@vectrepay.com**. Your supplied public base address is **https://speak-moonwalk-granola.ngrok-free.dev**; always copy the currently configured values from Connector if that address changes. The guide includes the built-in policy URLs, icon, copy-ready app description and scope explanation, and a recording checklist. A real sandbox authorization and demonstration still require your developer app and test account; app review and ownership verification are controlled by TikTok.
 
 Configure Login Kit, Display API and Content Posting API for a web application, register the callback, and obtain access to the requested scopes. TikTok requires review for production use; sandbox accounts must be registered as test users in the developer portal. Login Kit is distinct from TikTok for Business and its advertiser permissions. This adapter uses the confidential web flow; desktop-only PKCE requirements are not applied to the web flow.
 

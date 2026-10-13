@@ -51,6 +51,8 @@ test("TikTok review copies public domain URLs and exact scope explanation with r
   await page.getByRole("button", { name: "Copy Terms of Service URL", exact: true }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("https://connector.example.com/terms");
   await expect(page.getByLabel("TikTok website URL", { exact: true })).toHaveValue("https://connector.example.com/about");
+  await page.getByRole("button", { name: "Copy TikTok Login Kit redirect URI", exact: true }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("https://connector.example.com/api/oauth/tiktok/callback");
   await page.getByLabel("Changes since your last approved submission (revisions only)").fill("Adds public policy pages and a video preview.");
   await page.getByRole("button", { name: "Copy products and scopes explanation", exact: true }).click();
   const explanation = await page.evaluate(() => navigator.clipboard.readText());
@@ -88,6 +90,25 @@ test("TikTok review rejects oversized and excess demo files and keeps accepted f
   expect(uploads).toEqual([]);
 });
 
+test("TikTok domain verification publishes the original text without login and can be removed", async ({ page, request }) => {
+  await login(page);
+  await openReview(page);
+  await page.getByText("TikTok asks me to upload a verification file", { exact: true }).click();
+  const original = Buffer.from("\ufefftiktok-verification=browser-fixture\r\n\r\n");
+  await page.getByLabel("TikTok website verification file", { exact: true }).setInputFiles({
+    name: "tiktok-browser-check.txt", mimeType: "text/plain", buffer: original,
+  });
+  await page.getByRole("button", { name: "Publish verification file", exact: true }).click();
+  await expect(page.getByText("Verification file published.", { exact: false })).toBeVisible();
+  const publicFile = await request.get("/tiktok-browser-check.txt");
+  expect(publicFile.status()).toBe(200);
+  expect(await publicFile.body()).toEqual(original);
+  await expect(page.getByRole("link", { name: "Preview verification file ↗" })).toHaveAttribute("href", "http://127.0.0.1:4173/tiktok-browser-check.txt");
+  await page.getByRole("button", { name: "Remove verification file", exact: true }).click();
+  await expect(page.getByText("Verification file removed from this installation.")).toBeVisible();
+  expect((await request.get("/tiktok-browser-check.txt")).status()).toBe(404);
+});
+
 test("TikTok setup links to submission materials and remains usable at phone width", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 900 });
   await login(page);
@@ -96,6 +117,9 @@ test("TikTok setup links to submission materials and remains usable at phone wid
   await tiktok.getByRole("button", { name: "Connect account", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Prepare TikTok submission" }).click();
   await expect(page.getByRole("dialog").getByLabel("App operator name")).toBeVisible();
+  await expect(page.getByRole("dialog").getByRole("heading", { name: "1. Create your TikTok developer account and web app" })).toBeVisible();
+  await expect(page.getByRole("dialog").getByRole("link", { name: "Open TikTok for Developers ↗" })).toHaveAttribute("href", "https://developers.tiktok.com/");
+  await expect(page.getByRole("dialog").getByRole("heading", { name: "5. Add a sandbox test user and connect the account" })).toBeVisible();
   await expect(page.getByRole("dialog").getByLabel("Products and scopes explanation", { exact: true })).toHaveValue(/video.publish/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   const dialog = page.getByRole("dialog");

@@ -16,6 +16,7 @@ import { installation } from './installation';
 import { WorkspaceAccounts, mountWorkspace } from './workspace-accounts';
 import { McpOAuth, mountOAuthPublic, mountOAuthOwner } from './mcp-oauth';
 import { LegalPages, mountLegalPublic, mountLegalOwner } from './legal';
+import { TikTokVerification, mountTikTokVerificationPublic, mountTikTokVerificationOwner } from './tiktok-verification';
 
 export type ProviderService = Pick<typeof providers, 'providerCatalog' | 'getProvider' | 'getProviderSetup' | 'createOAuthRequest' | 'exchangeOAuthCode' | 'refreshCredential' | 'verifyConnection'>;
 
@@ -77,7 +78,9 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
   const workspaceAccounts = new WorkspaceAccounts(config, store, env);
   const mcpOAuth = new McpOAuth(config, store, workspaceAccounts);
   const legal = new LegalPages(config, store);
+  const tiktokVerification = new TikTokVerification(config, store);
   mountLegalPublic(app, legal);
+  mountTikTokVerificationPublic(app, tiktokVerification);
   mountOAuthPublic(app, mcpOAuth);
   mountPipeline(app, config, store, pipeline, env, { accounts: workspaceAccounts, oauth: mcpOAuth });
   app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
@@ -113,6 +116,7 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
   });
   app.get('/api/installation', (_req, res) => res.json(installation));
   mountLegalOwner(app, legal);
+  mountTikTokVerificationOwner(app, tiktokVerification);
   mountOAuthOwner(app, mcpOAuth, sessionToken);
   mountWorkspace(app, workspaceAccounts, sessionToken, { localOrigin });
   app.get('/api/settings', (_req, res) => res.json(settingsSnapshot(config, store, env, localOrigin)));

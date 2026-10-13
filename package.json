@@ -1,6 +1,6 @@
 {
   "name": "connector",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "type": "module",
   "description": "A guided account connector for AI assistants, social platforms, advertising, WhatsApp, and bank data.",
