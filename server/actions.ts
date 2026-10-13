@@ -5,8 +5,10 @@ import { metaActions } from './actions-meta';
 import { discordActions } from './actions-discord';
 import { socialActions } from './actions-social';
 import { adsActions } from './actions-ads';
+import { plaidActions } from './actions-plaid';
+import { whatsappActions } from './actions-whatsapp';
 
-const actions: ActionAdapter[] = [...googleActions, ...metaActions, ...discordActions, ...socialActions, ...adsActions];
+const actions: ActionAdapter[] = [...googleActions, ...metaActions, ...discordActions, ...socialActions, ...adsActions, ...plaidActions, ...whatsappActions];
 const registry = new Map(actions.map(action => [`${action.provider}:${action.definition.id}`, action]));
 if (registry.size !== actions.length) throw new Error('Action identifiers must be unique per provider.');
 export function listActions(provider: string) { return actions.filter(action => action.provider === provider).map(action => action.definition); }

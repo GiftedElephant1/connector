@@ -37,6 +37,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS connections (provider TEXT PRIMARY KEY, secret TEXT NOT NULL, summary TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, expires INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS oauth_states (id TEXT PRIMARY KEY, session TEXT NOT NULL, provider TEXT NOT NULL, payload TEXT NOT NULL, expires INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, provider TEXT NOT NULL, action TEXT NOT NULL, payload TEXT NOT NULL, scheduled INTEGER NOT NULL, created INTEGER NOT NULL, status TEXT NOT NULL, finished INTEGER, result TEXT, error TEXT);
     `);
   }
@@ -76,6 +77,18 @@ export class Store {
     this.db.prepare('UPDATE connections SET secret=? WHERE provider=?').run(this.seal(credential, `credential:${provider}`), provider);
   }
   disconnect(provider: string) { this.db.prepare('DELETE FROM connections WHERE provider=?').run(provider); }
+  readSetting<T>(name: string): T | null {
+    const row = this.db.prepare('SELECT payload FROM settings WHERE name=?').get(name);
+    return row ? this.open<T>(String(row.payload), `setting:${name}`) : null;
+  }
+  writeSetting(name: string, value: unknown) {
+    this.db.prepare('INSERT INTO settings (name,payload) VALUES (?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload')
+      .run(name, this.seal(value, `setting:${name}`));
+  }
+  deleteSetting(name: string) { this.db.prepare('DELETE FROM settings WHERE name=?').run(name); }
+  deleteAllSessions() {
+    this.db.exec('DELETE FROM sessions; DELETE FROM oauth_states;');
+  }
   createSession(): string {
     this.cleanup();
     const token = randomBytes(32).toString('base64url');

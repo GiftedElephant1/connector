@@ -1,9 +1,9 @@
 {
   "name": "connector",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "A small, self-hosted hub for connecting and verifying official platform APIs.",
+  "description": "A guided account connector for AI assistants, social platforms, advertising, WhatsApp, and bank data.",
   "engines": {
     "node": ">=24 <25"
   },
@@ -15,10 +15,12 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts server/*.test.ts",
     "test:browser": "playwright test",
-    "grok": "node scripts/grok.mjs"
+    "grok": "node scripts/grok.mjs",
+    "package:windows": "node scripts/package-windows.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
+    "@ngrok/ngrok": "1.7.0",
     "dotenv": "^17.2.3",
     "express": "^5.3.0",
     "express-rate-limit": "^8.2.1",

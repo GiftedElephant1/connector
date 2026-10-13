@@ -11,8 +11,8 @@ export interface AppConfig {
   pipelineKey?: string;
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const origin = new URL(env.APP_ORIGIN || 'http://localhost:3000');
+export function parseAppOrigin(value: string): URL {
+  const origin = new URL(value);
   if (origin.pathname !== '/' || origin.search || origin.hash || origin.username || origin.password) {
     throw new Error('APP_ORIGIN must be an origin without a path, query, or credentials.');
   }
@@ -20,6 +20,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (origin.protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname)) {
     throw new Error('Use HTTPS for a non-local APP_ORIGIN.');
   }
+  return origin;
+}
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+  const origin = parseAppOrigin(env.APP_ORIGIN || 'http://localhost:3000');
   if (!env.APP_PASSWORD || env.APP_PASSWORD.length < 12) {
     throw new Error('Set APP_PASSWORD to at least 12 characters in .env. Run npm run setup first.');
   }

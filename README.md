@@ -2,14 +2,27 @@
 
 A self-hosted delivery connector for Grok and other MCP clients. Create and manage your content in your bot; Connector authenticates your accounts and executes supported official platform API actions.
 
-The small dashboard is for account connections, connector setup, and job history. The MCP tools handle publishing, scheduling, supported comment/DM replies, analytics, campaign operations, conversion uploads, and spend reports. Each platform exposes a different subset; discover its exact actions with `list_actions`. Unsupported API features are not simulated.
+The dashboard guides you through setup, account connections, and AI-agent access. The MCP tools handle publishing, scheduling, supported comment/DM replies, analytics, campaign operations, conversion uploads, spend reports, and read-only bank data. Each platform exposes a different subset; discover its exact actions with `list_actions`. Unsupported API features are not simulated.
+
+## Start on your Windows PC — no terminal commands
+
+1. [Download the app ZIP](https://github.com/GiftedElephant1/connector/archive/refs/heads/main.zip), choose **Extract All**, and open the extracted folder. A smaller `Connector-Windows.zip` is also available from successful **Package Windows app** workflow artifacts.
+2. Double-click **Start Connector**. Its progress window downloads a verified private runtime, installs dependencies, prepares storage, and opens the dashboard. Keep that window open while using Connector.
+3. Choose your workspace password in the welcome screen.
+4. Open **Settings**, follow the link to ngrok's **Your Authtoken** page, paste its token, and click **Start public access**. No separate ngrok installation or command is needed. Connector saves the token encrypted and reconnects on later launches until you stop public access.
+5. Click **Open public workspace**, sign in with the password you chose, and click **Connect account** on a platform. If application credentials are required, the app presents a guided form, a developer-portal link, and a copyable callback address. Save credentials directly in the interface; changes apply immediately.
+6. Open **Pipeline**, choose your AI agent, and copy the connector URL and key into that client's supported custom connector settings. Start with an account-list request.
+
+The launcher supports Windows 10/11 x64 and ARM64 and needs Internet access for its first installation. It uses port 3000. Closing the launcher stops Connector; closing only the browser leaves it running. See [Windows use and troubleshooting](docs/windows.md).
+
+The Connect buttons use official authentication. Platforms still require their own developer applications, permissions, and approvals; this self-hosted app does not include centrally approved OAuth registrations. AI API keys connect developer API accounts, not consumer chat subscriptions. Plaid opens its own bank picker after application setup; WhatsApp uses its Business Cloud API credentials. A truly setup-free hosted service would require the operator to register and obtain approval for those platform applications.
 
 ## Connect it in Grok
 
-1. Run Connector on a persistent host with a public HTTPS address. Set `APP_ORIGIN` to that address and configure the platform developer apps described below.
+1. Start Connector with the Windows launcher and enable public access in **Settings**, or deploy it on a persistent HTTPS host. Configure platform applications in the dashboard.
 2. Open the dashboard, sign in, and connect the platforms your bot will use.
 3. In Grok's custom connector settings, add `https://YOUR_HOST/mcp` as a **Streamable HTTP MCP** endpoint.
-4. Enter the generated `PIPELINE_API_KEY` as the connector credential. The server accepts `Authorization: Bearer YOUR_KEY` or `X-API-Key: YOUR_KEY`. Never put the key in the URL.
+4. In **Pipeline**, click **Show connection details**, then copy the URL and connector API key. The server accepts `Authorization: Bearer YOUR_KEY` or `X-API-Key: YOUR_KEY`. Never put the key in the URL.
 5. Let the client discover the tools, then ask it to list your connections. Ask it to inspect a platform's actions before publishing.
 
 This uses the custom-connector workflow: one endpoint, tool discovery, and API-key authentication. Grok's actual client must support this transport/authentication combination; compatibility in your account still needs a live connection test. The software has not been hosted or connected to your Grok account automatically. A cloud-hosted bot cannot reach `localhost` on your computer.
@@ -18,7 +31,7 @@ Direct MCP usage does **not** require an additional xAI developer key in Connect
 
 See [the connector protocol and examples](docs/pipeline.md) for REST usage, request confirmation, and scheduling behavior.
 
-## Run locally
+## Developer installation
 
 Requires **Node.js 24** and npm. No external database is needed.
 
@@ -42,9 +55,14 @@ For code changes, run `npm run build` to rebuild the interface and `npm run dev`
 | Google | YouTube, Google Ads, Google Analytics, Google Search Console | [Google setup](docs/providers-google.md) |
 | Social and websites | X, TikTok, LinkedIn, Reddit, Pinterest, WordPress.com | [Social setup](docs/providers-social.md) |
 | Advertising | LinkedIn Campaign Manager, Microsoft Advertising, TikTok Business Manager, X Ads, Reddit Ads | [Advertising setup](docs/providers-ads.md) |
-| Communications | Discord profile and server memberships | [Discord setup](docs/providers-discord.md) |
+| Communications | Discord profile/server memberships and bot actions; WhatsApp Business Cloud API | [Discord setup](docs/providers-discord.md), [WhatsApp setup](docs/providers-whatsapp.md) |
+| Finance | Plaid accounts, balances, and transactions, read-only | [Plaid setup](docs/providers-plaid.md) |
 
-Each platform has its own developer app, permissions, and approval process. The dashboard lists missing server settings and the exact OAuth callback. Add developer app IDs/secrets to `.env` and restart Connector; then use **Connect** to complete the official authorization flow. API keys and manual developer access tokens are entered in the authenticated dashboard and stored encrypted. Reconnect existing grants after enabling new action permissions.
+Each platform has its own developer app, permissions, and approval process. Click **Connect account** to enter missing application credentials, copy the exact callback address, and continue to official authorization. Change saved details under **Settings → Platform application settings**. These settings are encrypted in SQLite and override matching environment settings without a restart. Existing `.env` configurations remain supported for administrators. API keys and manual developer access tokens are entered in the authenticated dashboard and stored encrypted. Reconnect existing grants after enabling new action permissions.
+
+Plaid defaults to **Sandbox**, which uses test bank data. Real bank accounts need approved Plaid Production access in a supported country; one institution can be connected at a time. Its official Link window handles bank authentication, and Connector never accepts bank passwords. Disconnecting Plaid revokes the Item before removing the local token. Bank data becomes available to assistants holding the workspace's connector key. No payment or transfer actions are implemented.
+
+WhatsApp requires a business phone number and Meta Cloud API token. It supports phone/profile reads, approved template messages, and replies by a known message ID inside Meta's service window. This version does not receive incoming WhatsApp webhooks or expose personal WhatsApp login. API acceptance does not establish message delivery.
 
 Register each callback URL exactly as documented: `APP_ORIGIN/api/oauth/PROVIDER_ID/callback`. Localhost works only for providers that allow it. For the others, host Connector behind HTTPS, set `APP_ORIGIN` to that public origin, and register the matching HTTPS callback. Do not change the callback hostname partway through authorization.
 
@@ -66,7 +84,9 @@ YouTube has no general DM API. TikTok and LinkedIn messaging are not exposed whe
 
 This is a single-owner app: one connection per platform, with multiple discovered pages/accounts shown inside that connection. Reconnecting a platform replaces its existing credential only after the new credential is verified successfully.
 
-Provider credentials, queued publication payloads, and saved action results are encrypted with AES-256-GCM before they enter SQLite. Browser sessions use HttpOnly cookies, server-side expiry, and CSRF protection. OAuth state is bound to the initiating session and consumed once. HTTPS deployments use secure cookies. Credentials are never returned in dashboard or tool responses. The pipeline key grants the caller access to connected account actions, so only share it with clients you authorize.
+Provider credentials, dashboard settings, queued publication payloads, and saved action results are encrypted with AES-256-GCM before they enter SQLite. A dashboard-chosen password is stored as a salted scrypt hash inside encrypted settings. Browser sessions use HttpOnly cookies, server-side expiry, and CSRF protection. OAuth state is bound to the initiating session and consumed once. Public HTTPS sessions use secure cookies; the explicitly configured local desktop dashboard keeps its own session. Saved provider credentials are never returned in dashboard or tool responses. Only the authenticated owner can reveal the separate connector API key for copying into an AI client. That key grants access to all connected account actions, including read-only bank data.
+
+The desktop launcher uses a random, single-use, ten-minute local sign-in capability, removed from the browser address before normal use. It is not a public registration endpoint. Start and complete account authorization on the public dashboard after enabling HTTPS; local and public hostnames have separate browser sessions.
 
 Back up `.env` and `data/` together and protect both. Losing `ENCRYPTION_KEY` makes saved credentials unreadable. Changing the key is not a migration: disconnect and reconnect accounts if you replace it. The database includes account names and resource metadata. `.env`, SQLite data, logs, build output, and dependencies are excluded from Git.
 

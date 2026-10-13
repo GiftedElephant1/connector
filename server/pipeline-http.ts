@@ -113,7 +113,7 @@ export function mountPipeline(app: express.Express, config: AppConfig, store: St
   app.use('/api/v1', authenticate, limit, express.json({ limit: '30mb' }), router);
 
   app.post('/mcp', authenticate, limit, express.json({ limit: '30mb' }), async (req, res) => {
-    const server = new McpServer({ name: 'connector', version: '0.2.0' });
+    const server = new McpServer({ name: 'connector', version: '0.3.0' });
     for (const [name, tool] of Object.entries(tools)) {
       server.registerTool(name, { description: tool.description, inputSchema: tool.schema, annotations: { readOnlyHint: ['list_connections', 'list_actions', 'list_jobs'].includes(name), destructiveHint: !name.startsWith('list_'), openWorldHint: true } }, async (args: unknown) => {
         try {

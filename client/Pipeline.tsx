@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { ActionResult } from "../server/action-types";
 import type { Provider } from "./App";
 import "./pipeline.css";
+import { AgentConnection } from "./Setup";
 
 type ApiRequest = <T>(path: string, options?: RequestInit) => Promise<T>;
 type CommonProps = {
@@ -15,7 +16,12 @@ type Job = {
   action: string;
   scheduledAt: string;
   status:
-    "pending" | "running" | "succeeded" | "failed" | "uncertain" | "cancelled";
+    | "pending"
+    | "running"
+    | "succeeded"
+    | "failed"
+    | "uncertain"
+    | "cancelled";
   createdAt: string;
   finishedAt?: string;
   result?: ActionResult;
@@ -196,7 +202,15 @@ export function Pipeline({
   providers,
   onConnections,
   onSchedule,
-}: CommonProps & { onConnections: () => void; onSchedule: () => void }) {
+  onSettings,
+  request,
+  origin,
+}: CommonProps & {
+  origin: string;
+  onConnections: () => void;
+  onSchedule: () => void;
+  onSettings: () => void;
+}) {
   const [providerId, setProviderId] = useState("");
   const [actionId, setActionId] = useState("");
   const prefix = useId();
@@ -206,7 +220,6 @@ export function Pipeline({
     providers[0];
   const actions = provider?.actions || [];
   const action = actions.find((item) => item.id === actionId) || actions[0];
-  const origin = window.location.origin;
   const xai = providers.find((item) => item.id === "xai");
 
   return (
@@ -226,79 +239,7 @@ export function Pipeline({
           Scheduled jobs →
         </button>
       </section>
-      <section className="action-panel pipeline-start">
-        <div className="action-panel-heading">
-          <h2>Add your connector in Grok</h2>
-          <p>
-            Connect Grok to this server using its MCP URL and your pipeline API
-            key.
-          </p>
-        </div>
-        <ol className="guide-steps">
-          <li>
-            <span>1</span>
-            <div>
-              <h3>Deploy Connector over HTTPS</h3>
-              <p>
-                Keep Connector running at a publicly reachable HTTPS address.
-                Hosted Grok cannot reach a localhost address or a private
-                development server.
-              </p>
-            </div>
-          </li>
-          <li>
-            <span>2</span>
-            <div>
-              <h3>Add the MCP URL in Grok settings</h3>
-              <p>
-                Add a custom connector and use your deployed server’s MCP
-                endpoint. The endpoint for this workspace is:
-              </p>
-              <code className="pipeline-command">{origin}/mcp</code>
-              <p>
-                The connector client must support Streamable HTTP MCP and Bearer
-                authentication.
-              </p>
-            </div>
-          </li>
-          <li>
-            <span>3</span>
-            <div>
-              <h3>Enter the pipeline API key securely</h3>
-              <p>
-                Use the value of <code>PIPELINE_API_KEY</code> from your
-                server’s <code>.env</code> in the connector’s API key field. If
-                the client asks for a header, use{" "}
-                <code>Authorization: Bearer &lt;PIPELINE_API_KEY&gt;</code>.
-                Never paste the key into a chat.
-              </p>
-            </div>
-          </li>
-          <li>
-            <span>4</span>
-            <div>
-              <h3>Connect your accounts and discover the tools</h3>
-              <p>
-                Connect the platforms you want Grok to use, then test the custom
-                connector and let Grok discover its tools. This real connection
-                test confirms compatibility with your Grok client. Ask Grok to
-                review changes with you before executing them.
-              </p>
-              <button className="text-button" onClick={onConnections}>
-                Manage connections →
-              </button>
-            </div>
-          </li>
-        </ol>
-        <div className="info-note">
-          <p>
-            The direct MCP connection uses your existing Grok interface. It does
-            not require the optional xAI API bot or an xAI developer API key.
-            Your social and advertising platforms still apply their own API
-            access requirements.
-          </p>
-        </div>
-      </section>
+      <AgentConnection request={request} onSettings={onSettings} />
       <section className="action-panel pipeline-capabilities">
         <div className="action-panel-heading">
           <h2>Available capabilities</h2>
@@ -434,102 +375,106 @@ export function Pipeline({
           </div>
         )}
       </section>
-      <section className="action-panel pipeline-endpoints">
-        <div className="action-panel-heading">
-          <h2>Pipeline endpoints and tools</h2>
-          <p>
-            Use the same pipeline from a client that supports MCP or HTTP tools.
-          </p>
-        </div>
-        <div className="endpoint-grid">
-          <div>
-            <h3>MCP endpoint</h3>
-            <code>{origin}/mcp</code>
-            <p>Use a client that supports Streamable HTTP MCP.</p>
+      <details className="setup-advanced developer-options">
+        <summary>Advanced: developer API and local bot</summary>
+        <section className="action-panel pipeline-endpoints">
+          <div className="action-panel-heading">
+            <h2>Pipeline endpoints and tools</h2>
+            <p>
+              Use the same pipeline from a client that supports MCP or HTTP
+              tools.
+            </p>
           </div>
-          <div>
-            <h3>REST API</h3>
-            <code>{origin}/api/v1</code>
-            <p>Use HTTP requests from your own automation.</p>
+          <div className="endpoint-grid">
+            <div>
+              <h3>MCP endpoint</h3>
+              <code>{origin}/mcp</code>
+              <p>Use a client that supports Streamable HTTP MCP.</p>
+            </div>
+            <div>
+              <h3>REST API</h3>
+              <code>{origin}/api/v1</code>
+              <p>Use HTTP requests from your own automation.</p>
+            </div>
           </div>
-        </div>
-        <div className="pipeline-auth">
-          <h3>Authentication</h3>
-          <p>
-            Configure your client’s secure credential settings to send{" "}
-            <code>Authorization: Bearer &lt;PIPELINE_API_KEY&gt;</code>. The key
-            is stored in your server environment. Keep it private and never
-            paste it into a chat.
-          </p>
-          <p>
-            A remote bot needs a publicly reachable HTTPS endpoint. The URLs
-            above use this workspace’s current origin; deploy first if this is a
-            local or HTTP address.
-          </p>
-        </div>
-        <div className="pipeline-tools">
-          <h3>Available tools</h3>
-          <ul>
-            {[
-              "list_connections",
-              "list_actions",
-              "run_action",
-              "schedule_post",
-              "list_jobs",
-              "cancel_job",
-            ].map((tool) => (
-              <li key={tool}>
-                <code>{tool}</code>
-              </li>
-            ))}
-          </ul>
-          <p>
-            Writes require <code>confirmed: true</code>. Clients should ask for
-            your approval before publishing, replying, sending conversions,
-            changing campaigns, or scheduling a write.
-          </p>
-        </div>
-      </section>
-      <section className="action-panel pipeline-start">
-        <div className="action-panel-heading">
-          <h2>Optional: run a local Grok API bot</h2>
-          <p>
-            Use this alternative when you want a terminal-based bot instead of
-            the custom connector in your existing Grok interface.
-          </p>
-        </div>
-        <ol className="guide-steps">
-          <li>
-            <span>1</span>
-            <div>
-              <h3>Connect an xAI developer API key</h3>
-              <p>
-                This optional bot uses separately billed xAI API access. Your
-                xAI API connection is{" "}
-                {xai?.connection?.status === "connected"
-                  ? "connected and verified"
-                  : "not connected yet"}
-                .
-              </p>
-            </div>
-          </li>
-          <li>
-            <span>2</span>
-            <div>
-              <h3>Start the local bot</h3>
-              <p>
-                Keep Connector running. In a second terminal in the project
-                directory, run:
-              </p>
-              <code className="pipeline-command">npm run grok</code>
-              <p>
-                It uses the pipeline key from the server environment and asks
-                for your approval before actions that change an account.
-              </p>
-            </div>
-          </li>
-        </ol>
-      </section>
+          <div className="pipeline-auth">
+            <h3>Authentication</h3>
+            <p>
+              Configure your client’s secure credential settings to send{" "}
+              <code>Authorization: Bearer &lt;PIPELINE_API_KEY&gt;</code>. The
+              key can be copied from Show connection details above. Keep it
+              private and never paste it into a chat.
+            </p>
+            <p>
+              A remote bot needs a publicly reachable HTTPS endpoint. The URLs
+              above use your configured workspace address. Use Settings to start
+              public access if this is a local or HTTP address.
+            </p>
+          </div>
+          <div className="pipeline-tools">
+            <h3>Available tools</h3>
+            <ul>
+              {[
+                "list_connections",
+                "list_actions",
+                "run_action",
+                "schedule_post",
+                "list_jobs",
+                "cancel_job",
+              ].map((tool) => (
+                <li key={tool}>
+                  <code>{tool}</code>
+                </li>
+              ))}
+            </ul>
+            <p>
+              Writes require <code>confirmed: true</code>. Clients should ask
+              for your approval before publishing, replying, sending
+              conversions, changing campaigns, or scheduling a write.
+            </p>
+          </div>
+        </section>
+        <section className="action-panel pipeline-start">
+          <div className="action-panel-heading">
+            <h2>Optional: run a local Grok API bot</h2>
+            <p>
+              Use this alternative when you want a terminal-based bot instead of
+              the custom connector in your existing Grok interface.
+            </p>
+          </div>
+          <ol className="guide-steps">
+            <li>
+              <span>1</span>
+              <div>
+                <h3>Connect an xAI developer API key</h3>
+                <p>
+                  This optional bot uses separately billed xAI API access. Your
+                  xAI API connection is{" "}
+                  {xai?.connection?.status === "connected"
+                    ? "connected and verified"
+                    : "not connected yet"}
+                  .
+                </p>
+              </div>
+            </li>
+            <li>
+              <span>2</span>
+              <div>
+                <h3>Start the local bot</h3>
+                <p>
+                  Keep Connector running. In a second terminal in the project
+                  directory, run:
+                </p>
+                <code className="pipeline-command">npm run grok</code>
+                <p>
+                  It uses the pipeline key from the server environment and asks
+                  for your approval before actions that change an account.
+                </p>
+              </div>
+            </li>
+          </ol>
+        </section>
+      </details>
     </div>
   );
 }

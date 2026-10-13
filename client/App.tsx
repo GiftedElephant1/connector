@@ -9,9 +9,23 @@ import {
 } from "react";
 import type { ActionDefinition } from "../server/action-types";
 import { Pipeline, Schedule } from "./Pipeline";
+import {
+  PasswordSetup,
+  ProviderSetup,
+  SetupChecklist,
+  WorkspaceSetup,
+  type WorkspaceSettings,
+} from "./Setup";
+import { connectPlaid, returningFromPlaid } from "./plaid-link";
 
 type Category =
-  "ai" | "social" | "communications" | "advertising" | "analytics" | "websites";
+  | "ai"
+  | "social"
+  | "communications"
+  | "advertising"
+  | "analytics"
+  | "websites"
+  | "finance";
 type Resource = { id: string; name: string; type: string };
 type Connection = {
   provider: string;
@@ -27,7 +41,7 @@ export type Provider = {
   name: string;
   category: Category;
   description: string;
-  authType: "api_key" | "oauth";
+  authType: "api_key" | "oauth" | "link";
   docsUrl: string;
   callbackUrl?: string;
   configured: boolean;
@@ -39,7 +53,7 @@ export type Provider = {
 type Feedback = { kind: "success" | "error"; message: string };
 type Dialog =
   | { type: "api-key" | "setup" | "details" | "disconnect"; provider: Provider }
-  | { type: "guide" }
+  | { type: "guide" | "public-origin" }
   | null;
 type IconName =
   | "link"
@@ -70,6 +84,7 @@ const categories: { id: "all" | Category; label: string }[] = [
   { id: "advertising", label: "Advertising" },
   { id: "analytics", label: "Analytics" },
   { id: "websites", label: "Websites" },
+  { id: "finance", label: "Banking" },
 ];
 
 const categoryNames: Record<Category, string> = {
@@ -79,6 +94,7 @@ const categoryNames: Record<Category, string> = {
   advertising: "Advertising",
   analytics: "Analytics",
   websites: "Websites",
+  finance: "Banking",
 };
 
 function Icon({
@@ -313,7 +329,7 @@ function Modal({
       if (event.key !== "Tab") return;
       const focusable = Array.from(
         panel.current?.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), [href], input:not([disabled]), [tabindex="0"]',
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]',
         ) || [],
       );
       const firstElement = focusable[0];
@@ -423,6 +439,12 @@ function ProviderMark({ provider }: { provider: Provider }) {
   } else if (name.includes("meta")) {
     style = "facebook";
     content = <span className="meta-mark">∞</span>;
+  } else if (id === "whatsapp") {
+    style = "whatsapp";
+    content = "W";
+  } else if (id === "plaid") {
+    style = "plaid";
+    content = <Icon name="layers" size={25} />;
   } else if (name.includes("discord")) {
     style = "discord";
     content = "D";
@@ -619,7 +641,8 @@ function Login({
             )}
           </button>
           <p className="login-password-help">
-            Use the password configured for this Connector workspace.
+            Use the password you chose during setup. On your PC, you can also
+            open Connector from the desktop launcher.
           </p>
         </form>
         <p className="login-footnote">
@@ -690,9 +713,30 @@ function ApiKeyDialog({
       </div>
       <p className="dialog-copy">
         Add {provider.category === "ai" ? "an API key" : "an access token"} from
-        your {provider.name} developer account. Connector will verify access
-        before saving the connection.
+        your {provider.name} developer account. Use the link below to open its
+        developer tools, create or select a key, copy it, and paste it here.
+        Connector will verify access before saving the connection.
       </p>
+      {provider.id === "whatsapp" && (
+        <div className="info-note">
+          <p>
+            This connects WhatsApp Business Cloud API with a registered business
+            phone number. Personal WhatsApp accounts and WhatsApp Web QR codes
+            cannot authorize this API. In Meta’s developer dashboard, open your
+            app → WhatsApp → API Setup to find your access token and phone
+            number ID.
+          </p>
+        </div>
+      )}
+      {provider.category === "ai" && (
+        <div className="info-note">
+          <p>
+            To let your AI agent use your social accounts, open{" "}
+            <strong>Pipeline</strong> instead. This form connects the provider’s
+            developer API for direct API access.
+          </p>
+        </div>
+      )}
       <form onSubmit={submit}>
         <label htmlFor={inputId}>
           {provider.category === "ai" ? "API key" : "Access token"}
@@ -749,7 +793,15 @@ function ApiKeyDialog({
         ))}
         <a
           className="text-link key-help"
-          href={provider.docsUrl}
+          href={
+            (
+              {
+                openai: "https://platform.openai.com/api-keys",
+                anthropic: "https://console.anthropic.com/settings/keys",
+                xai: "https://console.x.ai/",
+              } as Record<string, string>
+            )[provider.id] || provider.docsUrl
+          }
           target="_blank"
           rel="noopener noreferrer"
         >
@@ -813,10 +865,14 @@ function ApiKeyDialog({
 }
 
 function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
-  const [page, setPage] = useState<"connections" | "pipeline" | "schedule">(
-    "connections",
-  );
+  const [page, setPage] = useState<
+    "connections" | "pipeline" | "schedule" | "settings"
+  >("connections");
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
+  const [settingsError, setSettingsError] = useState("");
+  const [configureOnly, setConfigureOnly] = useState(false);
+  const plaidResumed = useRef(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [feedback, setFeedback] = useState<Feedback | null>(null);
@@ -840,7 +896,19 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
     const result = await api<{ providers: Provider[] }>("/api/providers");
     setProviders(result.providers);
     setLoadError("");
+    return result.providers;
   }, []);
+
+  const refreshSettings = useCallback(async () => {
+    const result = await api<WorkspaceSettings>("/api/settings");
+    setSettings(result);
+    setSettingsError("");
+  }, []);
+  useEffect(() => {
+    void refreshSettings().catch((cause) =>
+      setSettingsError(errorMessage(cause)),
+    );
+  }, [refreshSettings]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -886,6 +954,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
 
   const connect = async (provider: Provider) => {
     if (!provider.configured) {
+      setConfigureOnly(false);
       setDialog({ type: "setup", provider });
       return;
     }
@@ -893,9 +962,29 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
       setDialog({ type: "api-key", provider });
       return;
     }
+    if (
+      settings?.origin.startsWith("https://") &&
+      window.location.origin !== settings.origin
+    ) {
+      setDialog({ type: "public-origin" });
+      return;
+    }
     setBusy(provider.id);
     setFeedback(null);
     try {
+      if (provider.authType === "link") {
+        const linked = await connectPlaid(api);
+        if (linked) {
+          await refresh();
+          setFeedback({
+            kind: "success",
+            message:
+              "Bank connected. Your available accounts are ready to view.",
+          });
+        }
+        setBusy(null);
+        return;
+      }
       const result = await api<{ url: string }>(
         `/api/oauth/${encodeURIComponent(provider.id)}/start`,
         { method: "POST" },
@@ -907,10 +996,43 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
         );
       window.location.assign(destination.href);
     } catch (error) {
+      if (provider.authType === "link") {
+        try {
+          await refresh();
+        } catch {
+          /* Preserve the bank connection error. */
+        }
+      }
       fail(error);
       setBusy(null);
     }
   };
+
+  useEffect(() => {
+    if (!returningFromPlaid() || plaidResumed.current) return;
+    plaidResumed.current = true;
+    setBusy("plaid");
+    void connectPlaid(api, true)
+      .then(async (linked) => {
+        if (linked) {
+          await refresh();
+          setFeedback({
+            kind: "success",
+            message:
+              "Bank connected. Your available accounts are ready to view.",
+          });
+        }
+      })
+      .catch(async (error) => {
+        try {
+          await refresh();
+        } catch {
+          /* Preserve the bank connection error. */
+        }
+        fail(error);
+      })
+      .finally(() => setBusy(null));
+  }, [refresh, fail]);
 
   const connectKey = async (
     provider: Provider,
@@ -1064,6 +1186,15 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
             <span>Schedule</span>
           </button>
           <button
+            className={`nav-item ${page === "settings" ? "active" : ""}`}
+            aria-current={page === "settings" ? "page" : undefined}
+            aria-label="Settings"
+            onClick={() => setPage("settings")}
+          >
+            <Icon name="key" size={19} />
+            <span>Settings</span>
+          </button>
+          <button
             className="nav-item"
             onClick={() => setDialog({ type: "guide" })}
           >
@@ -1108,7 +1239,9 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                 ? "Connections"
                 : page === "pipeline"
                   ? "Pipeline"
-                  : "Schedule"}
+                  : page === "settings"
+                    ? "Settings"
+                    : "Schedule"}
             </strong>
           </div>
           <div className="topbar-right">
@@ -1121,7 +1254,53 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
           </div>
         </header>
         <main id={page} className="main-content">
-          {page === "connections" ? (
+          {!settings && !settingsError ? (
+            <section className="settings-loading">
+              <p role="status">Loading your workspace settings…</p>
+            </section>
+          ) : settings && !settings.passwordConfigured ? (
+            <PasswordSetup
+              initial
+              request={api}
+              onSaved={() => {
+                void refreshSettings().catch(fail);
+              }}
+            />
+          ) : page === "settings" ? (
+            settings ? (
+              <WorkspaceSetup
+                settings={settings}
+                providers={providers}
+                request={api}
+                onRefresh={refreshSettings}
+                onConfigure={(provider) => {
+                  setConfigureOnly(true);
+                  setDialog({ type: "setup", provider });
+                }}
+                onPasswordSaved={() => {
+                  setFeedback({
+                    kind: "success",
+                    message: "Your workspace password has been updated.",
+                  });
+                  void refreshSettings().catch(fail);
+                }}
+              />
+            ) : (
+              <section className="settings-loading">
+                <p role={settingsError ? "alert" : "status"}>
+                  {settingsError || "Loading workspace settings…"}
+                </p>
+                {settingsError && (
+                  <button
+                    className="button button-primary"
+                    onClick={() => void refreshSettings().catch(fail)}
+                  >
+                    Try again
+                  </button>
+                )}
+              </section>
+            )
+          ) : page === "connections" ? (
             <>
               <section className="page-heading">
                 <div>
@@ -1157,6 +1336,28 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                 </div>
               )}
 
+              <SetupChecklist
+                settings={settings}
+                connected={connected}
+                onSettings={() => setPage("settings")}
+                onAgents={() => setPage("pipeline")}
+              />
+              {settings?.origin.startsWith("https://") &&
+                settings.origin !== window.location.origin && (
+                  <div className="public-origin-note">
+                    <p>
+                      Connect accounts from your public workspace so platform
+                      sign-in returns to the right address. Sign in there with
+                      the password you chose.
+                    </p>
+                    <a
+                      className="button button-secondary"
+                      href={settings.origin}
+                    >
+                      Open public workspace ↗
+                    </a>
+                  </div>
+                )}
               <section className="stats-grid" aria-label="Connection summary">
                 <div className="stat-card">
                   <div>
@@ -1368,11 +1569,13 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                               {statusLabel}
                             </span>
                             <span className="auth-label">
-                              {provider.authType === "oauth"
-                                ? "OAuth"
-                                : provider.category === "ai"
-                                  ? "API key"
-                                  : "Access token"}
+                              {provider.authType === "link"
+                                ? "Secure bank sign-in"
+                                : provider.authType === "oauth"
+                                  ? "Official sign-in"
+                                  : provider.category === "ai"
+                                    ? "API key"
+                                    : "Access token"}
                             </span>
                           </div>
                           {connection && (
@@ -1424,14 +1627,10 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                                   <>
                                     <Spinner /> Connecting…
                                   </>
-                                ) : provider.configured ? (
+                                ) : (
                                   <>
                                     <Icon name="plus" size={17} /> Connect
                                     account
-                                  </>
-                                ) : (
-                                  <>
-                                    <Icon name="key" size={16} /> View setup
                                   </>
                                 )}
                               </button>
@@ -1473,6 +1672,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
           ) : page === "pipeline" ? (
             <Pipeline
               providers={providers}
+              origin={settings?.origin || window.location.origin}
               request={api}
               onAuthError={(error) => {
                 if (error instanceof SessionExpiredError)
@@ -1480,6 +1680,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
               }}
               onConnections={() => setPage("connections")}
               onSchedule={() => setPage("schedule")}
+              onSettings={() => setPage("settings")}
             />
           ) : (
             <Schedule
@@ -1506,64 +1707,47 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
       {dialog?.type === "setup" && dialogProvider && (
         <Modal
           title={`Set up ${dialogProvider.name}`}
+          className="setup-modal"
           onClose={() => setDialog(null)}
-          footer={
-            <>
-              <button
-                className="button button-secondary"
-                onClick={() => setDialog(null)}
-              >
-                Close
-              </button>
-              <a
-                className="button button-primary"
-                href={dialogProvider.docsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Developer documentation <Icon name="external" size={16} />
-              </a>
-            </>
-          }
         >
-          <div className="dialog-provider">
-            <ProviderMark provider={dialogProvider} />
-            <div>
-              <strong>{dialogProvider.name}</strong>
-              <span>Developer app setup required</span>
-            </div>
-          </div>
+          <ProviderSetup
+            provider={dialogProvider}
+            request={api}
+            onCancel={() => setDialog(null)}
+            onSaved={async () => {
+              const updated = await refresh();
+              await refreshSettings();
+              const provider = updated.find(
+                (item) => item.id === dialogProvider.id,
+              );
+              if (!provider?.configured)
+                throw new Error(
+                  "Some required application details are still missing. Complete the fields above to continue.",
+                );
+              setDialog(null);
+              if (!configureOnly) await connect(provider);
+              else
+                setFeedback({
+                  kind: "success",
+                  message: `${provider.name} application settings saved.`,
+                });
+            }}
+          />
+        </Modal>
+      )}
+      {dialog?.type === "public-origin" && settings && (
+        <Modal
+          title="Continue in your public workspace"
+          onClose={() => setDialog(null)}
+        >
           <p className="dialog-copy">
-            Create an app in the platform’s developer portal and add these
-            settings to your Connector server environment. Restart the server,
-            then refresh this page to connect.
+            Your platform will return to your public address after sign-in. Open
+            that workspace first, sign in with your chosen password, and click
+            Connect account there.
           </p>
-          <div className="env-list" aria-label="Missing environment settings">
-            {dialogProvider.missing.map((name) => (
-              <div key={name}>
-                <Icon name="key" size={15} />
-                <code>{name}</code>
-                <span>Required</span>
-              </div>
-            ))}
-          </div>
-          {dialogProvider.callbackUrl && (
-            <div className="callback-setting">
-              <h3>OAuth callback URL</h3>
-              <p>
-                Register this exact redirect URL in the platform’s developer
-                app.
-              </p>
-              <code>{dialogProvider.callbackUrl}</code>
-            </div>
-          )}
-          <div className="info-note">
-            <Icon name="shield" size={18} />
-            <p>
-              Add secret values through your hosting environment’s secure
-              settings. Use the permissions listed in the project’s setup guide.
-            </p>
-          </div>
+          <a className="button button-primary" href={settings.origin}>
+            Open public workspace ↗
+          </a>
         </Modal>
       )}
       {dialog?.type === "details" && dialogProvider?.connection && (
@@ -1624,11 +1808,13 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
             <div>
               <dt>Connection method</dt>
               <dd>
-                {dialogProvider.authType === "oauth"
-                  ? "OAuth authorization"
-                  : dialogProvider.category === "ai"
-                    ? "API key"
-                    : "Developer access token"}
+                {dialogProvider.authType === "link"
+                  ? "Plaid secure bank sign-in"
+                  : dialogProvider.authType === "oauth"
+                    ? "OAuth authorization"
+                    : dialogProvider.category === "ai"
+                      ? "API key"
+                      : "Developer access token"}
               </dd>
             </div>
             {dialogProvider.connection.accountId && (
@@ -1712,14 +1898,21 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
           }
         >
           <p className="dialog-copy">
-            This removes the saved credentials and account information from
-            Connector. You can connect the account again at any time.
+            {dialogProvider.id === "plaid"
+              ? "This revokes this bank connection through Plaid and removes its saved credentials from Connector. Your bank accounts are not closed. You can link the bank again later."
+              : "This removes the saved credentials and account information from Connector. You can connect the account again at any time."}
           </p>
           <div className="info-note">
             <Icon name="help" size={18} />
             <p>
-              To revoke the app’s authorization completely, also remove
-              Connector from your {dialogProvider.name} account settings.
+              {dialogProvider.id === "plaid" ? (
+                "If Plaid cannot revoke the connection, Connector keeps it saved so you can retry."
+              ) : (
+                <>
+                  To revoke the app’s authorization completely, also remove
+                  Connector from your {dialogProvider.name} account settings.
+                </>
+              )}
             </p>
           </div>
         </Modal>
@@ -1758,8 +1951,9 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                 <h3>Authorize access</h3>
                 <p>
                   For OAuth, sign in directly with the platform and review its
-                  permissions. If setup is required, configure a developer app
-                  first.
+                  permissions. When application details are needed, the guided
+                  form opens the developer portal and saves credentials
+                  directly. No file editing or restart is needed.
                 </p>
               </div>
             </li>
@@ -1789,6 +1983,31 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
   );
 }
 
+let desktopUnlock: Promise<void> | undefined;
+function unlockFromDesktop() {
+  const hash = new URLSearchParams(window.location.hash.slice(1));
+  const token = hash.get("desktopToken") || hash.get("desktop");
+  if (!token) return desktopUnlock || Promise.resolve();
+  hash.delete("desktopToken");
+  hash.delete("desktop");
+  const remaining = hash.toString();
+  window.history.replaceState(
+    {},
+    "",
+    `${window.location.pathname}${window.location.search}${remaining ? `#${remaining}` : ""}`,
+  );
+  desktopUnlock = api("/api/desktop/unlock", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  })
+    .then(() => undefined)
+    .catch(async (error) => {
+      const session = await api<{ authenticated: boolean }>("/api/session");
+      if (!session.authenticated) throw error;
+    });
+  return desktopUnlock;
+}
+
 export default function App() {
   const [session, setSession] = useState<
     "loading" | "authenticated" | "unauthenticated" | "error"
@@ -1798,6 +2017,7 @@ export default function App() {
     setSession("loading");
     setError("");
     try {
+      await unlockFromDesktop();
       const result = await api<{ authenticated: boolean }>("/api/session");
       setSession(result.authenticated ? "authenticated" : "unauthenticated");
     } catch (cause) {
@@ -1810,6 +2030,12 @@ export default function App() {
   }, []);
   useEffect(() => {
     void checkSession();
+    const handleDesktopLink = () => {
+      const hash = new URLSearchParams(window.location.hash.slice(1));
+      if (hash.has("desktopToken") || hash.has("desktop")) void checkSession();
+    };
+    window.addEventListener("hashchange", handleDesktopLink);
+    return () => window.removeEventListener("hashchange", handleDesktopLink);
   }, [checkSession]);
   const loggedOut = useCallback((message?: string) => {
     setError(message || "");

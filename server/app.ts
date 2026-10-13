@@ -9,6 +9,9 @@ import { Store } from './store';
 import * as providers from './providers';
 import { Pipeline } from './pipeline';
 import { mountPipeline } from './pipeline-http';
+import { hydrateSettings, passwordMatches, providerSettings, savePassword, saveSettings, settingsSnapshot, updatePublicOrigin } from './settings';
+import { mountTunnel, type PublicTunnel } from './tunnel';
+import { mountPlaid, removePlaidItem } from './providers-plaid';
 
 export type ProviderService = Pick<typeof providers, 'providerCatalog' | 'getProvider' | 'getProviderSetup' | 'createOAuthRequest' | 'exchangeOAuthCode' | 'refreshCredential' | 'verifyConnection'>;
 
@@ -33,44 +36,96 @@ function safeError(error: unknown): { message: string; status: number } {
   return { message: 'The request could not be completed. Check the server configuration and try again.', status: 500 };
 }
 
-export function createApp(config: AppConfig, store: Store, service: ProviderService = providers, env: NodeJS.ProcessEnv = process.env, pipeline = new Pipeline(store, env)) {
+export interface AppOptions {
+  desktopToken?: string;
+  localOrigin?: string;
+  tunnel?: PublicTunnel;
+}
+
+export function createApp(config: AppConfig, store: Store, service: ProviderService = providers, env: NodeJS.ProcessEnv = process.env, pipeline = new Pipeline(store, env), options: AppOptions = {}) {
+  const isLoopbackHost = (hostname: string) => ['localhost', '127.0.0.1', '[::1]'].includes(hostname);
+  const initialOrigin = new URL(config.origin);
+  const configuredLocalOrigin = options.localOrigin || (initialOrigin.protocol === 'http:' && isLoopbackHost(initialOrigin.hostname) ? config.origin : undefined);
+  let localOrigin: string | undefined;
+  if (configuredLocalOrigin) {
+    const local = new URL(configuredLocalOrigin);
+    if (local.protocol !== 'http:' || !isLoopbackHost(local.hostname) || local.username || local.password || local.pathname !== '/' || local.search || local.hash) throw new Error('The desktop address must be an HTTP loopback origin.');
+    localOrigin = local.origin;
+  }
+  hydrateSettings(config, store, env);
+  const hydratedOrigin = new URL(config.origin);
+  if (options.localOrigin && localOrigin && hydratedOrigin.protocol === 'http:' && isLoopbackHost(hydratedOrigin.hostname) && config.origin !== localOrigin) updatePublicOrigin(config, store, env, localOrigin);
+  let desktopToken = options.desktopToken && /^[A-Za-z0-9_-]{32,256}$/.test(options.desktopToken) ? options.desktopToken : undefined;
+  const desktopInstance = desktopToken ? digest(desktopToken).toString('hex') : undefined;
+  const desktopExpires = Date.now() + 10 * 60_000;
+  const isLocalDashboard = (req: express.Request) => !!localOrigin && req.headers.host === new URL(localOrigin).host;
+  const isSecureRequest = (req: express.Request) => config.secureCookies && !isLocalDashboard(req);
+  const cookieOptions = (req: express.Request) => ({ httpOnly: true, secure: isSecureRequest(req), sameSite: 'lax' as const, path: '/', maxAge: 12 * 60 * 60 * 1000 });
   const app = express();
   app.disable('x-powered-by');
-  app.use(helmet({
+  app.use((req, res, next) => helmet({
     contentSecurityPolicy: {
-      directives: { defaultSrc: ["'self'"], scriptSrc: ["'self'"], styleSrc: ["'self'"], imgSrc: ["'self'", 'data:'], connectSrc: ["'self'"], formAction: ["'self'"], frameAncestors: ["'none'"], upgradeInsecureRequests: config.secureCookies ? [] : null },
+      directives: { defaultSrc: ["'self'"], scriptSrc: ["'self'", 'https://cdn.plaid.com'], styleSrc: ["'self'"], imgSrc: ["'self'", 'data:'], connectSrc: ["'self'", 'https://*.plaid.com'], frameSrc: ['https://cdn.plaid.com'], formAction: ["'self'"], frameAncestors: ["'none'"], upgradeInsecureRequests: isSecureRequest(req) ? [] : null },
     },
-    strictTransportSecurity: config.secureCookies ? undefined : false,
+    strictTransportSecurity: isSecureRequest(req) ? undefined : false,
     referrerPolicy: { policy: 'no-referrer' },
-  }));
+  })(req, res, next));
   mountPipeline(app, config, store, pipeline, env);
   app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
   app.use(express.json({ limit: '24kb' }));
   app.use('/api', (req, _res, next) => {
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
-      if (req.headers['x-connector-request'] !== '1' || (req.headers.origin && req.headers.origin !== config.origin)) {
+      if (req.headers['x-connector-request'] !== '1' || (req.headers.origin && req.headers.origin !== config.origin && req.headers.origin !== localOrigin)) {
         return next(new RequestError('This request must come from the Connector app.', 403));
       }
     }
     next();
   });
-  const cookieOptions = { httpOnly: true, secure: config.secureCookies, sameSite: 'lax' as const, path: '/', maxAge: 12 * 60 * 60 * 1000 };
-  app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
+  app.get('/api/health', (_req, res) => res.setHeader('X-Connector-App', 'gifted-elephant-connector').json({ status: 'ok', ...(desktopInstance ? { desktopInstance } : {}) }));
   app.get('/api/session', (req, res) => res.json({ authenticated: store.validSession(sessionToken(req)) }));
+  app.post('/api/desktop/unlock', rateLimit({ windowMs: 10 * 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false }), (req, res) => {
+    const supplied = typeof req.body?.token === 'string' ? req.body.token : '';
+    const remote = req.socket.remoteAddress;
+    if (!desktopToken || Date.now() > desktopExpires || !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remote || '') || !isLocalDashboard(req) || (req.headers.origin && req.headers.origin !== localOrigin) || !timingSafeEqual(digest(supplied), digest(desktopToken))) throw new RequestError('This desktop sign-in link is invalid or expired. Open Connector again from your PC.', 401);
+    desktopToken = undefined;
+    store.deleteSession(sessionToken(req));
+    res.cookie('connector_session', store.createSession(), cookieOptions(req)).json({ ok: true });
+  });
   app.post('/api/login', rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false, skipSuccessfulRequests: true, message: { error: 'Too many sign-in attempts. Try again in 15 minutes.' } }), (req, res) => {
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
-    if (!timingSafeEqual(digest(password), digest(config.password))) throw new RequestError('The password is incorrect.', 401);
+    if (password.length > 1024 || !passwordMatches(store, config, password)) throw new RequestError('The password is incorrect.', 401);
     store.deleteSession(sessionToken(req));
     const token = store.createSession();
-    res.cookie('connector_session', token, cookieOptions).json({ ok: true });
+    res.cookie('connector_session', token, cookieOptions(req)).json({ ok: true });
   });
   app.use('/api', (req, _res, next) => {
     if (!store.validSession(sessionToken(req))) return next(new RequestError('Sign in to continue.', 401));
     next();
   });
+  app.get('/api/settings', (_req, res) => res.json(settingsSnapshot(config, store, env, localOrigin)));
+  app.put('/api/settings', (req, res) => {
+    saveSettings(config, store, env, req.body, localOrigin);
+    res.json(settingsSnapshot(config, store, env, localOrigin));
+  });
+  app.get('/api/settings/providers/:provider', (req, res) => res.json(providerSettings(service.getProvider(String(req.params.provider)), config, env)));
+  app.get('/api/settings/pipeline-key', (_req, res) => {
+    if (!config.pipelineKey) throw new RequestError('The connector key has not been generated. Open the desktop launcher or run setup.', 409);
+    res.json({ apiKey: config.pipelineKey, url: `${config.origin}/mcp`, transport: 'Streamable HTTP' });
+  });
+  app.post('/api/settings/password', (req, res) => {
+    savePassword(store, req.body?.password);
+    res.cookie('connector_session', store.createSession(), cookieOptions(req)).json({ ok: true });
+  });
+  if (options.tunnel) mountTunnel(app, options.tunnel);
+  else app.get('/api/tunnel', (_req, res) => res.json({ status: 'stopped', available: false, configured: false }));
+  app.use('/api/plaid', (req, res, next) => {
+    if (isLocalDashboard(req) && localOrigin !== config.origin) return void res.status(409).json({ error: 'Open the public dashboard and sign in before connecting your bank so authorization returns to the same browser session.', publicOrigin: config.origin });
+    next();
+  });
+  mountPlaid(app, store, env, sessionToken, () => config.origin, config.encryptionKey);
   app.post('/api/logout', (req, res) => {
     store.deleteSession(sessionToken(req));
-    res.clearCookie('connector_session', cookieOptions).json({ ok: true });
+    res.clearCookie('connector_session', cookieOptions(req)).json({ ok: true });
   });
   app.get('/api/providers', (_req, res) => {
     res.json({ providers: service.providerCatalog.map(provider => ({ ...provider, actions: pipeline.definitions(provider.id), ...service.getProviderSetup(provider.id, env), ...(provider.authType === 'oauth' ? { callbackUrl: `${config.origin}/api/oauth/${provider.id}/callback` } : {}), connection: store.connection(provider.id) })) });
@@ -107,9 +162,11 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
       throw error;
     }
   });
-  app.delete('/api/connections/:provider', (req, res) => {
+  app.delete('/api/connections/:provider', async (req, res) => {
     const id = String(req.params.provider);
     service.getProvider(id);
+    const credential = store.credential(id);
+    if (id === 'plaid' && credential) await removePlaidItem(credential, env);
     store.disconnect(id);
     res.json({ ok: true });
   });
@@ -122,6 +179,7 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
     if (service.getProvider(id).authType !== 'oauth') throw new RequestError('This platform uses an API credential.');
     const setup = service.getProviderSetup(id, env);
     if (!setup.configured) throw new RequestError(`Configure these server settings first: ${setup.missing.join(', ')}.`);
+    if (isLocalDashboard(req) && localOrigin !== config.origin) return void res.status(409).json({ error: 'Open the public dashboard and sign in before connecting this account so the platform can return to the same browser session.', publicOrigin: config.origin });
     const state = randomBytes(32).toString('base64url');
     const codeVerifier = randomBytes(48).toString('base64url');
     const url = service.createOAuthRequest(id, { state, codeVerifier, redirectUri: `${config.origin}/api/oauth/${id}/callback`, env });

@@ -1,0 +1,51 @@
+name: Package Windows app
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Check Windows launcher syntax
+        shell: powershell
+        run: |
+          $parseErrors = $null
+          $tokens = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD\scripts\windows-launcher.ps1", [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) { $parseErrors | Format-List; exit 1 }
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Package source and click-to-start launcher
+        run: node scripts/package-windows.mjs
+      - name: Verify ZIP extraction
+        shell: powershell
+        run: |
+          Expand-Archive -LiteralPath artifacts\Connector-Windows.zip -DestinationPath "$env:RUNNER_TEMP\connector-package"
+          $packageRoot = "$env:RUNNER_TEMP\connector-package\Connector"
+          if (-not (Test-Path "$packageRoot\Start Connector.vbs")) { throw 'Launcher is missing from the package.' }
+          if (Test-Path "$packageRoot\.env") { throw 'Private settings must not be packaged.' }
+          if (Test-Path "$packageRoot\data") { throw 'Account data must not be packaged.' }
+          npm.cmd ci --prefix "$packageRoot"
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged dependency installation failed.' }
+          npm.cmd run build --prefix "$packageRoot"
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged dashboard build failed.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Connector-Windows
+          path: |
+            artifacts/Connector-Windows.zip
+            artifacts/Connector-Windows.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
