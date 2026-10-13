@@ -41,7 +41,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged dependency installation failed.' }
           npm.cmd run build --prefix "$packageRoot"
           if ($LASTEXITCODE -ne 0) { throw 'Packaged dashboard build failed.' }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: Connector-Windows
           path: |
