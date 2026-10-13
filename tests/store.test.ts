@@ -39,7 +39,8 @@ test('database and journal do not contain raw credentials, sessions, or OAuth ve
   store.save('openai', credential, account);
   store.saveOAuth(state, session, 'openai', verifier);
   assert.deepEqual(store.credential('openai'), credential);
-  assert.equal(statSync(path).mode & 0o777, 0o600);
+  // Windows does not expose POSIX owner/group permissions through stat().
+  if (process.platform !== 'win32') assert.equal(statSync(path).mode & 0o777, 0o600);
   for (const file of readdirSync(directory)) {
     const content = readFileSync(join(directory, file));
     for (const secret of [credential.accessToken, credential.refreshToken, credential.fields.secret, session, state, verifier]) {

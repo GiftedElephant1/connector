@@ -125,7 +125,6 @@ test('persisted due jobs are claimed once and future or cancelled jobs never exe
 
 test('restart preserves pending jobs and marks interrupted running jobs uncertain without replay', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'connector-restart-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
   const path = join(directory, 'connector.sqlite');
   const original = new Store(path, key);
   original.save('x', { accessToken: 'test-private-token' }, account);
@@ -136,6 +135,8 @@ test('restart preserves pending jobs and marks interrupted running jobs uncertai
   original.close();
   const seen: ActionValues[] = [];
   const f = fixture(t, async (_credential, values) => { seen.push(values); return outcome; }, path);
+  // Hooks run in registration order; Windows requires closing SQLite before removal.
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
   assert.equal(f.store.job('pending-job')?.status, 'pending');
   assert.equal(f.store.job('interrupted-job')?.status, 'running');
   await f.pipeline.startScheduler()();
@@ -147,8 +148,9 @@ test('restart preserves pending jobs and marks interrupted running jobs uncertai
 
 test('queued content and completed results are encrypted in SQLite and journals', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'connector-jobs-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
   const f = fixture(t, undefined, join(directory, 'connector.sqlite'));
+  // Register removal after the fixture's database-close hook.
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
   const text = 'private-unpublished-post-content';
   const result = { summary: 'private-platform-response-text' };
   f.pipeline.schedule('x', 'publish', { text }, new Date(Date.now() + 60_000).toISOString(), true, 'encrypted-job');
