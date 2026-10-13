@@ -23,10 +23,13 @@ $process = New-Object System.Diagnostics.Process
 $process.StartInfo = $info
 try {
     [void]$process.Start()
-    $result = @($process.StandardOutput.ReadToEnd() | ConvertFrom-Json)
+    # PowerShell 5.1 emits a JSON array as one pipeline object, while newer
+    # versions enumerate its items. Direct assignment keeps the same array in
+    # both; wrapping the pipeline in @() nests the array on Windows PowerShell.
+    $result = $process.StandardOutput.ReadToEnd() | ConvertFrom-Json
     $process.WaitForExit()
     Assert-Equal $process.ExitCode 0 'The argument round-trip child failed.'
-    Assert-Equal $result.Count $cases.Count 'Argument quoting lost an empty argument.'
+    Assert-Equal $result.Count $cases.Count ('Argument quoting changed the argument count: expected ' + $cases.Count + ', received ' + $result.Count + '.')
     for ($index = 0; $index -lt $cases.Count; $index++) { Assert-Equal $result[$index] $cases[$index] 'A Windows path or argument was changed before reaching Node.' }
 } finally { $process.Dispose() }
 
