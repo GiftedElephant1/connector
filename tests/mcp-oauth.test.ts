@@ -209,9 +209,12 @@ test('changing the public origin invalidates codes, pending consent, tokens and 
   assert.throws(() => exchange(f, authCode), oauthError('invalid_grant'));
 });
 
-test('only token hashes and encrypted metadata persist, and tokens survive a normal server restart', t => {
-  const directory = mkdtempSync(join(tmpdir(), 'connector-mcp-oauth-')); t.after(() => rmSync(directory, { recursive: true, force: true }));
+test('only token hashes and encrypted metadata persist, and tokens survive OAuth service recreation', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'connector-mcp-oauth-'));
   const f = fixture(t, join(directory, 'data.sqlite')); const token = exchange(f);
+  // Hooks run in registration order. Close SQLite before removing its files;
+  // Windows cannot unlink an open database or its journal.
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
   const restarted = new McpOAuth(f.config, f.store, new WorkspaceAccounts(f.config, f.store, {}));
   assert.deepEqual(restarted.authenticate(token.access_token), f.oauth.authenticate(token.access_token));
   const saved = JSON.stringify(f.store.readSetting('mcp.oauth.v1'));
