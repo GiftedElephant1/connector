@@ -14,6 +14,7 @@ import { mountTunnel, type PublicTunnel } from './tunnel';
 import { mountPlaid, removePlaidItem } from './providers-plaid';
 import { installation } from './installation';
 import { WorkspaceAccounts, mountWorkspace } from './workspace-accounts';
+import { McpOAuth, mountOAuthPublic, mountOAuthOwner } from './mcp-oauth';
 
 export type ProviderService = Pick<typeof providers, 'providerCatalog' | 'getProvider' | 'getProviderSetup' | 'createOAuthRequest' | 'exchangeOAuthCode' | 'refreshCredential' | 'verifyConnection'>;
 
@@ -73,7 +74,9 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
     referrerPolicy: { policy: 'no-referrer' },
   })(req, res, next));
   const workspaceAccounts = new WorkspaceAccounts(config, store, env);
-  mountPipeline(app, config, store, pipeline, env, { accounts: workspaceAccounts });
+  const mcpOAuth = new McpOAuth(config, store, workspaceAccounts);
+  mountOAuthPublic(app, mcpOAuth);
+  mountPipeline(app, config, store, pipeline, env, { accounts: workspaceAccounts, oauth: mcpOAuth });
   app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
   app.use(express.json({ limit: '24kb' }));
   app.use('/api', (req, _res, next) => {
@@ -106,6 +109,7 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
     next();
   });
   app.get('/api/installation', (_req, res) => res.json(installation));
+  mountOAuthOwner(app, mcpOAuth, sessionToken);
   mountWorkspace(app, workspaceAccounts, sessionToken, { localOrigin });
   app.get('/api/settings', (_req, res) => res.json(settingsSnapshot(config, store, env, localOrigin)));
   app.put('/api/settings', (req, res) => {

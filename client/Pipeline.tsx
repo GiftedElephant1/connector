@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { ActionResult } from "../server/action-types";
 import type { Provider } from "./App";
 import "./pipeline.css";
-import { AgentConnection } from "./Setup";
+import { AiConnections } from "./AiConnections";
 
 type ApiRequest = <T>(path: string, options?: RequestInit) => Promise<T>;
 type CommonProps = {
@@ -204,6 +204,7 @@ export function Pipeline({
   onSchedule,
   onSettings,
   request,
+  onAuthError,
   origin,
 }: CommonProps & {
   origin: string;
@@ -214,10 +215,11 @@ export function Pipeline({
   const [providerId, setProviderId] = useState("");
   const [actionId, setActionId] = useState("");
   const prefix = useId();
+  const platformProviders = providers.filter((item) => item.category !== "ai");
   const provider =
-    providers.find((item) => item.id === providerId) ||
-    providers.find((item) => item.actions?.length) ||
-    providers[0];
+    platformProviders.find((item) => item.id === providerId) ||
+    platformProviders.find((item) => item.actions?.length) ||
+    platformProviders[0];
   const actions = provider?.actions || [];
   const action = actions.find((item) => item.id === actionId) || actions[0];
   const xai = providers.find((item) => item.id === "xai");
@@ -228,21 +230,22 @@ export function Pipeline({
         <div>
           <div className="eyebrow">YOUR BOT. YOUR ACCOUNTS.</div>
           <h1>
-            Your account pipeline<span>.</span>
+            Connect your AI apps<span>.</span>
           </h1>
           <p>
-            Add Connector in Grok settings. Create and manage there while
-            Connector handles your platform access.
+            Use your existing AI subscriptions to work with your connected
+            platforms through Connector.
           </p>
         </div>
         <button className="button button-secondary" onClick={onSchedule}>
           Scheduled jobs →
         </button>
       </section>
-      <AgentConnection request={request} onSettings={onSettings} />
+      <AiConnections request={request} onSettings={onSettings} onAuthError={onAuthError} />
       <p className="setup-help">
-        For Google accounts with different permissions for each AI agent, open
-        Google Workspace in the sidebar and create a separate agent connection.
+        To choose different Google accounts and apps for each AI, first create
+        an agent profile in Google Workspace. Select that profile when you
+        approve the AI connection.
       </p>
       <section className="action-panel pipeline-capabilities">
         <div className="action-panel-heading">
@@ -265,7 +268,7 @@ export function Pipeline({
                 setActionId("");
               }}
             >
-              {providers.map((item) => (
+              {platformProviders.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name}
                   {item.connection?.status !== "connected"
@@ -406,7 +409,7 @@ export function Pipeline({
             <p>
               Configure your client’s secure credential settings to send{" "}
               <code>Authorization: Bearer &lt;PIPELINE_API_KEY&gt;</code>. The
-              key can be copied from Show connection details above. Keep it
+              key can be copied from the advanced Connector API key option above. Keep it
               private and never paste it into a chat.
             </p>
             <p>

@@ -18,22 +18,29 @@ export class Pipeline {
     const action = this.service.getAction(provider, id);
     return { action, values: this.service.validateValues(action, input) };
   }
-  private async execute(provider: string, action: ActionAdapter, values: ActionValues): Promise<ActionResult> {
+  private async execute(provider: string, action: ActionAdapter, values: ActionValues, assertCurrent: () => void = () => {}): Promise<ActionResult> {
     let credential = this.store.credential(provider);
     if (!credential) throw new ProviderError('Connect this platform before running an action.', 409);
     if (credential.expiresAt && credential.expiresAt <= Date.now() + 60_000) {
       credential = await this.credentials.refreshCredential(provider, credential, this.env);
       this.store.updateCredential(provider, credential);
     }
+    // OAuth consent can be revoked while a platform refresh is in flight.
+    assertCurrent();
     return action.execute(credential, values, this.env);
   }
   private requestId(input: unknown): string {
     if (typeof input !== 'string' || !/^[A-Za-z0-9_-]{8,128}$/.test(input)) throw new ProviderError('Provide a unique requestId (8–128 letters, numbers, underscores or hyphens). Reuse it only to retry the same submission.');
     return input;
   }
-  async run(provider: string, id: string, input: unknown, confirmed: unknown, requestId?: unknown): Promise<{ result: ActionResult; job?: Job }> {
+  async run(provider: string, id: string, input: unknown, confirmed: unknown, requestId?: unknown, assertCurrent: () => void = () => {}): Promise<{ result: ActionResult; job?: Job }> {
+    assertCurrent();
     const { action, values } = this.validated(provider, id, input);
-    if (action.definition.kind === 'read') return { result: await this.execute(provider, action, values) };
+    if (action.definition.kind === 'read') {
+      const result = await this.execute(provider, action, values, assertCurrent);
+      assertCurrent();
+      return { result };
+    }
     if (confirmed !== true) throw new ProviderError('Explicit confirmation is required before publishing, replying, changing campaigns, or uploading conversions.', 409);
     const key = this.requestId(requestId);
     const signature = fingerprint([provider, id, values, 'immediate']);
@@ -45,7 +52,8 @@ export class Pipeline {
     }
     if (!this.store.credential(provider)) throw new ProviderError('Connect this platform before running an action.', 409);
     this.store.createJob(key, signature, provider, id, values, Date.now());
-    const job = await this.runJob(key);
+    const job = await this.runJob(key, assertCurrent);
+    assertCurrent();
     if (job.status !== 'succeeded' || !job.result) throw new ProviderError(job.error || 'The action did not complete.', job.status === 'uncertain' ? 502 : 400);
     return { result: job.result, job };
   }
@@ -71,13 +79,13 @@ export class Pipeline {
     if (!this.store.cancelJob(id)) throw new ProviderError('Only a pending job can be cancelled.', 409);
     return this.store.job(id)!;
   }
-  private async runJob(id: string): Promise<Job> {
+  private async runJob(id: string, assertCurrent: () => void = () => {}): Promise<Job> {
     if (!this.store.claimJob(id)) return this.store.job(id)!;
     const job = this.store.job(id)!;
     try {
       const action = this.service.getAction(job.provider, job.action);
       const values = this.service.validateValues(action, this.store.jobValues(id));
-      const result = await this.execute(job.provider, action, values);
+      const result = await this.execute(job.provider, action, values, assertCurrent);
       this.store.finishJob(id, 'succeeded', result);
     } catch (error) {
       const clearlyRejected = error instanceof ProviderError && [400, 401, 403, 404, 409, 422, 429].includes(error.status);

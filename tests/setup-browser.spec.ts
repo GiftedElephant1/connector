@@ -72,14 +72,15 @@ test("guided provider setup saves credentials on real server, masks secrets afte
   );
 });
 
-test("authenticated agent details can be copied without exposing the key by default", async ({
+test("advanced Connector key can be copied and remains masked by default", async ({
   page,
   context,
 }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await login(page);
-  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
-  await page.getByRole("button", { name: "Show connection details" }).click();
+  await page.getByRole("button", { name: "AI connections", exact: true }).click();
+  await page.getByText("Advanced: connect with a Connector API key", { exact: true }).click();
+  await page.getByRole("button", { name: "Show Connector API key" }).click();
   await expect(
     page.getByLabel("Connector API key", { exact: true }),
   ).toHaveAttribute("type", "password");
@@ -95,11 +96,11 @@ test("authenticated agent details can be copied without exposing the key by defa
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
     "connector-browser-test-pipeline-key",
   );
-  await page.getByRole("button", { name: "Claude", exact: true }).click();
+  await page.getByRole("button", { name: /Claude Set up connection/ }).click();
   await expect(
-    page.getByRole("heading", { name: "Add your connector in Claude" }),
+    page.getByRole("heading", { name: "Add Connector in Claude" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Hide connection details" }).click();
+  await page.getByRole("button", { name: "Hide Connector API key" }).click();
   await expect(
     page.getByLabel("Connector API key", { exact: true }),
   ).toHaveCount(0);

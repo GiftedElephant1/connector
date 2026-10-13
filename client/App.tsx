@@ -18,6 +18,7 @@ import {
 } from "./Setup";
 import { connectPlaid, returningFromPlaid } from "./plaid-link";
 import { GoogleWorkspace } from "./Workspace";
+import { AiAuthorization } from "./AiConnections";
 
 type Category =
   | "ai"
@@ -79,7 +80,6 @@ type IconName =
 
 const categories: { id: "all" | Category; label: string }[] = [
   { id: "all", label: "All platforms" },
-  { id: "ai", label: "AI" },
   { id: "social", label: "Social" },
   { id: "communications", label: "Communications" },
   { id: "advertising", label: "Advertising" },
@@ -740,7 +740,7 @@ function ApiKeyDialog({
         <div className="info-note">
           <p>
             To let your AI agent use your social accounts, open{" "}
-            <strong>Pipeline</strong> instead. This form connects the provider’s
+            <strong>AI connections</strong> instead. This form connects the provider’s
             developer API for direct API access.
           </p>
         </div>
@@ -877,6 +877,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
     "connections" | "pipeline" | "schedule" | "settings" | "workspace"
   >("connections");
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [authorizationId, setAuthorizationId] = useState(() => new URLSearchParams(window.location.search).get("authorize"));
   const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
   const [settingsError, setSettingsError] = useState("");
   const [configureOnly, setConfigureOnly] = useState(false);
@@ -1127,20 +1128,21 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
     }
   };
 
-  const connected = providers.filter(
+  const platformProviders = providers.filter((provider) => provider.category !== "ai");
+  const connected = platformProviders.filter(
     (provider) => provider.connection?.status === "connected",
   ).length;
-  const attention = providers.filter(
+  const attention = platformProviders.filter(
     (provider) => provider.connection?.status === "error",
   ).length;
-  const categoryCount = new Set(providers.map((provider) => provider.category))
+  const categoryCount = new Set(platformProviders.map((provider) => provider.category))
     .size;
   const availableCategories = categories.filter(
     (category) =>
       category.id === "all" ||
-      providers.some((provider) => provider.category === category.id),
+      platformProviders.some((provider) => provider.category === category.id),
   );
-  const shown = providers.filter(
+  const shown = platformProviders.filter(
     (provider) =>
       (filter === "all" || provider.category === filter) &&
       `${provider.name} ${provider.description} ${categoryNames[provider.category]}`
@@ -1181,10 +1183,10 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
             className={`nav-item ${page === "pipeline" ? "active" : ""}`}
             onClick={() => setPage("pipeline")}
             aria-current={page === "pipeline" ? "page" : undefined}
-            aria-label="Pipeline"
+            aria-label="AI connections"
           >
             <Icon name="link" size={19} />
-            <span>Pipeline</span>
+            <span>AI connections</span>
           </button>
           <button
             className={`nav-item ${page === "workspace" ? "active" : ""}`}
@@ -1257,7 +1259,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
               {page === "connections"
                 ? "Connections"
                 : page === "pipeline"
-                  ? "Pipeline"
+                  ? "AI connections"
                   : page === "workspace"
                     ? "Google Workspace"
                   : page === "settings"
@@ -1287,6 +1289,15 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                 void refreshSettings().catch(fail);
               }}
             />
+          ) : authorizationId ? (
+            <AiAuthorization requestId={authorizationId} request={api} onAuthError={fail} onDone={() => {
+              const params = new URLSearchParams(window.location.search);
+              params.delete("authorize");
+              const query = params.toString();
+              window.history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+              setAuthorizationId(null);
+              setPage("pipeline");
+            }} />
           ) : page === "settings" ? (
             settings ? (
               <WorkspaceSetup
@@ -1322,7 +1333,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
               </section>
             )
           ) : page === "workspace" ? (
-            <GoogleWorkspace api={api} onSettings={() => setPage("settings")} />
+            <GoogleWorkspace api={api} onSettings={() => setPage("settings")} onAiConnections={() => setPage("pipeline")} />
           ) : page === "connections" ? (
             <>
               <section className="page-heading">
@@ -1365,6 +1376,10 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                 onSettings={() => setPage("settings")}
                 onAgents={() => setPage("pipeline")}
               />
+              <section className="ai-discovery" aria-label="Connect your AI apps">
+                <div><strong>Bring your existing AI subscriptions.</strong><p>Let Claude, ChatGPT, or Grok use your connected accounts. No AI developer API key needed.</p></div>
+                <button className="button button-secondary" onClick={() => setPage("pipeline")}>Use Claude, ChatGPT, or Grok</button>
+              </section>
               {settings?.origin.startsWith("https://") &&
                 settings.origin !== window.location.origin && (
                   <div className="public-origin-note">
@@ -1401,7 +1416,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                   <div>
                     <span className="stat-label">Available integrations</span>
                     <div className="stat-number">
-                      {loading ? "—" : providers.length}
+                      {loading ? "—" : platformProviders.length}
                       <span className="stat-caption">One place to connect</span>
                     </div>
                   </div>
@@ -1431,7 +1446,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                   <div>
                     <h2 id="platforms-title">
                       Your connections{" "}
-                      <span>{loading ? "—" : providers.length}</span>
+                      <span>{loading ? "—" : platformProviders.length}</span>
                     </h2>
                     <p>Choose a platform to securely connect your account.</p>
                   </div>
@@ -1463,7 +1478,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                       >
                         {category.label}
                         {category.id === "all" && (
-                          <span>{providers.length}</span>
+                          <span>{platformProviders.length}</span>
                         )}
                       </button>
                     ))}
@@ -1529,16 +1544,16 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                       <Icon name="search" size={27} />
                     </span>
                     <h3>
-                      {providers.length
+                      {platformProviders.length
                         ? "No platforms found"
                         : "No integrations available yet"}
                     </h3>
                     <p>
-                      {providers.length
+                      {platformProviders.length
                         ? "Try another search or choose a different category."
                         : "Configured integrations will appear here when they are available."}
                     </p>
-                    {providers.length > 0 && (
+                    {platformProviders.length > 0 && (
                       <button
                         className="button button-secondary"
                         onClick={() => {
@@ -1666,6 +1681,14 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                 )}
               </section>
 
+              <details className="setup-advanced ai-developer-providers">
+                <summary>Advanced: existing AI developer API connections</summary>
+                <p className="setup-help">These separately billed APIs are optional developer tools. To use your AI subscription, open AI connections instead. Existing saved credentials are preserved.</p>
+                {providers.filter((provider) => provider.category === "ai").map((provider) => <div className="ai-developer-provider" key={provider.id}>
+                  <span><strong>{provider.name}</strong><small>{provider.connection ? provider.connection.status === "connected" ? "Developer API connected" : "Developer API needs attention" : "Developer API not connected"}</small></span>
+                  <button className="button button-secondary" disabled={!!busy} onClick={() => provider.connection ? setDialog({ type: "details", provider }) : void connect(provider)}>{provider.connection ? `Manage ${provider.name}` : `Configure ${provider.name}`}</button>
+                </div>)}
+              </details>
               <div className="bottom-note">
                 <div className="bottom-note-icon">
                   <Icon name="shield" size={20} />
@@ -1959,7 +1982,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
         >
           <p className="dialog-copy">
             Connector keeps your account connections in one private workspace.
-            Each platform uses its official API.
+            Platform connections use official APIs; Obsidian uses your synced vault folder.
           </p>
           <ol className="guide-steps">
             <li>
@@ -1967,8 +1990,9 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
               <div>
                 <h3>Choose a platform</h3>
                 <p>
-                  AI providers use developer API keys. Other platforms use the
-                  connection method shown on their card.
+                  Use the connection method shown on each platform card. Open AI
+                  connections to use your existing Claude, ChatGPT, or Grok app
+                  without an AI developer API key.
                 </p>
               </div>
             </li>
@@ -2000,8 +2024,8 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
             <Icon name="shield" size={18} />
             <p>
               Credentials are encrypted on the server. Your workspace password
-              protects access. Consumer AI subscriptions do not include
-              developer API access.
+              protects access. AI apps request your approval before receiving
+              Connector access, and you can revoke each connection separately.
             </p>
           </div>
         </Modal>

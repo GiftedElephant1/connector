@@ -75,10 +75,12 @@ test('REST and MCP require the independent pipeline bearer credential', async (t
   assert.equal(f.calls(), 1);
 });
 
-test('disabled connector endpoints fail closed and foreign browser origins are rejected', async (t) => {
+test('OAuth remains available without a manual pipeline key and foreign browser origins are rejected', async (t) => {
   const disabled = await fixture(t, { enabled: false });
-  assert.equal((await disabled.api('/api/v1/connections')).status, 503);
-  assert.equal((await disabled.rpc('tools/list')).status, 503);
+  assert.equal((await disabled.api('/api/v1/connections')).status, 401);
+  const unauthorized = await disabled.rpc('tools/list');
+  assert.equal(unauthorized.status, 401);
+  assert.match(unauthorized.headers.get('www-authenticate') || '', /oauth-protected-resource\/mcp/);
   const f = await fixture(t);
   assert.equal((await f.api('/api/v1/connections', undefined, { origin: 'https://foreign.example' })).status, 403);
   assert.equal((await f.rpc('tools/list', {}, { origin: 'https://foreign.example' })).status, 403);

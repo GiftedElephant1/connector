@@ -71,9 +71,11 @@ function permittedApps(account: GoogleAccount) {
 export function GoogleWorkspace({
   api,
   onSettings,
+  onAiConnections,
 }: {
   api: ApiRequest;
   onSettings?: () => void;
+  onAiConnections?: () => void;
 }) {
   const [data, setData] = useState<WorkspaceData | null>(null);
   const [error, setError] = useState("");
@@ -232,8 +234,8 @@ export function GoogleWorkspace({
       await refresh();
       setNotice(
         profile.id
-          ? "Agent access updated. Its existing key uses these permissions immediately."
-          : "Agent access created. Copy its connection details below into that AI agent.",
+          ? "Agent access updated. AI connections using this profile receive these permissions immediately."
+          : "Agent profile created. Select it when approving your AI connection.",
       );
     });
   }
@@ -803,10 +805,10 @@ export function GoogleWorkspace({
               </button>
             </div>
             <p className="setup-description">
-              Give Grok, Claude, ChatGPT, or another compatible agent its own
-              connection key. Each key works only with the accounts and apps you
-              select here. Multiple agents can share an account with different
-              app permissions.
+              Give each AI its own profile, then select that profile when you
+              approve access under AI connections. Each profile allows only the
+              accounts and apps you select here. Multiple agents can share an
+              account with different app permissions.
             </p>
             {!data.profiles.length && (
               <p className="workspace-empty">
@@ -1017,11 +1019,18 @@ export function GoogleWorkspace({
               >
                 <h3>Connect {issuedKey.name}</h3>
                 <p className="setup-help">
-                  Copy this key now; it is only shown after creation or
-                  replacement. Add a separate Google Workspace connector in this
-                  agent’s connector settings with the URL and key below. Your
-                  existing connector for social media and other platforms
-                  continues to work.
+                  Open AI connections, add Connector in your AI app using OAuth,
+                  and choose this Google Workspace profile on the approval
+                  screen. This requires no AI developer account or API key.
+                </p>
+                {onAiConnections && <button className="button button-primary" type="button" onClick={onAiConnections}>Open AI connections</button>}
+                <h4>Optional: a client that requires a Connector key</h4>
+                <p className="setup-help">
+                  The key below is created by Connector, not an AI provider. Use
+                  it only if your client accepts key authentication instead of
+                  OAuth. It is shown only after creation or replacement. Such
+                  clients need a separate Google Workspace connector alongside
+                  their standard-platform connector.
                 </p>
                 <CopyValue
                   label="Google Workspace connector URL"
@@ -1069,8 +1078,8 @@ export function GoogleWorkspace({
                 {pending.kind === "account"
                   ? "Agents will lose access to this Google account. Other accounts stay connected. You can connect this account again later."
                   : pending.kind === "profile"
-                    ? "This agent’s key will stop working immediately. Your Google accounts and other agents remain connected."
-                    : "The previous key will stop working immediately. You will need to paste the new key into this agent’s connector settings. Your Google accounts remain connected."}
+                    ? "This profile’s key and any AI authorization using this profile will stop working immediately. Your Google accounts and unrelated AI connections remain connected."
+                    : "The previous key will stop working immediately. Replace it in clients using key authentication. OAuth AI connections and your Google accounts remain connected."}
               </p>
               <div className="setup-button-row">
                 <button

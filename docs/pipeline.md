@@ -1,10 +1,22 @@
-# Grok connector protocol
+# AI connector protocol
 
-Connector is a single-owner MCP server and authenticated REST pipeline. It uses your own official API app credentials; it is not a Zernio proxy, browser automation extension, or connection to private chat sessions. Configure the custom connector in your existing Grok settings with its public HTTPS endpoint and secret API key. The dashboard's Pipeline page shows endpoint details and the current capability catalog.
+Connector is a single-owner MCP server and authenticated REST pipeline. An AI app uses Connector's tools to act on destination accounts you have connected. The default AI connection uses OAuth with your existing Claude, ChatGPT, or compatible Grok subscription; it does not call those providers' model APIs or require their developer keys. Destination platforms still use their own official API credentials and permissions.
+
+Open **AI connections** for guided setup, the public endpoint, and access revocation. Follow [the AI connection guide](ai-connections.md) for click-by-click instructions. The protocol details below are for administrators and custom clients.
 
 ## MCP configuration
 
-Use **Streamable HTTP**, URL `https://YOUR_HOST/mcp`, and an `Authorization: Bearer YOUR_PIPELINE_API_KEY` header. Clients that label their credential field API key can use `X-API-Key: YOUR_PIPELINE_API_KEY`. Never place secrets in URL parameters. Example client configuration (replace values securely; do not commit your key):
+Use **Streamable HTTP**, URL `https://YOUR_HOST/mcp`, and **OAuth** authentication. The server publishes OAuth discovery metadata and supports dynamic client registration, authorization code flow with PKCE S256, and refresh tokens. A compatible client registers and exchanges credentials automatically; you do not create an Anthropic, OpenAI, or xAI developer application or manually register guessed callback URLs.
+
+The owner approves access with the Connector workspace password. The consent screen offers **Standard platform tools** and/or one **Google Workspace agent profile**. Standard access includes all standard connected platforms and future additions; it is not a per-platform grant. Google access is limited to the selected profile's accounts and apps. OAuth credentials do not grant access to the owner dashboard.
+
+The server supports MCP initialization, tool discovery, and tool calls over stateless Streamable HTTP POST. It does not implement legacy SSE transport. Public HTTPS access must remain available; a hosted AI client cannot reach a PC's loopback address. Tests verify server behavior, while a live connection in the chosen AI app verifies that account's client support and plan eligibility.
+
+Access tokens expire within one hour; compatible clients refresh them automatically when `offline_access` was granted. The authorization has a 30-day maximum lifetime, after which the owner must approve that AI again. Destination accounts remain connected. Changing the public origin invalidates grants issued for the previous endpoint. **Approved AI connections** shows authorization expiry and records a successful MCP tool call separately from consent, so an approved grant alone is not reported as a tested client connection.
+
+### Advanced key authentication
+
+Existing key-based integrations continue to work. Use an `Authorization: Bearer YOUR_PIPELINE_API_KEY` header, or `X-API-Key: YOUR_PIPELINE_API_KEY` in clients offering that field. These are **Connector-generated keys**, not AI provider API keys. Never place secrets in URL parameters. Example client configuration (replace values securely; do not commit your key):
 
 ```json
 {
@@ -17,7 +29,11 @@ Use **Streamable HTTP**, URL `https://YOUR_HOST/mcp`, and an `Authorization: Bea
 }
 ```
 
-Client configuration file formats vary. Enter the equivalent URL/credential through Grok's connector settings. The server supports MCP initialization, tool discovery and tool calls over stateless Streamable HTTP POST; it does not implement legacy SSE transport or an OAuth identity-provider service. Use a client supporting API-key/Bearer authentication. Your actual Grok client connection must be tested after deploying the HTTPS host.
+Client configuration file formats vary. Reveal the general key under **AI connections → Advanced: connect with a Connector API key**. The general key permits standard platform tools; Workspace profile keys permit only their assigned Google accounts and apps. OAuth can combine both groups into a single connection without exposing either long-lived key to the client.
+
+### Standard platform tools
+
+These tools are available to OAuth grants with standard access and to the general connector key:
 
 | Tool | Purpose |
 | --- | --- |
@@ -32,23 +48,29 @@ All values in `values` are **strings**, including numbers, dates and boolean cho
 
 ## Write authorization and retries
 
-The caller must obtain the account owner's authorization for the intended content, target, timing, campaign/budget change, note edit, or conversion event before sending `confirmed: true`. This flag records caller confirmation; it is not independent proof that a human clicked a button in Grok. Use the client's own approval controls when available. The original pipeline API key grants access to the standard platform connections, including WordPress, Mailchimp, and the selected Obsidian vault. Google Workspace uses separate, restricted agent keys described below.
-
-## Google Workspace accounts and agent keys
-
-Open **Google Workspace** in the dashboard, connect each Google account, and create an AI agent profile. Select the permitted apps for each account and optionally choose a default account. Copy that profile's key and the same public `/mcp` URL into a separate Google Workspace connector in the AI client. Keep the original general Connector entry if the agent also uses social media, advertising, or Obsidian.
-
-Google profile keys expose three tools: `list_workspace_accounts`, `list_workspace_actions`, and `run_workspace_action`. Have the agent list its permitted accounts, inspect an app's action schema, then pass the chosen `accountId` when calling an action. If no default exists, an explicit account selection is required. The server checks account and app access on every call; a supplied account ID cannot expand the profile's permissions.
-
-The original key cannot access the new Workspace tools. Workspace profile keys cannot invoke the general platform tools, scheduling endpoints, or optional server-side Grok bot. Changing permissions keeps a profile key valid with its new restrictions; replacing or deleting it removes the old key's access. Each agent can have different accounts and different apps, even on the same connected Google account.
-
-Workspace writes require `confirmed: true` and a `requestId`, using the same retry rules as other writes. Their encrypted receipts are kept separately from the general scheduled-job list. Workspace actions are immediate; native task due dates and meeting-space creation are supported where listed, but generic Workspace scheduling is not provided.
-
-See [Workspace setup](providers-workspace.md) for scopes, app approvals, Maps project keys, and the Voice administrator-report limitation.
+The caller must obtain the account owner's authorization for the intended content, target, timing, campaign/budget change, note edit, or conversion event before sending `confirmed: true`. This flag records caller confirmation; it is not independent proof that a human clicked a button in the AI client. Use the client's own approval controls when available. OAuth consent grants tool access; it does not replace approval of an individual write. Standard access includes WordPress, Mailchimp, and the selected Obsidian vault. Google Workspace has the additional profile restrictions described below.
 
 Every write and scheduled publication requires a `requestId`: 8–128 letters, digits, hyphens or underscores. Generate a UUID for each intended write and **reuse it on transport retries**. Reusing an ID with different inputs is rejected. A completed identical submission returns its saved result. Running, failed or uncertain immediate writes cannot be rerun under the same ID.
 
 If a request times out or the process restarts mid-write, check the platform and job history before creating another request ID. An upstream service may accept a request even when its response is lost. Connector deliberately does not automatically retry writes.
+
+## Google Workspace accounts and agent profiles
+
+Open **Google Workspace**, connect each Google account, and create an AI agent profile. Select the permitted apps for each account and optionally choose a default account. Select that profile on the AI OAuth consent screen. One connection can include both the selected profile and standard platform tools. Leave the profile unselected when an AI should have no Workspace access.
+
+Workspace access exposes three tools: `list_workspace_accounts`, `list_workspace_actions`, and `run_workspace_action`. Have the agent list its permitted accounts, inspect an app's action schema, then pass the chosen `accountId` when calling an action. If no default exists, an explicit account selection is required. The server checks the profile's current account and app permissions on every call; a supplied account ID cannot expand them. Each AI agent can use a different profile, including different apps on the same connected Google account.
+
+Legacy profile keys remain supported. Copy a profile's key and the same `/mcp` URL into a separate key-authenticated connector entry. A profile key cannot invoke standard platform tools, scheduling endpoints, or the optional server-side Grok bot. The general key cannot invoke Workspace tools. For key-only clients using both, retain two connector entries. Profile edits apply to both OAuth and key access; deleting a profile invalidates keys and OAuth grants that depended on it, including standard access within a combined grant. Rotating its API key invalidates that key, while OAuth grants are revoked separately in **AI connections**.
+
+Workspace writes require `confirmed: true` and a `requestId`, using the same retry rules as other writes. Their encrypted receipts are kept separately from the general scheduled-job list. Workspace actions are immediate; native task due dates and meeting-space creation are supported where listed, but generic Workspace scheduling is not provided.
+
+See [Workspace setup](providers-workspace.md) for Google scopes, app approvals, Maps project keys, and the Voice administrator-report limitation.
+
+## Revoke an AI connection
+
+Open **AI connections → Approved AI connections**, select the grant's revoke control, and confirm. Future requests using that OAuth grant are denied; other AI grants and the connected platform accounts remain intact. The original general API key and Workspace profile keys have separate lifecycles and are not revoked by deleting an OAuth grant.
+
+Revocation does not undo completed actions or cancel already-approved scheduled publications. Cancel unwanted pending jobs separately in **Schedule** before removing access if needed. Changing the approved standard/Workspace combination requires a new OAuth authorization; changing accounts or apps within a selected Workspace profile takes effect through the profile's current restrictions.
 
 ## Scheduling
 
@@ -60,7 +82,7 @@ Job success means the action returned successfully; the result may say an upload
 
 ## REST equivalent
 
-Send `Authorization: Bearer ...` or `X-API-Key: ...` over HTTPS. Endpoints:
+REST clients use the existing general Connector key or an appropriate Workspace profile key in `Authorization: Bearer ...` or `X-API-Key: ...` over HTTPS. OAuth AI access tokens are restricted to `/mcp` and cannot be used for these REST endpoints. Standard platform endpoints:
 
 | Method and path | Body / purpose |
 | --- | --- |

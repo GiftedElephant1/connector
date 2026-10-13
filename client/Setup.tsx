@@ -274,7 +274,7 @@ export function SetupChecklist({
           <span className="step-number">3</span>
           <span>
             <strong>Connect your AI agent</strong>
-            <small>Copy the address and key into your agent</small>
+            <small>Use your existing Claude, ChatGPT, or Grok app</small>
           </span>
           <span aria-hidden="true">→</span>
         </button>
@@ -485,128 +485,6 @@ export function ProviderSetup({
         </p>
       )}
     </div>
-  );
-}
-
-export function AgentConnection({
-  request,
-  onSettings,
-}: {
-  request: ApiRequest;
-  onSettings?: () => void;
-}) {
-  const [config, setConfig] = useState<{
-    apiKey: string;
-    url: string;
-    transport: string;
-  } | null>(null);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [agent, setAgent] = useState("Grok");
-  async function reveal() {
-    setBusy(true);
-    setError("");
-    try {
-      setConfig(await request("/api/settings/pipeline-key"));
-    } catch (cause) {
-      setError(message(cause));
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <section className="setup-panel agent-connection">
-      <div className="eyebrow">LET YOUR AGENT USE YOUR ACCOUNTS</div>
-      <h2>Add your connector in {agent}</h2>
-      <p className="setup-description">
-        Choose your agent to see the connection details. Account access stays in
-        Connector; your agent uses the tools you authorize.
-      </p>
-      <div
-        className="agent-options"
-        role="group"
-        aria-label="Choose your AI agent"
-      >
-        {["Grok", "Claude", "ChatGPT"].map((name) => (
-          <button
-            key={name}
-            className={`agent-option ${agent === name ? "selected" : ""}`}
-            aria-pressed={agent === name}
-            onClick={() => setAgent(name)}
-          >
-            <span aria-hidden="true">
-              {name === "Grok" ? "𝕏" : name === "Claude" ? "✳" : "✦"}
-            </span>
-            {name}
-          </button>
-        ))}
-      </div>
-      <ol className="setup-instructions">
-        <li>
-          <strong>Open {agent}’s connector settings</strong>
-          <p>
-            {agent === "Grok"
-              ? "Use the same connector settings where you add a connector URL or API key. Choose a custom connector."
-              : `Open the connector or developer settings available on your ${agent} plan. Custom connector availability and authentication support vary by client.`}
-          </p>
-        </li>
-        <li>
-          <strong>Copy your connection details</strong>
-          <p>
-            The client must accept Streamable HTTP with bearer or API-key
-            authentication. If it only supports OAuth or a different transport,
-            this connection method is unavailable.
-          </p>
-        </li>
-      </ol>
-      {!config && (
-        <button
-          className="button button-primary"
-          onClick={() => void reveal()}
-          disabled={busy}
-        >
-          {busy ? "Loading…" : "Show connection details"}
-        </button>
-      )}
-      {config && (
-        <div className="agent-details">
-          {!config.url.startsWith("https://") && (
-            <div className="inline-error" role="alert">
-              Set up an HTTPS public address before connecting a hosted agent.{" "}
-              {onSettings && (
-                <button className="text-link" onClick={onSettings}>
-                  Set up public address →
-                </button>
-              )}
-            </div>
-          )}
-          <CopyValue label="Connector URL" value={config.url} />
-          <CopyValue label="Connector API key" value={config.apiKey} secret />
-          <p className="setup-help">
-            Transport: {config.transport}. If asked for a header, use
-            Authorization with the value “Bearer ” followed by your key.
-          </p>
-          <button className="text-button" onClick={() => setConfig(null)}>
-            Hide connection details
-          </button>
-        </div>
-      )}
-      {error && (
-        <p className="inline-error" role="alert">
-          {error}
-        </p>
-      )}
-      <div className="info-note">
-        <p>
-          In your agent, test with:{" "}
-          <strong>
-            “List my connected accounts. Do not publish or change anything.”
-          </strong>{" "}
-          A successful tool call confirms compatibility. You don’t need an AI
-          developer API key for this MCP connection.
-        </p>
-      </div>
-    </section>
   );
 }
 
@@ -938,11 +816,11 @@ export function WorkspaceSetup({
           {providers
             .filter(
               (provider) =>
-                (provider.authType === "oauth" || provider.authType === "link") ||
+                provider.category !== "ai" && ((provider.authType === "oauth" || provider.authType === "link") ||
                 provider.missing.length > 0 ||
                 settings.fields.some((field) =>
                   field.providerIds.includes(provider.id),
-                ),
+                )),
             )
             .map((provider) => (
               <div key={provider.id}>

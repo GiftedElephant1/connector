@@ -27,7 +27,7 @@ async function login(page: Page) {
   await expect(
     page.getByRole("heading", { name: "Your accounts, connected." }),
   ).toBeVisible();
-  await expect(page.locator(".provider-card")).toHaveCount(28);
+  await expect(page.locator(".provider-card")).toHaveCount(25);
 }
 
 test("real login, full provider catalog, filters, setup callback and logout work", async ({
@@ -62,7 +62,7 @@ test("credential dialogs mask and discard input and require X Ads companion cred
   page,
 }) => {
   await login(page);
-  await page.getByLabel("Search platforms").fill("OpenAI");
+  await page.getByLabel("Search platforms").fill("Mailchimp");
   await page
     .getByRole("button", { name: "Connect account", exact: true })
     .click();
@@ -99,16 +99,16 @@ test("verification failure stays visible without claiming connection success", a
   page,
 }) => {
   await login(page);
-  await page.route("**/api/connections/openai/api-key", (route) =>
+  await page.route("**/api/connections/mailchimp/api-key", (route) =>
     route.fulfill({
       status: 422,
       json: {
         error:
-          "OpenAI rejected this credential. Reconnect with a valid credential.",
+          "Mailchimp rejected this credential. Reconnect with a valid credential.",
       },
     }),
   );
-  await page.getByLabel("Search platforms").fill("OpenAI");
+  await page.getByLabel("Search platforms").fill("Mailchimp");
   await page
     .getByRole("button", { name: "Connect account", exact: true })
     .click();
@@ -120,7 +120,7 @@ test("verification failure stays visible without claiming connection success", a
     .getByRole("button", { name: "Connect account", exact: true })
     .click();
   await expect(page.getByRole("dialog")).toContainText(
-    "OpenAI rejected this credential",
+    "Mailchimp rejected this credential",
   );
   await expect(page.locator(".provider-card")).toContainText("Not connected");
 });
@@ -143,22 +143,20 @@ test("mobile dashboard fits viewport and supports category navigation", async ({
   });
 });
 
-test("pipeline explains the direct Grok connector and schedule shows actual empty state", async ({
+test("AI connections explain subscription access and schedule shows actual empty state", async ({
   page,
 }) => {
   await login(page);
-  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
+  await page.getByRole("button", { name: "AI connections", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Add your connector in Grok" }),
+    page.getByRole("heading", { name: "Claude, ChatGPT, and Grok" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Show connection details" }).click();
   await expect(page.getByLabel("Connector URL", { exact: true })).toHaveValue(
     /\/mcp$/,
   );
-  await expect(
-    page.getByLabel("Connector API key", { exact: true }),
-  ).toHaveAttribute("type", "password");
-  await expect(page.locator("main")).toContainText("Streamable HTTP");
+  await expect(page.getByLabel("Connector API key", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: /ChatGPT Set up connection/ }).click();
+  await expect(page.locator("main")).toContainText("OAuth authentication");
   await page.screenshot({ path: "test-results/pipeline-dashboard.png" });
   await page.getByRole("button", { name: "Scheduled jobs →" }).click();
   await expect(page.locator("main")).toContainText("Ask your bot to schedule");

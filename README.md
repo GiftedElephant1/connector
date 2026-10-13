@@ -1,10 +1,12 @@
 # Connector
 
-A self-hosted delivery connector for Grok and other MCP clients. Create and manage your content in your bot; Connector authenticates your accounts and executes supported official platform API actions.
+A self-hosted delivery connector for Claude, ChatGPT, Grok, and other compatible MCP clients. Create and manage your content in your AI app; Connector authenticates your accounts and executes supported official platform API actions.
 
 The dashboard guides you through setup, account connections, and AI-agent access. The MCP tools handle publishing, scheduling, supported comment/DM replies, analytics, campaign operations, conversion uploads, spend reports, and read-only bank data. Each platform exposes a different subset; discover its exact actions with `list_actions`. Unsupported API features are not simulated.
 
-**Google Workspace** has a separate multi-account area: connect several Google accounts, then give each AI agent its own key and an explicit set of accounts and apps. **Obsidian** reads and writes Markdown notes in the vault on your PC that Obsidian Sync keeps up to date.
+**Google Workspace** has a separate multi-account area: connect several Google accounts, then give each AI agent an explicit set of accounts and apps. **Obsidian** reads and writes Markdown notes in the vault on your PC that Obsidian Sync keeps up to date.
+
+**Use your existing AI subscription.** In **AI connections**, copy Connector's public URL into your AI app's custom connector settings, choose OAuth, and approve access with your Connector password. This route does not require an Anthropic, OpenAI, or xAI developer account or API key. Availability of custom connectors depends on the AI app, your plan, and workspace policies; see the [step-by-step AI connection guide](docs/ai-connections.md).
 
 ## Start on your Windows PC — no terminal commands
 
@@ -13,11 +15,11 @@ The dashboard guides you through setup, account connections, and AI-agent access
 3. Choose your workspace password in the welcome screen.
 4. Open **Settings**, follow the link to ngrok's **Your Authtoken** page, paste its token, and click **Start public access**. No separate ngrok installation or command is needed. Connector saves the token encrypted and reconnects on later launches until you stop public access.
 5. Click **Open public workspace**, sign in with the password you chose, and click **Connect account** on a platform. If application credentials are required, the app presents a guided form, a developer-portal link, and a copyable callback address. Save credentials directly in the interface; changes apply immediately.
-6. Open **Pipeline**, choose your AI agent, and copy the connector URL and key into that client's supported custom connector settings. Start with an account-list request.
+6. Open **AI connections**, choose Claude, ChatGPT, or Grok, and follow the card's instructions to add the public connector URL in that AI app. Choose **OAuth** where offered, sign in with your Connector password, and approve standard platform access and/or the Google Workspace profile the agent may use. Start with an account-list request.
 
 The launcher supports Windows 10/11 x64 and ARM64 and needs Internet access for its first installation. It uses port 3000. Closing the launcher stops Connector; closing only the browser leaves it running. See [Windows use and troubleshooting](docs/windows.md).
 
-The Connect buttons use official authentication. Platforms still require their own developer applications, permissions, and approvals; this self-hosted app does not include centrally approved OAuth registrations. AI API keys connect developer API accounts, not consumer chat subscriptions. Plaid opens its own bank picker after application setup; WhatsApp uses its Business Cloud API credentials. A truly setup-free hosted service would require the operator to register and obtain approval for those platform applications.
+The Connect buttons use official authentication. Social, advertising, Google, and other destination platforms may still require their own developer applications, permissions, and approvals; this self-hosted app does not include centrally approved registrations for those services. This is separate from connecting your AI app, which does not need an AI developer key. Plaid opens its own bank picker after application setup; WhatsApp uses its Business Cloud API credentials.
 
 ## Add future connectors without reconnecting existing accounts
 
@@ -27,19 +29,20 @@ On Windows, extract the new download, stop Connector, and double-click **Update 
 
 An app update does not require authorizing every account again. A platform may still require authorization if it revokes access, a token can no longer refresh, or an added action needs new permissions. Keep the same public address for Grok and other clients; if your tunnel address changes, update their connector URL.
 
-## Connect it in Grok
+## Connect Claude, ChatGPT, or Grok
 
-1. Start Connector with the Windows launcher and enable public access in **Settings**, or deploy it on a persistent HTTPS host. Configure platform applications in the dashboard.
-2. Open the dashboard, sign in, and connect the platforms your bot will use.
-3. In Grok's custom connector settings, add `https://YOUR_HOST/mcp` as a **Streamable HTTP MCP** endpoint.
-4. In **Pipeline**, click **Show connection details**, then copy the URL and connector API key. The server accepts `Authorization: Bearer YOUR_KEY` or `X-API-Key: YOUR_KEY`. Never put the key in the URL.
-5. Let the client discover the tools, then ask it to list your connections. Ask it to inspect a platform's actions before publishing.
+Connector provides a public HTTPS MCP endpoint with OAuth sign-in and permission approval. Your AI app runs the model using your subscription; Connector supplies the tools. You do not paste your AI account password or subscription token into Connector.
 
-This uses the custom-connector workflow: one endpoint, tool discovery, and API-key authentication. Grok's actual client must support this transport/authentication combination; compatibility in your account still needs a live connection test. The software has not been hosted or connected to your Grok account automatically. A cloud-hosted bot cannot reach `localhost` on your computer.
+1. Start Connector and turn on public access in **Settings**. Keep your PC awake and the launcher open.
+2. Connect the destination accounts your AI should use. For Google Workspace, create an agent profile with the allowed accounts and apps.
+3. Open **AI connections**. Copy the displayed `/mcp` URL and open the relevant AI app's settings from its card.
+4. Add a custom connector/app using that URL and **OAuth** authentication. The client handles registration automatically; no Anthropic, OpenAI, or xAI developer registration is needed.
+5. On Connector's authorization page, enter your Connector password, review the requesting client, and choose whether to allow standard platform tools, a Google Workspace profile, or both.
+6. Return to the AI app, enable Connector for the conversation where required, and ask: **“Use Connector to list the accounts you can access. Do not change anything.”**
 
-Direct MCP usage does **not** require an additional xAI developer key in Connector. OpenAI, Anthropic and xAI API key connections are optional and distinct from consumer chat subscriptions. An optional standalone Grok API bot is included below.
+Claude and ChatGPT publish custom MCP setup instructions. Grok's consumer custom-connector availability could not be independently verified; use its card if your account offers the custom connector setting. An absent setting cannot be enabled by this server. For a Grok interface that accepts only an API key, the advanced option uses a **Connector-generated key**, not an xAI API key.
 
-See [the connector protocol and examples](docs/pipeline.md) for REST usage, request confirmation, and scheduling behavior.
+Follow the [complete click-by-click guide](docs/ai-connections.md), including authentication choices and connection checks. The [protocol guide](docs/pipeline.md) covers advanced key authentication, REST, confirmation, and scheduling. The optional standalone Grok API bot below is a separate, billed developer-API feature.
 
 ## Developer installation
 
@@ -60,7 +63,8 @@ For code changes, run `npm run build` to rebuild the interface and `npm run dev`
 
 | Group | Connections | Setup instructions |
 | --- | --- | --- |
-| AI APIs | OpenAI (ChatGPT API), Anthropic (Claude API), xAI (Grok API) | Add a developer API key in the dashboard. Consumer subscriptions do not include API access automatically. |
+| AI apps | Claude, ChatGPT, and compatible Grok/custom MCP clients | [Use your subscription through AI connections](docs/ai-connections.md); no AI developer key required. |
+| Optional developer AI APIs | OpenAI API, Anthropic API, xAI API | Advanced integrations only. Developer API accounts and billing are separate from the AI app connection above. |
 | Meta | Facebook Pages, Instagram professional accounts, Threads, Meta Business Manager | [Meta setup](docs/providers-meta.md) |
 | Google | YouTube, Google Ads, Google Analytics, Google Search Console | [Google setup](docs/providers-google.md) |
 | Social and websites | X, TikTok, LinkedIn, Reddit, Pinterest, WordPress.com | [Social setup](docs/providers-social.md) |
@@ -72,9 +76,9 @@ For code changes, run `npm run build` to rebuild the interface and `npm run dev`
 | Google Workspace | Sheets, Docs, Slides, Gmail, Drive, Meet, Chat, Tasks, Maps place search, and Voice administrator reports; multiple accounts with separate agent permissions | [Workspace setup](docs/providers-workspace.md) |
 | Notes | Read, create, and edit notes in the Obsidian vault on your PC, including notes synced by Obsidian Sync | [Obsidian setup](docs/providers-obsidian.md) |
 
-Each platform has its own developer app, permissions, and approval process. Click **Connect account** to enter missing application credentials, copy the exact callback address, and continue to official authorization. Change saved details under **Settings → Platform application settings**. These settings are encrypted in SQLite and override matching environment settings without a restart. Existing `.env` configurations remain supported for administrators. API keys and manual developer access tokens are entered in the authenticated dashboard and stored encrypted. Reconnect existing grants after enabling new action permissions.
+Destination platforms set their own application, permission, and approval requirements. Click **Connect account** to enter any required credentials, copy the callback address when shown, and continue to official authorization. Change saved details under **Settings → Platform application settings**. These settings are encrypted in SQLite and override matching environment settings without a restart. Existing `.env` configurations remain supported for administrators. API keys and manual developer access tokens are entered in the authenticated dashboard and stored encrypted. Reconnect existing grants after enabling new action permissions.
 
-Plaid defaults to **Sandbox**, which uses test bank data. Real bank accounts need approved Plaid Production access in a supported country; one institution can be connected at a time. Its official Link window handles bank authentication, and Connector never accepts bank passwords. Disconnecting Plaid revokes the Item before removing the local token. Bank data becomes available to assistants holding the workspace's connector key. No payment or transfer actions are implemented.
+Plaid defaults to **Sandbox**, which uses test bank data. Real bank accounts need approved Plaid Production access in a supported country; one institution can be connected at a time. Its official Link window handles bank authentication, and Connector never accepts bank passwords. Disconnecting Plaid revokes the Item before removing the local token. Bank data becomes available to assistants whose OAuth access includes Plaid, or that hold the general connector key. No payment or transfer actions are implemented.
 
 WhatsApp requires a business phone number and Meta Cloud API token. It supports phone/profile reads, approved template messages, and replies by a known message ID inside Meta's service window. This version does not receive incoming WhatsApp webhooks or expose personal WhatsApp login. API acceptance does not establish message delivery.
 
@@ -82,7 +86,7 @@ Register each callback URL exactly as documented: `APP_ORIGIN/api/oauth/PROVIDER
 
 Review each provider's consent screen: publishing and advertising need broader scopes than account verification. Account discovery and reports are deliberately bounded. Some responses are previews or asynchronous submissions, and tool results state that distinction. Provider approvals, pricing, quotas, media ownership rules, messaging windows, and account eligibility still apply.
 
-YouTube has no general DM API. TikTok and LinkedIn messaging are not exposed where the standard official APIs do not permit them. Instagram requires a professional account linked to a Page for this implementation. Discord channel actions use a bot token with proper channel permissions, never a user self-bot. WordPress uses WordPress.com or Jetpack-connected sites. Campaign creation generally creates a **paused campaign shell**: ad groups, targeting, assets and ads must be configured before delivery; explicit activation changes the specified campaign's status.
+YouTube has no general DM API. TikTok and LinkedIn messaging are not exposed where the standard official APIs do not permit them. Instagram requires a professional account linked to a Page for this implementation. Discord channel actions use a bot token with proper channel permissions, never a user self-bot. WordPress has separate connections for WordPress.com/Jetpack sites and sites on another host. Campaign creation generally creates a **paused campaign shell**: ad groups, targeting, assets and ads must be configured before delivery; explicit activation changes the specified campaign's status.
 
 ## Configuration and storage
 
@@ -96,9 +100,11 @@ YouTube has no general DM API. TikTok and LinkedIn messaging are not exposed whe
 | `PORT` | Server port; defaults to `3000`. |
 | `DATA_DIR` | SQLite directory; defaults to `./data`. |
 
-This is a single-owner app: one connection per platform, with multiple discovered pages/accounts shown inside that connection. Reconnecting a platform replaces its existing credential only after the new credential is verified successfully.
+This is a single-owner app: one connection per standard platform, with multiple discovered pages/accounts shown inside that connection, plus separate multi-account Google Workspace connections. Reconnecting a platform replaces its existing credential only after the new credential is verified successfully.
 
-Provider credentials, dashboard settings, queued publication payloads, and saved action results are encrypted with AES-256-GCM before they enter SQLite. A dashboard-chosen password is stored as a salted scrypt hash inside encrypted settings. Browser sessions use HttpOnly cookies, server-side expiry, and CSRF protection. OAuth state is bound to the initiating session and consumed once. Public HTTPS sessions use secure cookies; the explicitly configured local desktop dashboard keeps its own session. Saved provider credentials are never returned in dashboard or tool responses. Only the authenticated owner can reveal the general connector API key for copying into an AI client. That key grants access to connected platforms, including read-only bank data and the local Obsidian vault. Google Workspace uses separate agent profile keys, each restricted to its assigned Google accounts and apps.
+Provider credentials, dashboard settings, queued publication payloads, and saved action results are encrypted with AES-256-GCM before they enter SQLite. A dashboard-chosen password is stored as a salted scrypt hash inside encrypted settings. Browser sessions use HttpOnly cookies, server-side expiry, and CSRF protection. OAuth state is bound to the initiating session and consumed once. Public HTTPS sessions use secure cookies; the explicitly configured local desktop dashboard keeps its own session. Saved provider credentials are never returned in dashboard or tool responses.
+
+OAuth access for AI clients is limited to standard platform tools and/or the Google Workspace profile approved by the owner. Review and revoke individual grants in **AI connections** without disconnecting the underlying accounts. Advanced key authentication remains supported: the general connector key grants access to standard platforms, including read-only bank data and the local Obsidian vault; Google Workspace profile keys are restricted to their assigned Google accounts and apps. Never share the general key when a narrower OAuth grant is sufficient.
 
 The desktop launcher uses a random, single-use, ten-minute local sign-in capability, removed from the browser address before normal use. It is not a public registration endpoint. Start and complete account authorization on the public dashboard after enabling HTTPS; local and public hostnames have separate browser sessions.
 

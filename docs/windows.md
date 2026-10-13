@@ -37,7 +37,7 @@ The update wizard uses the private runtime installed by **Start Connector**. If 
 
 The wizard leaves the original `.env` and account database in place; it does not reset keys or copy credentials into the new download. Keep those private files together if you back up or move an installation. If you configured a custom data folder, it is preserved; data stored inside an application-code folder must be moved out before the wizard can update safely.
 
-Grok's connector API key stays the same. Its saved URL also continues to work while your public address stays the same. If ngrok assigns a different address after restarting, copy the new connector URL from **Pipeline** into Grok.
+Existing Connector API keys stay the same. Your AI connections continue to use their saved URL while your public address stays the same. If ngrok assigns a different address after restarting, copy the new URL from **AI connections** into each AI app and authorize its OAuth connection again. Your destination accounts remain saved.
 
 The launcher uses port 3000 on your own PC. If another program uses that port, it shows a message and stops rather than taking over that program. Close the other program or previous Connector instance, then try again.
 

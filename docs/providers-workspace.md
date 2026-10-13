@@ -1,12 +1,12 @@
 # Google Workspace accounts and AI agent permissions
 
-Connector can keep several Google accounts connected at the same time. Each AI agent gets a separate connector key and an explicit list of accounts and apps it may use. Adding an account or an app does not remove your existing social, advertising, WordPress, Mailchimp, or Google connections.
+Connector can keep several Google accounts connected at the same time. Each AI agent uses a profile with an explicit list of accounts and apps it may use. Select that profile when authorizing the AI's OAuth connection; no Anthropic, OpenAI, or xAI developer key is needed. Adding an account or an app does not remove your existing social, advertising, WordPress, Mailchimp, or Google connections.
 
 For example, give **Grok — business** access to Sheets, Gmail, and Tasks on `business@example.com`, and give **Claude — personal** access to Docs and Drive on `personal@gmail.com`. You can also let one agent use several accounts. Choose a default account or ask the agent to specify an account for each operation.
 
 ## One-time Google app setup
 
-Google requires your own OAuth application for this locally hosted connector. Its client ID and secret are shared by all the Google accounts you add; each account still authorizes its own permissions.
+Google requires your own OAuth application for this locally hosted connector. Its client ID and secret are shared by all the Google accounts you add; each account still authorizes its own permissions. This is Google's destination-account setup, separate from connecting your existing AI subscription to Connector.
 
 1. Open [Google Cloud Console](https://console.cloud.google.com/) and sign in.
 2. Use the project selector at the top to select a project, or click **New project**, enter a name, and click **Create**.
@@ -37,14 +37,21 @@ Connector records the permissions Google actually granted. If you deselect a per
 2. Select the Google accounts this agent may use. Check their exact email addresses.
 3. For each selected account, choose the apps the agent may use.
 4. Optionally choose a default Google account. With no default, the agent must specify an account ID when calling an app action.
-5. Save the profile. Copy its new API key immediately: Connector displays it only when created or rotated.
-6. In your AI agent's connector settings, add the displayed MCP URL and this profile's API key. Use Streamable HTTP with the key as a Bearer token if the client asks for the authentication format.
-7. Ask the agent to list its permitted Workspace accounts, then ask it to perform an operation with the chosen account and app. Write operations require explicit confirmation through the tool's confirmation argument.
-8. Create a separate profile and key for each additional agent. Reusing a key gives both agents the same permissions.
+5. Save the profile. The profile's generated API key is available for advanced key-based clients; you do not need to copy or enter it for OAuth.
+6. Open **AI connections** and follow the [AI app setup guide](ai-connections.md) to add the public MCP URL in Claude, ChatGPT, or a compatible Grok client with OAuth authentication.
+7. On Connector's **Authorize an AI connection** page, select this profile under **Google Workspace agent profile**. Review the account emails and app permissions. Check **Standard platform tools** too if this AI should also use your social, advertising, communications, website, bank-data, and Obsidian connections. Leave it unchecked for a Google-only agent. Click **Approve selected access**.
+8. Return to the AI app, enable Connector for the conversation, and ask the agent to list its permitted Workspace accounts without making changes. Then inspect an app's available actions. Writes require explicit confirmation through the tool's confirmation argument.
+9. Create a separate profile and authorize each additional AI connection when it should have different permissions. Selecting the same profile gives those AI connections the same Google account/app permissions.
 
-The existing general connector key continues to work for your existing platform connections. Workspace profile keys grant only the Workspace permissions in that profile. To use both groups from one AI client, configure the general connection and its Workspace connection separately when the client supports multiple connectors.
+An OAuth connection can expose both standard platform tools and the selected Workspace profile through one connector entry. With **No Google Workspace access** selected, it has no access to these Workspace tools, even if standard platform access was approved. The separate standard YouTube, Ads, Analytics, and Search Console connectors remain standard platform connections.
 
-Edit a profile to change its permitted apps or accounts without signing those Google accounts in again. Removing a permission takes effect on the next request. Rotate a key if you need a replacement; the previous key stops working immediately. Delete a profile to revoke that agent's access while retaining the connected Google accounts. Disconnecting one Google account removes only that account and its agent bindings.
+Edit a profile to change its permitted apps or accounts without signing those Google accounts in again. Removing a permission takes effect on the next request. Delete a profile to remove access through that profile while retaining the connected Google accounts. OAuth grants that selected the deleted profile also stop working, including any standard platform access within those grants; approve a new connection if the AI should retain standard access. Disconnecting one Google account removes only that account and its agent bindings. To revoke one AI's entire OAuth grant, use **AI connections → Approved AI connections**; this also removes its standard platform access if that was included, without affecting other AI grants.
+
+### Advanced: existing API-key clients
+
+The existing general connector key continues to work for standard platform connections. A Workspace profile key grants only the Workspace permissions in that profile. For a client supporting only key authentication, copy its profile key when created or rotated, add the public `/mcp` URL, and supply the key as a Bearer token or in the client's API-key field. This key is generated by Connector; it is not an AI developer key. Key-only clients need separate general and Workspace connector entries to use both groups.
+
+Rotate a profile key if you need a replacement; the previous key stops working immediately. Rotating a profile key does not revoke separately approved OAuth grants. Revoke those from **AI connections** if needed. Keep different keys/profiles for agents that need different access.
 
 ## What the apps can do
 
@@ -89,5 +96,6 @@ New connectors can be added without changing your existing account credentials. 
 - Account IDs are stable opaque values derived from the verified Google subject, not user-supplied email addresses. Reauthorizing an account cannot replace it with another Google identity.
 - Credential rows use `google-workspace:<accountId>`; metadata and agent profiles use encrypted settings. Existing provider rows and scheduled jobs keep their existing identifiers.
 - Apps are enabled only when all their required scopes are present in Google's returned grant. A scope reduction during refresh disables access through existing bindings.
-- Agent API keys contain 32 random bytes and are returned only once. Fresh profile and key checks enforce permission changes, rotation, and revocation on subsequent requests.
+- OAuth AI grants refer to the selected profile; account/app permissions are read again for each call. An OAuth grant does not reveal the profile API key to the AI client.
+- Advanced agent API keys contain 32 random bytes and are returned only once. Fresh profile and key checks enforce permission changes, rotation, and revocation on subsequent requests.
 - Token refresh is serialized separately for each account. Rotated refresh tokens are saved, and disconnecting an account during refresh cannot recreate its connection.
