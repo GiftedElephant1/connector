@@ -72,6 +72,17 @@ test("guided provider setup saves credentials on real server, masks secrets afte
   );
 });
 
+test("ngrok placeholder errors guide the user back to the actual dashboard token", async ({ page }) => {
+  await login(page);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByLabel("ngrok authentication token").fill("ngrok config add-authtoken $YOUR_AUTHTOKEN");
+  await page.getByRole("button", { name: "Start public access", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("placeholder or a hidden token");
+  await expect(page.getByRole("alert")).toContainText("click the copy icon beside your actual token");
+  await expect(page.getByLabel("ngrok authentication token")).toHaveAttribute("type", "password");
+  await expect(page.getByRole("button", { name: "Start public access", exact: true })).toBeEnabled();
+});
+
 test("advanced Connector key can be copied and remains masked by default", async ({
   page,
   context,

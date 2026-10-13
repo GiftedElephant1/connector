@@ -665,9 +665,15 @@ export function WorkspaceSetup({
             <li>
               <strong>Paste the token and start your connection</strong>
               <p>
-                Paste only the token in this box, then click Start public
-                access. Connector saves it securely and starts the tunnel for
-                you.
+                Click the box below, press Ctrl+A to replace any old text,
+                then Ctrl+V to paste. Click Start public access. Connector
+                saves the token securely and starts the tunnel for you.
+              </p>
+              <p>
+                You can also paste the full <code>ngrok config add-authtoken</code>{" "}
+                line from the dashboard. Use your actual token, not{" "}
+                <code>$YOUR_AUTHTOKEN</code>, hidden dots, an API key, or a
+                website address. No terminal commands are needed.
               </p>
             </li>
           </ol>

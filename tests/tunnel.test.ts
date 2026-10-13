@@ -61,6 +61,65 @@ test('public access rejects malformed configuration and redacts SDK failure deta
   assert.equal(JSON.stringify(tunnel.snapshot()).includes(token), false);
 });
 
+test('dashboard token and command pastes forward and save only the credential', async t => {
+  const store = new Store(':memory:', config.encryptionKey);
+  t.after(() => store.close());
+  let forwarded = '';
+  const tunnel = new PublicTunnel({ ...config }, store, () => {}, async () => ({ forward: async options => {
+    forwarded = options.authtoken;
+    return { url: () => 'https://owner.ngrok-free.app', close: async () => {} };
+  } }));
+  for (const input of [
+    `  ${token}\r\n`, `"${token}"`, `'${token}'`,
+    `ngrok config add-authtoken ${token}`,
+    `ngrok config add-authtoken "${token}"`,
+    `.\\ngrok.exe config add-authtoken '${token}'`,
+  ]) {
+    const status = await tunnel.start({ authtoken: input });
+    assert.equal(forwarded, token);
+    assert.equal(store.readSetting<{ authtoken: string }>('public-tunnel')?.authtoken, token);
+    assert.equal(JSON.stringify(status).includes(token), false);
+    await tunnel.stop();
+  }
+  // Token validity belongs to ngrok, not an undocumented local alphabet/length rule.
+  await tunnel.start({ authtoken: 'opaque:+/=' });
+  assert.equal(forwarded, 'opaque:+/=');
+  await tunnel.stop();
+});
+
+test('common paste mistakes explain the correction without contacting ngrok or exposing secrets', async t => {
+  const store = new Store(':memory:', config.encryptionKey);
+  t.after(() => store.close());
+  let calls = 0;
+  const tunnel = new PublicTunnel({ ...config }, store, () => {}, async () => {
+    calls++;
+    throw new Error('Should not load the SDK for a paste mistake');
+  });
+  const mistakes: [unknown, RegExp][] = [
+    ['', /Enter your ngrok authtoken/], [123, /Enter a valid ngrok authtoken/],
+    ['ngrok config add-authtoken', /Enter your ngrok authtoken/],
+    ['$YOUR_AUTHTOKEN', /placeholder or a hidden token/],
+    ['ngrok config add-authtoken "YOUR_AUTHTOKEN"', /placeholder or a hidden token/],
+    ['<YOUR_AUTHTOKEN>', /placeholder or a hidden token/],
+    ['••••••••••••••••', /placeholder or a hidden token/],
+    ['****************', /placeholder or a hidden token/],
+    ['https://owner.ngrok-free.app', /website address/],
+    [`${token}\nextra`, /extra text/],
+    [`ngrok config add-authtoken ${token} && other-command`, /extra text/],
+    ['a'.repeat(4097), /extra text/],
+  ];
+  for (const [authtoken, expected] of mistakes) {
+    await assert.rejects(tunnel.start({ authtoken }), error => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, expected);
+      assert.equal(error.message.includes(token), false);
+      return true;
+    });
+  }
+  assert.equal(calls, 0);
+  assert.equal(tunnel.snapshot().configured, false);
+});
+
 test('tunnel timeout closes a late listener and cannot persist an unconfirmed public URL', async t => {
   const store = new Store(':memory:', config.encryptionKey);
   t.after(() => store.close());

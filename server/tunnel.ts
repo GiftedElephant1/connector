@@ -9,6 +9,25 @@ export type TunnelDriver = { forward(options: ForwardOptions): Promise<Listener>
 type SavedTunnel = { authtoken: string; domain?: string; autoStart: boolean };
 type TunnelStatus = 'stopped' | 'starting' | 'running' | 'error';
 
+/** Parse dashboard clipboard text as data; never execute a pasted command. */
+function parseAuthtoken(input: string): string {
+  let token = input.trim().replace(/^(?:\.\\|\.\/)?ngrok(?:\.exe)?\s+config\s+add-authtoken(?:\s+|$)/i, '').trim();
+  if ((token.startsWith('"') && token.endsWith('"')) || (token.startsWith("'") && token.endsWith("'"))) {
+    token = token.slice(1, -1).trim();
+  }
+  if (!token) throw new ProviderError('Enter your ngrok authtoken. Open “Your Authtoken” in the ngrok dashboard and click the copy icon beside the token.');
+  if (token.startsWith('$') || /^(?:(?:YOUR[_-])?(?:NGROK[_-])?(?:AUTH[_-]?TOKEN|TOKEN)|<.*>|\[.*\]|\*+|[.•●]+)$/i.test(token)) {
+    throw new ProviderError('That looks like a placeholder or a hidden token. On ngrok’s “Your Authtoken” page, click the copy icon beside your actual token, then replace the contents of this box.');
+  }
+  if (/^https?:\/\//i.test(token)) throw new ProviderError('That is a website address. This box needs your ngrok authtoken from the “Your Authtoken” page, not your public URL or the dashboard URL.');
+  // The SDK does not define a token alphabet or minimum length. Let ngrok
+  // validate the credential, while catching multi-line/extra clipboard text.
+  if (token.length > 4096 || /[^\x21-\x7e]/.test(token)) {
+    throw new ProviderError('The pasted text contains extra text, spaces, or unsupported characters. Copy your token with the copy icon on ngrok’s “Your Authtoken” page, then replace everything in this box.');
+  }
+  return token;
+}
+
 /** Owns one HTTPS listener. The upstream is fixed to this app, never user supplied. */
 export class PublicTunnel {
   private listener?: Listener;
@@ -39,8 +58,7 @@ export class PublicTunnel {
     if (this.listener) throw new ProviderError('Stop the current public connection before changing it.', 409);
     const saved = this.store.readSetting<SavedTunnel>('public-tunnel');
     if (input.authtoken !== undefined && typeof input.authtoken !== 'string') throw new ProviderError('Enter a valid ngrok authtoken.');
-    const authtoken = (typeof input.authtoken === 'string' ? input.authtoken.trim() : '') || saved?.authtoken;
-    if (!authtoken || !/^[A-Za-z0-9_.~-]{16,512}$/.test(authtoken)) throw new ProviderError('Copy your ngrok authtoken from its dashboard and paste it here.');
+    const authtoken = parseAuthtoken((typeof input.authtoken === 'string' ? input.authtoken.trim() : '') || saved?.authtoken || '');
     if (input.domain !== undefined && typeof input.domain !== 'string') throw new ProviderError('Enter only your assigned ngrok hostname.');
     const domain = (typeof input.domain === 'string' ? input.domain.trim().toLowerCase() : saved?.domain) || undefined;
     if (domain && (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(domain) || domain.endsWith('.localhost') || domain.endsWith('.local'))) {

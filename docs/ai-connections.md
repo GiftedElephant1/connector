@@ -14,8 +14,8 @@ If you already have a working public HTTPS address in Connector, continue at ste
 2. In the browser dashboard, sign in if asked. Use the workspace password you chose for Connector.
 3. Click **Settings** in the sidebar. Find **Make Connector available to your AI agent**.
 4. Click **Open ngrok’s Your Authtoken page**. This opens [ngrok's token page](https://dashboard.ngrok.com/get-started/your-authtoken) in another tab. Sign in or create an ngrok account if needed; this is the service that makes the app on your PC reachable through HTTPS.
-5. On **Your Authtoken**, click the copy icon beside the token. Copy only the token value, not a command or the page address.
-6. Return to Connector's Settings tab. Click inside **ngrok authentication token**, paste the token, and click **Start public access**. Connector installs and runs the tunnel itself. Wait for **Public access is on**.
+5. On **Your Authtoken**, click the copy icon beside the token. Use this copy control instead of selecting hidden dots or copying the page address. This is the authtoken, not an ngrok API key. The current app also accepts the full `ngrok config add-authtoken` line when it contains your actual token; a placeholder such as `$YOUR_AUTHTOKEN` will not work.
+6. Return to Connector's Settings tab. Click inside **ngrok authentication token**, press **Ctrl+A** to select any old contents, then **Ctrl+V** to paste. Click **Start public access**. Connector installs and runs the tunnel itself; no PowerShell command is needed. Wait for **Public access is on**.
 7. Click **Open public workspace**. If ngrok shows a browser notice, continue to the site. Sign in with your Connector workspace password.
 8. In **Connections**, connect the destination accounts your AI should use. Existing connections stay saved; there is no need to reconnect them for this feature.
 9. If you want to use Google Workspace, open **Google Workspace**, connect the intended Google accounts, and create an agent profile with the allowed accounts and apps. Follow the [Workspace guide](providers-workspace.md). You will select this profile during AI authorization.
