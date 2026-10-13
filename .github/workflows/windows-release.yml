@@ -26,7 +26,13 @@ jobs:
             [void][System.Management.Automation.Language.Parser]::ParseFile($scriptFile.FullName, [ref]$tokens, [ref]$parseErrors)
             if ($parseErrors.Count -gt 0) { $parseErrors | Format-List; exit 1 }
           }
-          & .\tests\windows-update.ps1
+          try {
+            & .\tests\windows-update.ps1
+          } catch {
+            $message = ($_.Exception.Message + ' ' + $_.ScriptStackTrace).Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=Windows updater verification::$message"
+            exit 1
+          }
       - run: npm ci
       - run: npm test
       - run: npm run build
