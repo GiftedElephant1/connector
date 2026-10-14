@@ -5,12 +5,55 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 if (-not $Scenario) {
+    . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts/windows-common.ps1')
+    $failedScenarios = New-Object 'System.Collections.Generic.List[string]'
     foreach ($case in @('background', 'failure', 'stop', 'shutdown', 'startup', 'duplicate')) {
-        & powershell.exe -NoLogo -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File $PSCommandPath -Scenario $case
-        if ($LASTEXITCODE -ne 0) { throw ('Windows launcher scenario failed: ' + $case) }
+        $scenarioInfo = New-Object System.Diagnostics.ProcessStartInfo
+        $scenarioInfo.FileName = Join-Path $PSHOME 'powershell.exe'
+        $scenarioArguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-Scenario', $case)
+        $scenarioInfo.Arguments = ($scenarioArguments | ForEach-Object { ConvertTo-ConnectorArgument $_ }) -join ' '
+        $scenarioInfo.UseShellExecute = $false
+        $scenarioInfo.CreateNoWindow = $true
+        $scenarioInfo.RedirectStandardOutput = $true
+        $scenarioInfo.RedirectStandardError = $true
+        $scenarioProcess = New-Object System.Diagnostics.Process
+        $scenarioProcess.StartInfo = $scenarioInfo
+        $scenarioStarted = $false
+        try {
+            [void]$scenarioProcess.Start()
+            $scenarioStarted = $true
+            $scenarioOutput = $scenarioProcess.StandardOutput.ReadToEndAsync()
+            $scenarioErrors = $scenarioProcess.StandardError.ReadToEndAsync()
+            if (-not $scenarioProcess.WaitForExit(60000)) {
+                $scenarioProcess.Kill()
+                $scenarioProcess.WaitForExit()
+                Write-Output ('::error title=Windows launcher ' + $case + '::The isolated scenario timed out after 60 seconds.')
+                $failedScenarios.Add($case)
+            } elseif ($scenarioProcess.ExitCode -ne 0) { $failedScenarios.Add($case) }
+            $capturedOutput = $scenarioOutput.GetAwaiter().GetResult()
+            $capturedErrors = $scenarioErrors.GetAwaiter().GetResult()
+            if ($capturedOutput) { Write-Output $capturedOutput.TrimEnd() }
+            if ($capturedErrors) { Write-Output $capturedErrors.TrimEnd() }
+        } catch {
+            $failedScenarios.Add($case)
+            $message = ($_.Exception.Message + ' ' + $_.ScriptStackTrace).Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output ('::error title=Windows launcher ' + $case + '::' + $message)
+        } finally {
+            if ($scenarioStarted -and -not $scenarioProcess.HasExited) { $scenarioProcess.Kill(); $scenarioProcess.WaitForExit() }
+            $scenarioProcess.Dispose()
+        }
     }
+    if ($failedScenarios.Count) { throw ('Windows launcher scenarios failed: ' + ($failedScenarios -join ', ')) }
     Write-Output 'Windows background launcher event, process, startup, and instance checks passed.'
     return
+}
+
+trap {
+    # GitHub exposes annotations even when raw Windows logs require sign-in.
+    # Include the failing assertion and its source line, not only an exit code.
+    $message = ($_.Exception.Message + ' ' + $_.ScriptStackTrace).Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+    Write-Output ('::error title=Windows launcher ' + $Scenario + '::' + $message)
+    exit 1
 }
 
 function Assert-True([bool]$condition, [string]$message) {
