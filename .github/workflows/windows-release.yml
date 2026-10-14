@@ -66,11 +66,43 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged dashboard build failed.' }
           node --import tsx tests/update-smoke.mjs "$packageRoot"
           if ($LASTEXITCODE -ne 0) { throw 'Existing-account upgrade verification failed.' }
+      - name: Scan development download before making it available
+        id: defender
+        # Development checks may complete on a runner without Defender, but its
+        # ZIP is withheld. The signed-release workflow treats scan failure as fatal.
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          try { Update-MpSignature -ErrorAction Stop }
+          catch { Write-Warning 'Could not refresh Defender definitions; the scan still requires active protection and recent definitions.' }
+          & .\scripts\windows-scan-package.ps1 -PackagePath artifacts\Connector-Windows.zip -ReportPath artifacts\Connector-Windows.scan.json
+      - name: Record actual scan outcome
+        if: always() && steps.defender.outcome != 'skipped'
+        shell: pwsh
+        env:
+          SCAN_OUTCOME: ${{ steps.defender.outcome }}
+        run: |
+          if ($env:SCAN_OUTCOME -eq 'success') {
+            'Defender scanned the exact development ZIP and extracted contents. This unsigned build is not a signed release or a Chrome acceptance test.' >> $env:GITHUB_STEP_SUMMARY
+          } else {
+            'Windows download WITHHELD: Defender did not establish a clean package. Inspect the scan report and step error. No malware verdict or browser acceptance is claimed.' >> $env:GITHUB_STEP_SUMMARY
+          }
       - uses: actions/upload-artifact@v6
+        if: steps.defender.outcome == 'success'
         with:
           name: Connector-Windows
           path: |
             artifacts/Connector-Windows.zip
             artifacts/Connector-Windows.zip.sha256
+            artifacts/Connector-Windows.scan.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Save failed or unavailable scan report
+        if: always() && steps.defender.outcome == 'failure'
+        uses: actions/upload-artifact@v6
+        with:
+          name: Windows-download-withheld-scan-report
+          path: artifacts/Connector-Windows.scan.json
           if-no-files-found: error
           retention-days: 30
