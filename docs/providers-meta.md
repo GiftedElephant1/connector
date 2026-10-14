@@ -42,6 +42,23 @@ Verification reads `/me?fields=id,username,name`. Threads' documented API uses `
 
 Official evidence: [Meta Threads sample README](https://github.com/fbsamples/threads_api/blob/main/README.md), [OAuth and profile source](https://github.com/fbsamples/threads_api/blob/main/src/index.js), and [token lifecycle API examples](https://github.com/fbsamples/threads_api/blob/main/postman/threads-api.postman_collection.json). The sample's TLS bypass option is not used; Connector keeps TLS verification enabled.
 
+### Troubleshoot Threads connection errors
+
+Open **Settings → Platform application settings → Threads → Manage setup** to check the saved Threads app ID, matching Threads app secret, API version (`v1.0`), and copyable redirect address. In Meta's developer dashboard, use the dedicated **Threads app ID** and **Threads app secret**, which may appear below the general app credentials in **App settings → Basic**. When correcting the ID, paste the matching revealed Threads secret too: an empty secret field preserves the previous value. Save, then start a fresh attempt from **Connections → Threads → Connect account**.
+
+Before returning to Connector, Meta can reject a mismatched app ID, an unregistered redirect address, or an unaccepted Threads tester invitation. Register the exact displayed `/api/oauth/threads/callback` URL in the Threads configuration and accept the tester invitation while signed in to the same Threads profile you intend to connect.
+
+After returning to Connector, an HTTP 400 alone does not identify the cause. Version 0.9.7 and later identify the failed step and, when Meta supplies them, numeric error codes/subcodes:
+
+| Failed step | What to check |
+| --- | --- |
+| Authorization code exchange | The matching Threads ID/secret pair and unchanged callback address; start a fresh connection because sign-in codes expire and cannot be reused. |
+| Long-lived token exchange | The Threads app secret and the new grant. Connector does not silently accept a failed token extension as a complete connection. |
+| Profile verification | The authorized Threads profile, `threads_basic` permission, and Threads API version. |
+| Token refresh | The existing token may need a fresh authorization; follow any expiry or permission guidance. |
+
+Error messages never reproduce Meta's raw response text, credentials, sign-in codes, tokens, or request URLs. You can share the displayed step and numeric codes for diagnosis. A safe diagnostic message helps identify the rejected request; it does not establish that a live connection has succeeded. Existing older builds show the generic “Threads could not complete the request (HTTP 400).” message instead. Use the [account-preserving Windows update process](windows.md#update-without-reconnecting-your-accounts) when an updated signed release is available.
+
 ## Action workbench
 
 Reconnect existing accounts after upgrading from the connection-only version so the new scopes are granted. A successful connection verifies identity/resources; it does not prove that your app has approval for every write scope. Meta app review and advanced access, required Page tasks, linked professional accounts, and the platform's messaging rules still govern each operation. The server handles permission failures without exposing access tokens or raw provider errors.

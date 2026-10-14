@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { fetchJson, isObject, safeCredential, tokenResponse, type JsonObject } from './provider-http.ts';
 import { ProviderError, type Credential, type OAuthExchange, type OAuthRequest, type ProviderAdapter, type Resource, type VerifiedAccount } from './provider-types.ts';
+import { threadsHttpOptions } from './threads-errors.ts';
 
 function envValue(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name]?.trim();
@@ -150,13 +151,13 @@ async function threadsExchange(input: OAuthExchange): Promise<Credential> {
   });
   const initial = tokenResponse(await fetchJson('Threads', threadsUrl('oauth/access_token', input.env).toString(), {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form.toString(),
-  }));
+  }, threadsHttpOptions('code-exchange')));
   const url = threadsUrl('access_token', input.env, {
     grant_type: 'th_exchange_token',
     client_secret: envValue(input.env, 'THREADS_APP_SECRET'),
     access_token: initial.accessToken,
   });
-  return tokenResponse(await fetchJson('Threads', url.toString()));
+  return tokenResponse(await fetchJson('Threads', url.toString(), {}, threadsHttpOptions('token-extension')));
 }
 
 async function threadsRefresh(credential: Credential, env: NodeJS.ProcessEnv): Promise<Credential> {
@@ -164,12 +165,12 @@ async function threadsRefresh(credential: Credential, env: NodeJS.ProcessEnv): P
     throw new ProviderError('Threads access has expired. Reconnect this account.', 401);
   }
   const url = threadsUrl('refresh_access_token', env, { grant_type: 'th_refresh_token', access_token: safeCredential(credential) });
-  return tokenResponse(await fetchJson('Threads', url.toString()), credential);
+  return tokenResponse(await fetchJson('Threads', url.toString(), {}, threadsHttpOptions('token-refresh')), credential);
 }
 
 async function threadsVerify(credential: Credential, env: NodeJS.ProcessEnv): Promise<VerifiedAccount> {
   const url = threadsUrl('me', env, { fields: 'id,username,name', access_token: safeCredential(credential) });
-  const body = await fetchJson('Threads', url.toString());
+  const body = await fetchJson('Threads', url.toString(), {}, threadsHttpOptions('profile-verification'));
   const account = profile(body, 'Threads');
   return { ...account, resources: [{ id: account.accountId, name: typeof body.username === 'string' ? `@${body.username}` : account.accountName, type: 'threads-profile' }] };
 }

@@ -153,6 +153,74 @@ for (const providerId of ['linkedin', 'linkedin-ads']) {
   });
 }
 
+test('Threads uses corrected saved credentials and safely reports a failed exchange before a fresh successful connection', async t => {
+  const origin = 'https://connector.example';
+  const f = await fixture(t, {}, {
+    THREADS_APP_ID: '111111111111111', THREADS_APP_SECRET: 'old-threads-secret',
+    META_APP_ID: '333333333333333', META_APP_SECRET: 'separate-meta-secret',
+  }, {}, { origin });
+  const headers = { host: new URL(origin).host, origin };
+  const cookie = await f.login(undefined, headers);
+  const correctedId = '222222222222222';
+  const correctedSecret = 'replacement-threads-secret';
+  const saved = await f.mutate('/api/settings', {
+    values: { THREADS_APP_ID: correctedId, THREADS_APP_SECRET: correctedSecret },
+  }, cookie, headers, 'PUT');
+  assert.equal(saved.status, 200);
+  assert.equal((await saved.text()).includes(correctedSecret), false);
+
+  const start = async () => {
+    const response = await f.mutate('/api/oauth/threads/start', {}, cookie, headers);
+    assert.equal(response.status, 200);
+    const url = new URL((await response.json() as { url: string }).url);
+    assert.equal(url.searchParams.get('client_id'), correctedId);
+    assert.equal(url.searchParams.get('redirect_uri'), `${origin}/api/oauth/threads/callback`);
+    assert.equal(url.searchParams.has('client_secret'), false);
+    return url.searchParams.get('state')!;
+  };
+  let providerRequests = 0;
+  t.mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    providerRequests++;
+    const url = new URL(String(input));
+    assert.equal(url.origin, 'https://graph.threads.com');
+    if (url.pathname.endsWith('/oauth/access_token')) {
+      const form = new URLSearchParams(String(init?.body));
+      assert.equal(form.get('client_id'), correctedId);
+      assert.equal(form.get('client_secret'), correctedSecret);
+      assert.equal(form.get('redirect_uri'), `${origin}/api/oauth/threads/callback`);
+      if (providerRequests === 1) return Response.json({
+        error: { code: 100, error_subcode: 36008, message: `${correctedSecret} private-sign-in-code`, fbtrace_id: 'private-trace' },
+      }, { status: 400 });
+      return Response.json({ access_token: 'short-threads-token' });
+    }
+    if (url.pathname.endsWith('/access_token')) {
+      assert.equal(url.searchParams.get('client_secret'), correctedSecret);
+      return Response.json({ access_token: 'long-threads-token', expires_in: 5_184_000 });
+    }
+    assert.equal(url.pathname, '/v1.0/me');
+    return Response.json({ id: 'threads-user', username: 'test_profile' });
+  });
+
+  const firstState = await start();
+  const failed = await f.request(`/api/oauth/threads/callback?state=${firstState}&code=private-sign-in-code`, { headers: { cookie, ...headers } });
+  assert.equal(failed.status, 302);
+  const error = new URL(failed.headers.get('location')!, origin).searchParams.get('error')!;
+  assert.match(error, /authorization code exchange/i);
+  assert.match(error, /100/);
+  assert.match(error, /36008/);
+  for (const sensitive of [correctedSecret, 'private-sign-in-code', 'private-trace', firstState]) assert.equal(error.includes(sensitive), false);
+  assert.equal(f.store.credential('threads'), null);
+
+  const secondState = await start();
+  assert.notEqual(firstState, secondState);
+  const success = await f.request(`/api/oauth/threads/callback?state=${secondState}&code=fresh-code`, { headers: { cookie, ...headers } });
+  assert.equal(success.status, 302);
+  assert.equal(success.headers.get('location'), '/?connected=threads');
+  assert.equal(f.store.credential('threads')?.accessToken, 'long-threads-token');
+  assert.equal(f.env.META_APP_SECRET, 'separate-meta-secret');
+  assert.equal(providerRequests, 4);
+});
+
 test('settings reject runtime controls, invalid values, and partial changes', async t => {
   const f = await fixture(t);
   const cookie = await f.login();

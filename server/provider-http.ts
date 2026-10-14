@@ -13,17 +13,69 @@ export function safeCredential(credential: Credential): string {
   return token.trim();
 }
 
+export type ProviderHttpFailure = {
+  kind: 'http' | 'network' | 'invalid-response';
+  status?: number;
+  code?: number;
+  subcode?: number;
+};
+export type ProviderHttpOptions = {
+  /** Receives only bounded numeric diagnostics, never upstream messages, URLs or credentials. */
+  failure?: (failure: ProviderHttpFailure) => ProviderError;
+};
+
+function diagnosticNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 2_147_483_647 ? value : undefined;
+}
+
+/** Error payloads are untrusted. Read at most 16 KiB and allowlist only Graph's numeric codes. */
+async function errorCodes(response: Response): Promise<Pick<ProviderHttpFailure, 'code' | 'subcode'>> {
+  try {
+    const reader = response.body?.getReader();
+    if (!reader) return {};
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > 16_384) {
+          await reader.cancel();
+          return {};
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    const body: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    if (!isObject(body)) return {};
+    const nested = isObject(body.error) ? body.error : {};
+    const code = diagnosticNumber(nested.code) ?? diagnosticNumber(body.error_code) ?? diagnosticNumber(body.code);
+    const subcode = diagnosticNumber(nested.error_subcode) ?? diagnosticNumber(body.error_subcode);
+    return { ...(code !== undefined ? { code } : {}), ...(subcode !== undefined ? { subcode } : {}) };
+  } catch {
+    return {};
+  }
+}
+
 /** Call only fixed official API origins. Upstream responses and thrown errors are never included in public errors. */
-async function fetchJsonBody(providerName: string, url: string, init: RequestInit = {}): Promise<unknown> {
+async function fetchJsonBody(providerName: string, url: string, init: RequestInit = {}, options: ProviderHttpOptions = {}): Promise<unknown> {
   let response: Response;
   try {
     const headers = new Headers(init.headers);
     if (!headers.has('accept')) headers.set('accept', 'application/json');
     response = await fetch(url, { ...init, redirect: 'error', signal: AbortSignal.timeout(15_000), headers });
   } catch {
+    if (options.failure) throw options.failure({ kind: 'network' });
     throw new ProviderError(`${providerName} could not be reached. Check connectivity and try again.`, 502);
   }
   if (!response.ok) {
+    if (options.failure) throw options.failure({ kind: 'http', status: response.status, ...await errorCodes(response) });
     if (response.status === 401) throw new ProviderError(`${providerName} rejected this credential. Reconnect with a valid credential.`, 401);
     if (response.status === 403) throw new ProviderError(`${providerName} denied access. Check the account's permissions and app approval.`, 403);
     if (response.status === 429) throw new ProviderError(`${providerName} is rate limiting requests. Try again later.`, 429);
@@ -31,14 +83,18 @@ async function fetchJsonBody(providerName: string, url: string, init: RequestIni
   }
   let body: unknown;
   try { body = await response.json(); } catch {
+    if (options.failure) throw options.failure({ kind: 'invalid-response', status: response.status });
     throw new ProviderError(`${providerName} returned an invalid response. Try again later.`, 502);
   }
   return body;
 }
 
-export async function fetchJson(providerName: string, url: string, init: RequestInit = {}): Promise<JsonObject> {
-  const body = await fetchJsonBody(providerName, url, init);
-  if (!isObject(body)) throw new ProviderError(`${providerName} returned an invalid response. Try again later.`, 502);
+export async function fetchJson(providerName: string, url: string, init: RequestInit = {}, options: ProviderHttpOptions = {}): Promise<JsonObject> {
+  const body = await fetchJsonBody(providerName, url, init, options);
+  if (!isObject(body)) {
+    if (options.failure) throw options.failure({ kind: 'invalid-response' });
+    throw new ProviderError(`${providerName} returned an invalid response. Try again later.`, 502);
+  }
   return body;
 }
 
