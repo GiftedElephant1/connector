@@ -219,33 +219,72 @@ public static class ConnectorLauncherTestEvents {
             $startupDirectory = Join-Path $temporary 'isolated Startup'
             $installation = Join-Path $temporary ("Original O'Brien " + [char]0x540c + [char]0x6b65)
             New-Item -ItemType Directory -Path $installation | Out-Null
-            Set-Content -LiteralPath (Join-Path $installation 'Start Connector.vbs') -Value "' isolated test launcher"
+            $startedMarker = Join-Path $temporary 'startup-script-ran.txt'
+            $vbsFixture = @'
+Option Explicit
+Dim fileSystem, output
+Set fileSystem = CreateObject("Scripting.FileSystemObject")
+Set output = fileSystem.CreateTextFile("MARKER_PATH", True)
+If WScript.Arguments.Count = 1 Then
+  output.Write WScript.Arguments(0)
+Else
+  output.Write "unexpected argument count"
+End If
+output.Close
+'@
+            [IO.File]::WriteAllText((Join-Path $installation 'Start Connector.vbs'), $vbsFixture.Replace('MARKER_PATH', $startedMarker.Replace('"', '""')), (New-Object System.Text.UTF8Encoding($false)))
             Assert-True (-not (Get-ConnectorStartWithWindows $installation $startupDirectory)) 'Startup was enabled before the user selected it.'
             Set-ConnectorStartWithWindows $installation $true $startupDirectory
             $shortcutPath = Get-ConnectorStartupPath $startupDirectory
-            $shell = New-Object -ComObject WScript.Shell
+            $shortcut = Get-ConnectorStartupShortcutMetadata $shortcutPath
+            $expectedTarget = Join-Path $env:SystemRoot 'System32\wscript.exe'
+            $expectedArguments = '"' + (Join-Path $installation 'Start Connector.vbs') + '" /background'
+            $roundTrip = Get-ConnectorStartWithWindows $installation $startupDirectory
+            $diagnostic = @{
+                shortcutPath = $shortcutPath; shortcutExists = (Test-Path -LiteralPath $shortcutPath);
+                result = $roundTrip; resultType = $roundTrip.GetType().FullName;
+                expectedTarget = $expectedTarget; actualTarget = $shortcut.TargetPath;
+                targetType = $shortcut.TargetPath.GetType().FullName;
+                expectedArguments = $expectedArguments; actualArguments = $shortcut.Arguments;
+                argumentType = $shortcut.Arguments.GetType().FullName;
+                expectedArgumentBytes = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($expectedArguments));
+                actualArgumentBytes = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($shortcut.Arguments));
+                expectedWorkingDirectory = $installation; actualWorkingDirectory = $shortcut.WorkingDirectory;
+            } | ConvertTo-Json -Compress
+            Assert-True $roundTrip ('Startup registration did not round-trip through Windows shortcut storage. ' + $diagnostic)
+            Assert-True ($shortcut.TargetPath -ieq $expectedTarget) 'Startup invokes an unexpected executable.'
+            Assert-Equal $shortcut.Arguments $expectedArguments 'Startup lost quoting or the no-browser background argument.'
+            Assert-Equal $shortcut.WorkingDirectory $installation 'Startup changed the selected installation folder.'
+
+            # Reading metadata is insufficient: ask Windows to launch the .lnk
+            # and prove the script in the Unicode folder receives /background.
+            # The fixture only writes its argument to a temporary marker file.
+            $shortcutProcess = New-Object System.Diagnostics.Process
+            $shortcutProcess.StartInfo.FileName = $shortcutPath
+            $shortcutProcess.StartInfo.UseShellExecute = $true
+            $shortcutProcess.StartInfo.ErrorDialog = $false
+            $shortcutProcess.StartInfo.WindowStyle = 'Hidden'
+            $shortcutJob = New-Object ConnectorChildJob
+            $shortcutStarted = $false
             try {
-                $shortcut = $shell.CreateShortcut($shortcutPath)
-                try {
-                    $expectedTarget = Join-Path $env:SystemRoot 'System32\wscript.exe'
-                    $expectedArguments = '"' + (Join-Path $installation 'Start Connector.vbs') + '" /background'
-                    $roundTrip = Get-ConnectorStartWithWindows $installation $startupDirectory
-                    $diagnostic = @{
-                        result = $roundTrip; resultType = $roundTrip.GetType().FullName;
-                        expectedTarget = $expectedTarget; actualTarget = $shortcut.TargetPath;
-                        targetType = $shortcut.TargetPath.GetType().FullName;
-                        expectedArguments = $expectedArguments; actualArguments = $shortcut.Arguments;
-                        argumentType = $shortcut.Arguments.GetType().FullName;
-                        expectedArgumentBytes = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($expectedArguments));
-                        actualArgumentBytes = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($shortcut.Arguments));
-                        expectedWorkingDirectory = $installation; actualWorkingDirectory = $shortcut.WorkingDirectory;
-                    } | ConvertTo-Json -Compress
-                    Assert-True $roundTrip ('Startup registration did not round-trip through Windows shortcut storage. ' + $diagnostic)
-                    Assert-True ($shortcut.TargetPath -ieq (Join-Path $env:SystemRoot 'System32\wscript.exe')) 'Startup invokes an unexpected executable.'
-                    Assert-Equal $shortcut.Arguments ('"' + (Join-Path $installation 'Start Connector.vbs') + '" /background') 'Startup lost quoting or the no-browser background argument.'
-                    Assert-Equal $shortcut.WorkingDirectory $installation 'Startup changed the selected installation folder.'
-                } finally { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shortcut) }
-            } finally { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell) }
+                $shortcutStarted = $shortcutProcess.Start()
+                Assert-True $shortcutStarted 'Windows did not start the isolated startup shortcut process.'
+                try { $shortcutJob.Add($shortcutProcess.Handle) }
+                catch { if (-not $shortcutProcess.HasExited) { throw } }
+                Wait-TestCondition { Test-Path -LiteralPath $startedMarker } 'Windows could not launch the startup shortcut from the Unicode installation folder.'
+                Assert-True ($shortcutProcess.WaitForExit(5000)) 'The isolated startup script did not exit.'
+                Assert-Equal $shortcutProcess.ExitCode 0 'Windows reported an error running the startup shortcut.'
+                Assert-Equal (Get-Content -LiteralPath $startedMarker -Raw) '/background' 'The startup shortcut did not pass the background launch argument to the real script.'
+            } finally {
+                $shortcutJob.Dispose()
+                if ($shortcutStarted -and -not $shortcutProcess.HasExited -and -not $shortcutProcess.WaitForExit(5000)) {
+                    # Also clean up if job assignment itself failed. This handle
+                    # belongs only to the harmless process this test launched.
+                    $shortcutProcess.Kill()
+                    $shortcutProcess.WaitForExit(5000) | Out-Null
+                }
+                $shortcutProcess.Dispose()
+            }
             Set-ConnectorStartWithWindows $installation $true $startupDirectory
             Assert-Equal @(Get-ChildItem -LiteralPath $startupDirectory -Filter '*.lnk').Count 1 'Repeated startup selection created duplicate entries.'
             Set-ConnectorStartWithWindows (Join-Path $temporary 'different installation') $false $startupDirectory

@@ -12,18 +12,85 @@ function Get-ConnectorStartupPath([string]$startupDirectory = '') {
     return Join-Path $startupDirectory 'Connector Background.lnk'
 }
 
+function Initialize-ConnectorStartupShortcut {
+    if ('ConnectorStartupShortcut' -as [type]) { return }
+    # WScript.Shell's shortcut Arguments property can convert Unicode paths to
+    # the Windows ANSI code page. Use the Unicode shell-link interface directly
+    # so installations in any language remain runnable after Windows sign-in.
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+using System.Text;
+
+public static class ConnectorStartupShortcut {
+    [ComImport, Guid("00021401-0000-0000-C000-000000000046")]
+    private class ShellLink { }
+
+    [ComImport, Guid("000214F9-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IShellLinkW {
+        void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder file, int length, IntPtr findData, uint flags);
+        void GetIDList(out IntPtr pidl);
+        void SetIDList(IntPtr pidl);
+        void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder description, int length);
+        void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string description);
+        void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder directory, int length);
+        void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string directory);
+        void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder arguments, int length);
+        void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string arguments);
+        void GetHotkey(out short hotkey);
+        void SetHotkey(short hotkey);
+        void GetShowCmd(out int show);
+        void SetShowCmd(int show);
+        void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder icon, int length, out int index);
+        void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string icon, int index);
+        void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string path, uint reserved);
+        void Resolve(IntPtr window, uint flags);
+        void SetPath([MarshalAs(UnmanagedType.LPWStr)] string path);
+    }
+
+    public static void Save(string file, string target, string arguments, string workingDirectory) {
+        IShellLinkW link = (IShellLinkW)new ShellLink();
+        try {
+            link.SetPath(target);
+            link.SetArguments(arguments);
+            link.SetWorkingDirectory(workingDirectory);
+            link.SetShowCmd(7);
+            link.SetDescription("Run Connector in the notification area when you sign in to Windows.");
+            ((IPersistFile)link).Save(file, true);
+        } finally { Marshal.FinalReleaseComObject(link); }
+    }
+
+    public static string[] Read(string file) {
+        IShellLinkW link = (IShellLinkW)new ShellLink();
+        try {
+            ((IPersistFile)link).Load(file, 0);
+            StringBuilder target = new StringBuilder(32768);
+            StringBuilder arguments = new StringBuilder(32768);
+            StringBuilder directory = new StringBuilder(32768);
+            link.GetPath(target, target.Capacity, IntPtr.Zero, 0);
+            link.GetArguments(arguments, arguments.Capacity);
+            link.GetWorkingDirectory(directory, directory.Capacity);
+            return new string[] { target.ToString(), arguments.ToString(), directory.ToString() };
+        } finally { Marshal.FinalReleaseComObject(link); }
+    }
+}
+'@
+}
+
+function Get-ConnectorStartupShortcutMetadata([string]$path) {
+    Initialize-ConnectorStartupShortcut
+    $metadata = [ConnectorStartupShortcut]::Read($path)
+    return @{ TargetPath = $metadata[0]; Arguments = $metadata[1]; WorkingDirectory = $metadata[2] }
+}
+
 function Get-ConnectorStartWithWindows([string]$root, [string]$startupDirectory = '') {
     $shortcutPath = Get-ConnectorStartupPath $startupDirectory
     if (-not (Test-Path -LiteralPath $shortcutPath)) { return $false }
-    $shell = New-Object -ComObject WScript.Shell
-    try {
-        $shortcut = $shell.CreateShortcut($shortcutPath)
-        try {
-            $expectedTarget = Join-Path $env:SystemRoot 'System32\wscript.exe'
-            $expectedArguments = (ConvertTo-ConnectorArgument (Join-Path $root 'Start Connector.vbs')) + ' /background'
-            return $shortcut.TargetPath -eq $expectedTarget -and $shortcut.Arguments -eq $expectedArguments
-        } finally { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shortcut) }
-    } finally { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell) }
+    $shortcut = Get-ConnectorStartupShortcutMetadata $shortcutPath
+    $expectedTarget = Join-Path $env:SystemRoot 'System32\wscript.exe'
+    $expectedArguments = (ConvertTo-ConnectorArgument (Join-Path $root 'Start Connector.vbs')) + ' /background'
+    return $shortcut.TargetPath -eq $expectedTarget -and $shortcut.Arguments -eq $expectedArguments
 }
 
 function Set-ConnectorStartWithWindows([string]$root, [bool]$enabled, [string]$startupDirectory = '') {
@@ -36,18 +103,8 @@ function Set-ConnectorStartWithWindows([string]$root, [bool]$enabled, [string]$s
     $launcher = Join-Path $root 'Start Connector.vbs'
     if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) { throw 'Start Connector is missing. Extract the entire Connector ZIP before enabling startup.' }
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $shortcutPath) | Out-Null
-    $shell = New-Object -ComObject WScript.Shell
-    try {
-        $shortcut = $shell.CreateShortcut($shortcutPath)
-        try {
-            $shortcut.TargetPath = Join-Path $env:SystemRoot 'System32\wscript.exe'
-            $shortcut.Arguments = (ConvertTo-ConnectorArgument $launcher) + ' /background'
-            $shortcut.WorkingDirectory = $root
-            $shortcut.WindowStyle = 7
-            $shortcut.Description = 'Run Connector in the notification area when you sign in to Windows.'
-            $shortcut.Save()
-        } finally { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shortcut) }
-    } finally { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell) }
+    Initialize-ConnectorStartupShortcut
+    [ConnectorStartupShortcut]::Save($shortcutPath, (Join-Path $env:SystemRoot 'System32\wscript.exe'), ((ConvertTo-ConnectorArgument $launcher) + ' /background'), $root)
 }
 
 function Get-ConnectorInstanceHash([string]$stateRoot) {
