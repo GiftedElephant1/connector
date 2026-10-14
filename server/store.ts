@@ -4,6 +4,7 @@ import { chmodSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Credential, VerifiedAccount } from './providers';
 import type { ActionResult, ActionValues } from './action-types';
+import { ProviderError } from './provider-types';
 
 export interface Job {
   id: string;
@@ -28,6 +29,7 @@ export const hash = (value: string) => createHash('sha256').update(value).digest
 
 export class Store {
   private db: DatabaseSync;
+  private connectionGenerations = new Map<string, number>();
   constructor(path: string, private key: Buffer) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.db = new DatabaseSync(path);
@@ -76,7 +78,23 @@ export class Store {
   updateCredential(provider: string, credential: Credential) {
     this.db.prepare('UPDATE connections SET secret=? WHERE provider=?').run(this.seal(credential, `credential:${provider}`), provider);
   }
-  disconnect(provider: string) { this.db.prepare('DELETE FROM connections WHERE provider=?').run(provider); }
+  connectionGeneration(provider: string): number { return this.connectionGenerations.get(provider) || 0; }
+  assertConnectionGeneration(provider: string, generation: number): void {
+    if (generation !== this.connectionGeneration(provider)) throw new ProviderError('This connector was disconnected or reset while the request was running. Start a new connection.', 409);
+  }
+  invalidateOAuth(provider: string): void { this.db.prepare('DELETE FROM oauth_states WHERE provider=?').run(provider); }
+  pendingJobs(providers: string[], prefixes: string[] = []): number {
+    return this.db.prepare("SELECT provider, COUNT(*) AS count FROM jobs WHERE status='pending' GROUP BY provider").all()
+      .filter(row => providers.includes(String(row.provider)) || prefixes.some(prefix => String(row.provider).startsWith(prefix)))
+      .reduce((total, row) => total + Number(row.count), 0);
+  }
+  disconnect(provider: string) {
+    this.connectionGenerations.set(provider, this.connectionGeneration(provider) + 1);
+    this.invalidateOAuth(provider);
+    if (provider === 'plaid') this.invalidateOAuth('plaid-link');
+    this.db.prepare("UPDATE jobs SET status='cancelled',finished=? WHERE provider=? AND status='pending'").run(Date.now(), provider);
+    this.db.prepare('DELETE FROM connections WHERE provider=?').run(provider);
+  }
   readSetting<T>(name: string): T | null {
     const row = this.db.prepare('SELECT payload FROM settings WHERE name=?').get(name);
     return row ? this.open<T>(String(row.payload), `setting:${name}`) : null;

@@ -8,6 +8,8 @@ import { Pipeline } from '../server/pipeline.ts';
 import { ProviderError } from '../server/provider-types.ts';
 import { validateValues } from '../server/actions.ts';
 import type { ActionAdapter } from '../server/action-types.ts';
+import type { Credential } from '../server/provider-types.ts';
+import { hydrateSettings } from '../server/settings.ts';
 
 const pipelineKey = 'test-pipeline-private-key-1234567890';
 const platformKey = 'test-platform-private-key';
@@ -16,7 +18,7 @@ const config: AppConfig = {
   encryptionKey: Buffer.alloc(32, 31), databasePath: ':memory:', secureCookies: false, pipelineKey,
 };
 
-async function fixture(t: TestContext, options: { execute?: ActionAdapter['execute']; enabled?: boolean } = {}) {
+async function fixture(t: TestContext, options: { execute?: ActionAdapter['execute']; enabled?: boolean; refresh?: (credential: Credential) => Promise<Credential> } = {}) {
   const store = new Store(':memory:', config.encryptionKey);
   store.save('x', { accessToken: platformKey, refreshToken: 'test-private-refresh-token' }, { accountName: 'Test account', resources: [] });
   let calls = 0;
@@ -36,8 +38,9 @@ async function fixture(t: TestContext, options: { execute?: ActionAdapter['execu
     },
     listActions: provider => adapters.filter(item => item.provider === provider).map(item => item.definition),
     validateValues,
-  }, { refreshCredential: async (_provider, credential) => credential });
-  const app = createApp({ ...config, pipelineKey: options.enabled === false ? undefined : pipelineKey }, store, undefined, {}, pipeline);
+  }, { refreshCredential: async (_provider, credential) => options.refresh ? options.refresh(credential) : credential });
+  const currentConfig = { ...config, pipelineKey: options.enabled === false ? undefined : pipelineKey };
+  const app = createApp(currentConfig, store, undefined, {}, pipeline);
   const server = await new Promise<ReturnType<typeof app.listen>>((resolve, reject) => {
     const listening = app.listen(0, '127.0.0.1', () => resolve(listening));
     listening.once('error', reject);
@@ -56,8 +59,58 @@ async function fixture(t: TestContext, options: { execute?: ActionAdapter['execu
   const rpc = (method: string, params: unknown = {}, extraHeaders: Record<string, string> = {}) => api('/mcp', {
     jsonrpc: '2.0', id: ++id, method, params,
   }, { accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-03-26', ...extraHeaders });
-  return { store, pipeline, request, api, rpc, calls: () => calls };
+  return { store, pipeline, request, api, rpc, currentConfig, calls: () => calls };
 }
+
+test('shared AI key reset requires owner confirmation, invalidates old access and persists over the original environment key', async t => {
+  const f = await fixture(t);
+  const cookie = `connector_session=${f.store.createSession()}`;
+  const reset = (headers: Record<string, string>, body = { confirmed: true }) => f.request('/api/settings/pipeline-key/reset', {
+    method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body),
+  });
+  assert.equal((await reset({ 'x-connector-request': '1' })).status, 401);
+  assert.equal((await reset({ cookie })).status, 403);
+  assert.equal((await reset({ cookie, 'x-connector-request': '1' }, { confirmed: false })).status, 409);
+  const scheduled = f.pipeline.schedule('x', 'publish', { text: 'Future approved post' }, new Date(Date.now() + 60_000).toISOString(), true, 'key-reset-scheduled');
+  const response = await reset({ cookie, 'x-connector-request': '1' });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  const { apiKey } = await response.json() as { apiKey: string };
+  assert.match(apiKey, /^[A-Za-z0-9_-]{43}$/);
+  assert.notEqual(apiKey, pipelineKey);
+  assert.equal((await f.api('/api/v1/connections')).status, 401);
+  assert.equal((await f.rpc('tools/list')).status, 401);
+  assert.equal((await f.api('/api/v1/connections', undefined, { authorization: `Bearer ${apiKey}` })).status, 200);
+  assert.equal(f.store.credential('x')?.accessToken, platformKey);
+  assert.equal(f.store.job(scheduled.id)?.status, 'pending');
+  const restartedConfig = { ...config };
+  const restartedEnv = { PIPELINE_API_KEY: pipelineKey };
+  hydrateSettings(restartedConfig, f.store, restartedEnv);
+  assert.equal(restartedConfig.pipelineKey, apiKey);
+  assert.equal(restartedEnv.PIPELINE_API_KEY, apiKey);
+});
+
+test('resetting the shared AI key during refresh prevents a previously authorized request from executing', async t => {
+  let announce!: () => void;
+  const entered = new Promise<void>(resolve => { announce = resolve; });
+  let release!: () => void;
+  const waiting = new Promise<void>(resolve => { release = resolve; });
+  const f = await fixture(t, { refresh: async credential => { announce(); await waiting; return { ...credential, accessToken: 'rotated-platform-token' }; } });
+  f.store.updateCredential('x', { ...f.store.credential('x')!, expiresAt: 1 });
+  const pending = f.api('/api/v1/actions/x/read', { values: {} });
+  await entered;
+  try {
+    const response = await f.request('/api/settings/pipeline-key/reset', {
+      method: 'POST', headers: { cookie: `connector_session=${f.store.createSession()}`, 'content-type': 'application/json', 'x-connector-request': '1' }, body: JSON.stringify({ confirmed: true }),
+    });
+    assert.equal(response.status, 200);
+  } finally { release(); }
+  const result = await pending;
+  assert.equal(result.status, 401);
+  assert.match(await result.text(), /API key has been reset/);
+  assert.equal(f.calls(), 0);
+  assert.equal(f.store.credential('x')?.accessToken, 'rotated-platform-token');
+});
 
 test('REST and MCP require the independent pipeline bearer credential', async (t) => {
   const f = await fixture(t);

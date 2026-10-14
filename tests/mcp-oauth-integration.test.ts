@@ -314,6 +314,32 @@ async function disconnect(f: Fixture, cookie: string) {
   assert.equal((await f.owner(cookie, `/api/ai/connectors/${body.grants[0].id}`, undefined, 'DELETE')).status, 200);
 }
 
+test('AI client reset requires owner authentication, same-origin protection and explicit confirmation, then invalidates MCP access', async t => {
+  const f = await fixture(t);
+  const first = await connect(t, f);
+  const other = await connect(t, f);
+  const id = first.provider.information!.client_id;
+  const path = `/api/ai/clients/${id}/reset`;
+  assert.equal((await f.request(path)).status, 401);
+  assert.equal((await f.request(path, { method: 'POST', headers: { 'content-type': 'application/json', 'x-connector-request': '1' }, body: JSON.stringify({ confirmed: true }) })).status, 401);
+  assert.equal((await f.request(path, { method: 'POST', headers: { cookie: first.cookie, 'content-type': 'application/json' }, body: JSON.stringify({ confirmed: true }) })).status, 403);
+  const preview = await f.owner(first.cookie, path);
+  assert.equal(preview.status, 200);
+  const details = await preview.json() as { id: string; grants: number; accessTokens: number; refreshTokens: number };
+  assert.equal(details.id, id);
+  assert.equal(details.grants, 1);
+  assert.equal(details.accessTokens, 1);
+  assert.equal(details.refreshTokens, 1);
+  assert.equal((await f.owner(first.cookie, path, { confirmed: false })).status, 400);
+  assert.equal((await f.rpc(first.provider.savedTokens!.access_token)).status, 200);
+  assert.equal((await f.owner(first.cookie, path, { confirmed: true })).status, 200);
+  assert.equal((await f.rpc(first.provider.savedTokens!.access_token)).status, 401);
+  assert.equal((await f.rpc(other.provider.savedTokens!.access_token)).status, 200);
+  assert.equal((await f.rpc(masterKey)).status, 200, 'reset leaves the separate shared key intact');
+  assert.equal(f.store.credential('x')?.accessToken, platformKey);
+  assert.equal((await f.owner(first.cookie, path)).status, 404);
+});
+
 test('disconnecting an AI during a platform read suppresses its pending private result and challenges the next MCP request', async t => {
   let release!: () => void;
   let started!: () => void;

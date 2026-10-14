@@ -19,7 +19,9 @@ type AiGrant = {
   workspaceProfileName?: string;
   lastUsedAt?: string;
 };
-type AiConnectors = { url: string; grants: AiGrant[] };
+type AiClient = { id: string; name: string; redirectUris: string[]; grants: number; pendingRequests: number };
+type AiResetPreview = AiClient & { authorizationCodes: number; accessTokens: number; refreshTokens: number };
+type AiConnectors = { url: string; grants: AiGrant[]; clients?: AiClient[] };
 type ConsentRequest = {
   id: string;
   clientName: string;
@@ -48,6 +50,8 @@ export function AiConnections({ request, onSettings, onAuthError }: {
   const [selected, setSelected] = useState("Claude");
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<AiGrant | null>(null);
+  const [reset, setReset] = useState<AiResetPreview | null>(null);
+  const [resetKey, setResetKey] = useState(false);
   const [key, setKey] = useState<{ apiKey: string; url: string; transport: string } | null>(null);
   const [advanced, setAdvanced] = useState(false);
   const load = useCallback(async () => {
@@ -73,6 +77,32 @@ export function AiConnections({ request, onSettings, onAuthError }: {
       setNotice(`Access revoked for ${pending.clientName}. Your platform accounts remain connected.`);
       setPending(null);
       await load();
+    } catch (cause) { setError(errorMessage(cause)); onAuthError?.(cause); }
+    finally { setBusy(false); }
+  }
+  async function previewReset(client: AiClient) {
+    setBusy(true); setError(""); setNotice(""); setPending(null); setReset(null);
+    try { setReset(await request<AiResetPreview>(`/api/ai/clients/${encodeURIComponent(client.id)}/reset`)); }
+    catch (cause) { setError(errorMessage(cause)); onAuthError?.(cause); }
+    finally { setBusy(false); }
+  }
+  async function resetClient() {
+    if (!reset) return;
+    setBusy(true); setError("");
+    try {
+      await request(`/api/ai/clients/${encodeURIComponent(reset.id)}/reset`, { method: "POST", body: JSON.stringify({ confirmed: true }) });
+      setNotice(`${reset.name} has been disabled and reset. Remove Connector in that AI app’s connector settings, then add it again using the Connector URL above. Approve a new access request to reconnect. Other AI connections and platform accounts remain connected. Jobs already queued must be cancelled separately in Schedule.`);
+      setReset(null);
+      await load();
+    } catch (cause) { setError(errorMessage(cause)); onAuthError?.(cause); }
+    finally { setBusy(false); }
+  }
+  async function resetSharedKey() {
+    setBusy(true); setError(""); setKey(null);
+    try {
+      await request("/api/settings/pipeline-key/reset", { method: "POST", body: JSON.stringify({ confirmed: true }) });
+      setResetKey(false);
+      setNotice("The previous shared Connector API key is disabled. Show the new Connector API key below and replace the old key in each AI app you want to reconnect. OAuth connections and platform accounts are preserved. Jobs already queued must be cancelled separately in Schedule.");
     } catch (cause) { setError(errorMessage(cause)); onAuthError?.(cause); }
     finally { setBusy(false); }
   }
@@ -102,9 +132,28 @@ export function AiConnections({ request, onSettings, onAuthError }: {
       {data && !data.grants.length && <p className="setup-help">No AI app has been approved yet. Approved connections appear here after you finish sign-in and grant access.</p>}
       {data?.grants.map((grant) => <article className="ai-grant" key={grant.id}>
         <div><h4>{grant.clientName}</h4><p>Approved {new Date(grant.createdAt).toLocaleDateString()}. Client name supplied by the requesting app.</p><p className="ai-grant-verification">{grant.lastUsedAt ? `Last successful tool call: ${new Date(grant.lastUsedAt).toLocaleString()}` : "Approved; waiting for the first successful tool call."}</p>{grant.expiresAt && <p>Authorization expires {new Date(grant.expiresAt).toLocaleString()}.</p>}{grant.redirectUri && <p className="ai-return-address">Return address: <code>{grant.redirectUri}</code></p>}<p>{grant.platforms ? "Standard platform tools enabled" : "Standard platform tools disabled"}{grant.workspaceProfileId ? ` · Google profile: ${grant.workspaceProfileName || grant.workspaceProfileId}` : " · No Google Workspace access"}</p></div>
-        <button className="button button-secondary" onClick={() => { setPending(grant); setNotice(""); }} disabled={busy}>Revoke access for {grant.clientName}</button>
+        <button className="button button-secondary" onClick={() => { setPending(grant); setReset(null); setNotice(""); }} disabled={busy}>Revoke access for {grant.clientName}</button>
       </article>)}
       {pending && <div className="ai-revoke" role="group" aria-label="Confirm revoke access"><p>Revoke <strong>{pending.clientName}</strong>’s access? Its authorization will stop working. Your connected platform accounts and other AI connections are preserved. Jobs already scheduled will still run; cancel them separately in Schedule if needed.</p><button className="button button-secondary" onClick={() => setPending(null)} disabled={busy}>Keep access</button><button className="button button-danger" onClick={() => void revoke()} disabled={busy}>{busy ? "Revoking…" : "Confirm revoke access"}</button></div>}
+    </div>
+    <div className="ai-client-registrations">
+      <h3>Disable an AI connection and start over</h3>
+      <p className="setup-help">These are individual registrations sent by AI apps, including connections that have not finished setup. Names are supplied by the requesting app; check the return addresses and registration ID before resetting. If one AI app has several registrations, reset each one you want to remove.</p>
+      {data && !data.clients?.length && <p className="setup-help">No AI client registrations to reset. Start a connection from your AI app using the instructions above.</p>}
+      {data?.clients?.map((client) => <article className="ai-grant ai-client" key={client.id}>
+        <div><h4>{client.name}</h4><p>{client.grants} approved connection(s) · {client.pendingRequests} pending request(s)</p><p>Registration ID: <code>{client.id}</code></p>{client.redirectUris.map(uri => <p className="ai-return-address" key={uri}>Return address: <code>{uri}</code></p>)}</div>
+        <button className="button button-secondary" onClick={() => void previewReset(client)} disabled={busy}>Disable and reset {client.name}</button>
+      </article>)}
+      {reset && <div className="ai-revoke" role="group" aria-label="Confirm AI connection reset">
+        <h4>Disable and reset {reset.name}?</h4>
+        <p className="ai-return-address">Registration ID: <code>{reset.id}</code></p>
+        {reset.redirectUris.map(uri => <p className="ai-return-address" key={uri}>Return address: <code>{uri}</code></p>)}
+        <p>This removes this registration, {reset.grants} approved connection(s), {reset.pendingRequests} pending request(s), and all its authorization codes, access tokens, and refresh tokens. It stops future access through this registration.</p>
+        <p>Jobs already queued will still run; cancel them in Schedule if needed. Actions already running may finish. Your connected platform accounts, Google profiles, other AI registrations, and shared Connector API key are preserved.</p>
+        <p>To start over, remove Connector in this AI app’s connector settings, add it again using the Connector URL above, and approve a new access request.</p>
+        <button className="button button-secondary" onClick={() => setReset(null)} disabled={busy}>Keep AI connection</button>
+        <button className="button button-danger" onClick={() => void resetClient()} disabled={busy}>{busy ? "Resetting…" : "Confirm disable and reset AI connection"}</button>
+      </div>}
     </div>
     {notice && <p className="setup-notice" role="status">{notice}</p>}
     {error && <div className="inline-error" role="alert"><p>{error}</p><button className="text-button" onClick={() => void load()}>Retry AI connection details</button></div>}
@@ -112,6 +161,13 @@ export function AiConnections({ request, onSettings, onAuthError }: {
       <summary>Advanced: connect with a Connector API key</summary>
       <p className="setup-help">Use this only when your MCP client requests an API key instead of OAuth. This key is created by Connector and does not require an AI developer account. It gives access to all standard platform tools; it does not grant Google Workspace access. Keep it out of chats.</p>
       {!key ? <button className="button button-secondary" onClick={() => void revealKey()} disabled={busy}>{busy ? "Loading…" : "Show Connector API key"}</button> : <><CopyValue label="Connector API key" value={key.apiKey} secret /><p className="setup-help">Transport: {key.transport}. Use an Authorization header with “Bearer ” followed by this key.</p><button className="text-button" onClick={() => setKey(null)}>Hide Connector API key</button></>}
+      <p><button className="button button-secondary" onClick={() => { setResetKey(true); setNotice(""); }} disabled={busy}>Disable and reset shared API key</button></p>
+      {resetKey && <div className="ai-revoke" role="group" aria-label="Confirm shared API key reset">
+        <p>Disable the shared Connector API key and create a new one? Every AI client using the old key loses access. You will need to enter the new key in each AI app you want to reconnect. OAuth connections, Google profiles, and connected platform accounts are preserved.</p>
+        <p>Jobs already queued will still run; cancel them separately in Schedule if needed. Actions already running may finish.</p>
+        <button className="button button-secondary" onClick={() => setResetKey(false)} disabled={busy}>Keep shared API key</button>
+        <button className="button button-danger" onClick={() => void resetSharedKey()} disabled={busy}>{busy ? "Resetting…" : "Confirm disable and reset shared API key"}</button>
+      </div>}
     </details>
   </section>;
 }

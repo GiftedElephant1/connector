@@ -1,0 +1,12 @@
+.connector-reset { overflow-wrap: anywhere; }
+.reset-affected, .reset-warnings { padding: 16px; border: 1px solid #e6d6cb; border-radius: 10px; background: #fff8f2; color: #4b3427; line-height: 1.6; }
+.reset-affected ul, .reset-warnings ul { margin: 8px 0 0; padding-left: 20px; }
+.reset-effects { margin: 18px 0; padding-left: 20px; color: var(--text-secondary, #616963); line-height: 1.65; }
+.reset-effects li + li { margin-top: 10px; }
+.connector-reset-trigger { margin-top: 10px; }
+.settings-provider-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.reset-actions { flex-wrap: wrap; }
+@media (max-width: 460px) {
+  .settings-provider-actions { flex-direction: column; align-items: stretch; }
+  .ai-developer-provider { flex-wrap: wrap; }
+}

@@ -12,14 +12,14 @@
 .ai-setup-steps ol { padding-left: 22px; line-height: 1.7; color: #495b52; }
 .ai-setup-steps li { margin-bottom: 12px; }
 .ai-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
-.ai-grants { border-top: 1px solid #e5ebe7; margin-top: 24px; padding-top: 20px; }
+.ai-grants, .ai-client-registrations { border-top: 1px solid #e5ebe7; margin-top: 24px; padding-top: 20px; }
 .ai-grant { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border: 1px solid #e2e8e4; border-radius: 10px; padding: 17px; margin-top: 12px; }
 .ai-grant > div { min-width: 0; }
 .ai-grant h4 { margin: 0 0 7px; }
 .ai-grant p { margin: 6px 0; color: #596b62; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
 .ai-grant .button { flex-shrink: 0; }
 .ai-revoke { padding: 16px; margin-top: 16px; background: #fff1ed; border: 1px solid #edd4cc; border-radius: 10px; }
-.ai-revoke p { line-height: 1.6; }
+.ai-revoke p { line-height: 1.6; overflow-wrap: anywhere; }
 .ai-revoke .button { margin: 0 10px 8px 0; }
 .ai-authorization { max-width: 850px; margin: 0 auto; }
 .ai-authorization h1 { font-size: 28px; margin: 12px 0 24px; }

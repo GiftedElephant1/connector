@@ -144,3 +144,71 @@ test("approved connections can be revoked without disconnecting accounts, and AI
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: "test-results/ai-consent-mobile.png", fullPage: true });
 });
+
+test("AI reset previews the exact registration, handles unfinished setup, and preserves another registration with the same name", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  const first = { id: "client-failed", name: "My AI app", redirectUris: ["https://first.example/" + "callback-path-".repeat(15)], grants: 0, pendingRequests: 1 };
+  const other = { id: "client-other", name: "My AI app", redirectUris: ["https://other.example/callback"], grants: 1, pendingRequests: 0 };
+  let reset = false;
+  const writes: unknown[] = [];
+  await page.route("**/api/ai/connectors", route => route.fulfill({ json: { url, grants: [], clients: reset ? [other] : [first, other] } }));
+  await page.route("**/api/ai/clients/client-failed/reset", route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { ...first, authorizationCodes: 0, accessTokens: 0, refreshTokens: 0 } });
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().headers()["x-connector-request"]).toBe("1");
+    writes.push(route.request().postDataJSON());
+    reset = true;
+    return route.fulfill({ json: { ok: true } });
+  });
+  await login(page);
+  await page.getByRole("button", { name: "AI connections", exact: true }).click();
+  const failed = page.locator(".ai-client").filter({ hasText: "client-failed" });
+  await expect(failed).toContainText("0 approved connection(s)");
+  await failed.getByRole("button", { name: "Disable and reset My AI app" }).click();
+  const preview = page.getByRole("group", { name: "Confirm AI connection reset" });
+  await expect(preview).toContainText("1 pending request(s)");
+  await expect(preview).toContainText("Jobs already queued will still run");
+  await expect(preview).toContainText("remove Connector in this AI app’s connector settings");
+  await expect(preview).toContainText("client-failed");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(writes).toEqual([]);
+  await preview.getByRole("button", { name: "Keep AI connection" }).click();
+  await failed.getByRole("button", { name: "Disable and reset My AI app" }).click();
+  await preview.getByRole("button", { name: "Confirm disable and reset AI connection" }).click();
+  await expect(page.locator(".ai-client")).toHaveCount(1);
+  await expect(page.locator(".ai-client")).toContainText("client-other");
+  await expect(page.getByRole("status").filter({ hasText: "disabled and reset" })).toContainText("Remove Connector in that AI app’s connector settings");
+  expect(writes).toEqual([{ confirmed: true }]);
+});
+
+test("shared AI key reset explains every affected client and hides the previous key until explicitly revealed again", async ({ page }) => {
+  let reset = false;
+  const writes: unknown[] = [];
+  await page.route("**/api/ai/connectors", route => route.fulfill({ json: { url, grants: [], clients: [] } }));
+  await page.route("**/api/settings/pipeline-key", route => route.fulfill({ json: { apiKey: reset ? "new-shared-key" : "old-shared-key", url, transport: "Streamable HTTP" } }));
+  await page.route("**/api/settings/pipeline-key/reset", route => {
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().headers()["x-connector-request"]).toBe("1");
+    writes.push(route.request().postDataJSON());
+    reset = true;
+    return route.fulfill({ json: { apiKey: "new-shared-key", url, transport: "Streamable HTTP" } });
+  });
+  await login(page);
+  await page.getByRole("button", { name: "AI connections", exact: true }).click();
+  await page.getByText("Advanced: connect with a Connector API key", { exact: true }).click();
+  await page.getByRole("button", { name: "Show Connector API key" }).click();
+  await expect(page.getByLabel("Connector API key", { exact: true })).toHaveValue("old-shared-key");
+  await page.getByRole("button", { name: "Disable and reset shared API key", exact: true }).click();
+  const preview = page.getByRole("group", { name: "Confirm shared API key reset" });
+  await expect(preview).toContainText("Every AI client using the old key loses access");
+  await expect(preview).toContainText("Jobs already queued will still run");
+  expect(writes).toEqual([]);
+  await preview.getByRole("button", { name: "Keep shared API key" }).click();
+  await page.getByRole("button", { name: "Disable and reset shared API key", exact: true }).click();
+  await preview.getByRole("button", { name: "Confirm disable and reset shared API key" }).click();
+  await expect(page.getByLabel("Connector API key", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("status").filter({ hasText: "previous shared" })).toContainText("replace the old key in each AI app");
+  await page.getByRole("button", { name: "Show Connector API key" }).click();
+  await expect(page.getByLabel("Connector API key", { exact: true })).toHaveValue("new-shared-key");
+  expect(writes).toEqual([{ confirmed: true }]);
+});

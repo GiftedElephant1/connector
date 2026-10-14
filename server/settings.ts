@@ -4,6 +4,7 @@ import { parseAppOrigin } from './config';
 import { ProviderError, providerSetupRequirements, type ProviderDefinition } from './providers';
 import { Store } from './store';
 import { isPlaidExchangeActive } from './providers-plaid';
+import { hydratePipelineKey } from './pipeline-key';
 
 export interface SettingField {
   key: string;
@@ -20,7 +21,9 @@ interface FieldDefinition { label: string; secret?: boolean; help?: string; opti
 const definitions: Record<string, FieldDefinition> = {
   APP_ORIGIN: { label: 'Public HTTPS address', help: 'The address your AI assistants and platform callbacks use. The local dashboard remains available on this PC.' },
   META_APP_ID: { label: 'Meta app ID' }, META_APP_SECRET: { label: 'Meta app secret', secret: true },
+  META_API_VERSION: { label: 'Meta API version', defaultValue: 'v26.0' },
   THREADS_APP_ID: { label: 'Threads app ID' }, THREADS_APP_SECRET: { label: 'Threads app secret', secret: true },
+  THREADS_API_VERSION: { label: 'Threads API version', defaultValue: 'v1.0' },
   GOOGLE_CLIENT_ID: { label: 'Google OAuth client ID' }, GOOGLE_CLIENT_SECRET: { label: 'Google OAuth client secret', secret: true },
   GOOGLE_ADS_DEVELOPER_TOKEN: { label: 'Google Ads developer token', secret: true },
   X_CLIENT_ID: { label: 'X OAuth client ID' }, X_CLIENT_SECRET: { label: 'X OAuth client secret', secret: true },
@@ -48,6 +51,9 @@ const definitions: Record<string, FieldDefinition> = {
   XAI_MODEL: { label: 'xAI API bot model', defaultValue: 'grok-4' },
 };
 const optionalFields: Record<string, string[]> = {
+  facebook: ['META_API_VERSION'], instagram: ['META_API_VERSION'], 'meta-business': ['META_API_VERSION'],
+  threads: ['THREADS_API_VERSION'],
+  'google-workspace': ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'],
   discord: ['DISCORD_BOT_TOKEN'],
   linkedin: ['LINKEDIN_ENABLE_MEMBER_READ', 'LINKEDIN_API_VERSION'],
   'linkedin-ads': ['LINKEDIN_ENABLE_CONVERSIONS', 'LINKEDIN_API_VERSION'],
@@ -93,8 +99,20 @@ export function hydrateSettings(config: AppConfig, store: Store, env: NodeJS.Pro
     config.origin = originValue(overrides.APP_ORIGIN);
     config.secureCookies = config.origin.startsWith('https:');
   }
+  hydratePipelineKey(config, store, env);
 }
-const providerKeys = (id: string) => [...new Set([...(providerSetupRequirements[id] || []), ...(optionalFields[id] || [])])];
+export const providerSettingKeys = (id: string) => [...new Set([...(providerSetupRequirements[id] || []), ...(optionalFields[id] || [])])].filter(key => Object.hasOwn(definitions, key));
+const providerKeys = providerSettingKeys;
+/** Persist blank overrides so a restart cannot restore reset credentials from .env. */
+export function clearProviderSettings(store: Store, env: NodeJS.ProcessEnv, keys: string[]): void {
+  const next = { ...(store.readSetting<Record<string, string>>(overrideName) || {}) };
+  for (const key of keys) {
+    if (key === 'APP_ORIGIN' || !Object.hasOwn(definitions, key)) throw new ProviderError('That setting cannot be cleared by a connector reset.');
+    next[key] = '';
+  }
+  store.writeSetting(overrideName, next);
+  for (const key of keys) env[key] = '';
+}
 function field(key: string, env: NodeJS.ProcessEnv): SettingField {
   const definition = definitions[key];
   const value = key === 'APP_ORIGIN' ? env.APP_ORIGIN || '' : env[key] ?? definition.defaultValue ?? '';
@@ -142,6 +160,7 @@ export function saveSettings(config: AppConfig, store: Store, env: NodeJS.Proces
     }
     if (key === 'PLAID_COUNTRY_CODES' && !/^[A-Z]{2}(,[A-Z]{2}){0,19}$/.test(value)) throw new ProviderError('Use comma-separated uppercase country codes, such as US,CA.');
     if (key === 'LINKEDIN_API_VERSION' && value && !/^\d{6}$/.test(value)) throw new ProviderError('LinkedIn API versions use six digits, such as 202601.');
+    if (['META_API_VERSION', 'THREADS_API_VERSION'].includes(key) && value && !/^v\d+\.\d+$/.test(value)) throw new ProviderError('Meta and Threads API versions use a version such as v26.0 or v1.0.');
     if (key === 'X_ADS_API_VERSION' && value && !/^\d{1,3}$/.test(value)) throw new ProviderError('X Ads API versions use a numeric version.');
     next[key] = value;
   }

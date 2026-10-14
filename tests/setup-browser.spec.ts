@@ -48,10 +48,10 @@ test("guided provider setup saves credentials on real server, masks secrets afte
     page.getByLabel("Redirect address", { exact: true }),
   ).toHaveValue(/\/api\/oauth\/discord\/callback$/);
   await page
-    .getByLabel("Discord client ID", { exact: true })
+    .getByLabel(/Discord client ID/)
     .fill("browser-client-id");
   await page
-    .getByLabel("Discord client secret", { exact: true })
+    .getByLabel(/Discord client secret/)
     .fill("browser-private-client-secret");
   await page.getByRole("button", { name: "Save and continue" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);

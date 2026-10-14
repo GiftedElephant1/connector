@@ -4,6 +4,8 @@
 
 You can correct this in LinkedIn without reinstalling Connector or disconnecting your other accounts.
 
+If you previously saved the wrong LinkedIn Client ID or secret, use **Connections → LinkedIn → Disable and reset**. Review the shared LinkedIn / Campaign Manager reset, confirm, then select **Set up again** to enter the correct app details. [Full reset instructions](reset-connectors.md) explain which settings and pending jobs are removed.
+
 1. Keep Connector running with public access on. Open its public workspace and sign in.
 2. In **Connections**, find **LinkedIn** or **LinkedIn Campaign Manager** and click **Check LinkedIn setup**. On older versions, open **Settings**, find that platform, and click **Manage setup**.
 3. Keep Connector open. In another tab, open [LinkedIn developer apps](https://www.linkedin.com/developers/apps), sign in, and select the app you created for Connector.

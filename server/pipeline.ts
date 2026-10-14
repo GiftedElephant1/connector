@@ -19,14 +19,19 @@ export class Pipeline {
     return { action, values: this.service.validateValues(action, input) };
   }
   private async execute(provider: string, action: ActionAdapter, values: ActionValues, assertCurrent: () => void = () => {}): Promise<ActionResult> {
+    const generation = this.store.connectionGeneration(provider);
     let credential = this.store.credential(provider);
     if (!credential) throw new ProviderError('Connect this platform before running an action.', 409);
     if (credential.expiresAt && credential.expiresAt <= Date.now() + 60_000) {
       credential = await this.credentials.refreshCredential(provider, credential, this.env);
+      this.store.assertConnectionGeneration(provider, generation);
+      // Keep rotated platform credentials when only the requesting AI was
+      // revoked. Its action is still blocked by assertCurrent below.
       this.store.updateCredential(provider, credential);
     }
     // OAuth consent can be revoked while a platform refresh is in flight.
     assertCurrent();
+    this.store.assertConnectionGeneration(provider, generation);
     return action.execute(credential, values, this.env);
   }
   private requestId(input: unknown): string {

@@ -178,6 +178,66 @@ test('owner revocation is immediate for access, refresh and pending authorized c
   assert.deepEqual(f.oauth.connections().grants, []);
 });
 
+test('owner reset clears a whole AI client including pending requests and every token family while preserving other clients', t => {
+  const f = fixture(t);
+  const profile = f.workspace.createProfile({ name: 'Shared Google profile', bindings: [] }).profile;
+  f.store.save('linkedin', { accessToken: 'saved-platform-token' }, { accountName: 'Saved LinkedIn', resources: [] });
+  const first = exchange(f, code(f, { platforms: true, workspaceProfileId: profile.id }));
+  const second = exchange(f);
+  const rotated = f.oauth.token({ client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: first.refresh_token });
+  const unexchangedCode = code(f);
+  const request = pending(f);
+  f.oauth.consent(request, f.session);
+  const otherClient = f.oauth.register({ client_name: f.client.client_name, redirect_uris: f.client.redirect_uris });
+  const otherFixture = { ...f, client: otherClient };
+  const other = exchange(otherFixture);
+  const otherPending = pending(otherFixture);
+  const preview = f.oauth.resetPreview(f.client.client_id);
+  assert.equal(preview.name, f.client.client_name);
+  assert.equal(preview.grants, 3);
+  assert.equal(preview.pendingRequests, 1);
+  assert.equal(preview.accessTokens, 3);
+  assert.equal(preview.refreshTokens, 3);
+  assert.equal(preview.authorizationCodes, 3);
+  assert.throws(() => f.oauth.resetClient(f.client.client_id, false), /Confirm/);
+  assert.ok(f.oauth.authenticate(first.access_token));
+  f.oauth.resetClient(f.client.client_id, true);
+  for (const token of [first, second, rotated]) {
+    assert.equal(f.oauth.authenticate(token.access_token), null);
+    assert.throws(() => f.oauth.token({ client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: token.refresh_token }), oauthError('invalid_client'));
+  }
+  assert.throws(() => exchange(f, unexchangedCode), oauthError('invalid_client'));
+  assert.throws(() => f.oauth.consent(request, f.session), /expired/);
+  assert.throws(() => pending(f), oauthError('invalid_client'));
+  assert.throws(() => f.oauth.resetPreview(f.client.client_id), /does not exist/);
+  assert.ok(f.oauth.authenticate(other.access_token));
+  assert.equal(f.oauth.consent(otherPending, f.session).clientName, otherClient.client_name);
+  assert.equal(f.oauth.connections().grants.length, 1);
+  assert.equal(f.oauth.connections().clients.length, 1);
+  assert.equal(f.oauth.connections().clients[0].id, otherClient.client_id, 'names do not group separate registrations');
+  assert.equal(f.store.credential('linkedin')?.accessToken, 'saved-platform-token');
+  assert.ok(f.workspace.getAgent(profile.id));
+  const saved = f.store.readSetting<Record<string, unknown[]>>('mcp.oauth.v1')!;
+  assert.equal(JSON.stringify(saved).includes(f.client.client_id), false);
+  const freshClient = f.oauth.register({ client_name: f.client.client_name, redirect_uris: f.client.redirect_uris });
+  assert.ok(f.oauth.authenticate(exchange({ ...f, client: freshClient }).access_token));
+});
+
+test('owner can reset AI registrations that never finished approval', t => {
+  const f = fixture(t);
+  const request = pending(f);
+  const clients = f.oauth.connections().clients;
+  assert.equal(clients[0].grants, 0);
+  assert.equal(clients[0].pendingRequests, 1);
+  f.oauth.resetClient(f.client.client_id, true);
+  assert.throws(() => f.oauth.consent(request, f.session), /expired/);
+  assert.deepEqual(f.oauth.connections().clients, []);
+  const client = f.oauth.register({ redirect_uris: ['https://unapproved.example/callback'] });
+  assert.equal(f.oauth.resetPreview(client.client_id).pendingRequests, 0);
+  f.oauth.resetClient(client.client_id, true);
+  assert.deepEqual(f.oauth.connections().clients, []);
+});
+
 test('pending requests, authorization codes, access tokens and refresh grants expire', t => {
   const f = fixture(t); const start = Date.now(); let now = start;
   t.mock.method(Date, 'now', () => now);

@@ -43,6 +43,7 @@ The launcher uses port 3000 on your own PC. If another program uses that port, i
 
 ## Troubleshooting without a terminal
 
+- **The app keeps using incorrect connection details:** use **Disable and reset** on that connector, review any shared connections listed, confirm, and select **Set up again**. This clears stored app credentials as well as account access. See [reset instructions](reset-connectors.md) for Google and AI connections too.
 - **Nothing opens:** confirm you extracted the entire ZIP and are opening `Start Connector.vbs` from the extracted folder. Windows Script Host and Windows PowerShell must be available; an organization's device policies may restrict downloaded scripts. Ask that device's administrator about approved installation methods if it is blocked.
 - **Setup cannot download components:** check your Internet connection and available disk space, then close the launcher and reopen it. It downloads only the runtime from `nodejs.org` and package dependencies using npm's configured registry.
 - **A startup stage fails:** select **View status log**. The log identifies the failed stage without recording credentials or raw server output. It lives at `%LOCALAPPDATA%\Connector\launcher.log`.

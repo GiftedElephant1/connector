@@ -53,6 +53,7 @@ type ProfileDraft = {
 };
 type PendingAction =
   | { kind: "account"; account: GoogleAccount }
+  | { kind: "maps"; account: GoogleAccount }
   | { kind: "profile" | "rotate"; profile: AgentProfile }
   | null;
 const message = (cause: unknown) =>
@@ -72,10 +73,12 @@ export function GoogleWorkspace({
   api,
   onSettings,
   onAiConnections,
+  onResetGoogleSetup,
 }: {
   api: ApiRequest;
   onSettings?: () => void;
   onAiConnections?: () => void;
+  onResetGoogleSetup?: () => void;
 }) {
   const [data, setData] = useState<WorkspaceData | null>(null);
   const [error, setError] = useState("");
@@ -248,8 +251,18 @@ export function GoogleWorkspace({
           { method: "DELETE" },
         );
         setNotice(
-          "Google account disconnected. Other connected accounts remain saved.",
+          "Google account disabled and reset. Its saved tokens, Maps key, and agent permissions were removed. Use Connect Google account to start again, then assign agent access again.",
         );
+        setConnection(null);
+        setMapsAccount(null);
+        setMapsKey("");
+        setProfile(null);
+      } else if (pending.kind === "maps") {
+        await api(`${endpoint}/accounts/${encodeURIComponent(pending.account.id)}/maps-key`, { method: "DELETE" });
+        setMapsAccount(null);
+        setMapsKey("");
+        setProfile(null);
+        setNotice("Maps disabled and reset for this account. Its key and agent Maps permissions were removed. Use Connect Maps to start again.");
       } else if (pending.kind === "profile") {
         await api(
           `${endpoint}/profiles/${encodeURIComponent(pending.profile.id)}`,
@@ -347,6 +360,16 @@ export function GoogleWorkspace({
             >
               {googleSetup ? "Hide Google setup" : "Manage Google setup"}
             </button>
+            {onResetGoogleSetup && (
+              <button
+                type="button"
+                className="button button-ghost"
+                disabled={busy}
+                onClick={onResetGoogleSetup}
+              >
+                Disable and reset Google setup
+              </button>
+            )}
             {(googleSetup || !data.google.configured) && (
               <form
                 className="setup-form workspace-google-setup"
@@ -570,7 +593,7 @@ export function GoogleWorkspace({
                       disabled={busy}
                       onClick={() => setPending({ kind: "account", account })}
                     >
-                      Disconnect account
+                      Disable and reset account
                     </button>
                   </div>
                   {mapsAccount === account.id && (
@@ -653,21 +676,9 @@ export function GoogleWorkspace({
                             type="button"
                             className="button button-ghost"
                             disabled={busy}
-                            onClick={() =>
-                              void run(async () => {
-                                await api(
-                                  `${endpoint}/accounts/${encodeURIComponent(account.id)}/maps-key`,
-                                  { method: "DELETE" },
-                                );
-                                setMapsAccount(null);
-                                await refresh();
-                                setNotice(
-                                  "Maps key removed. This account’s other apps remain connected.",
-                                );
-                              })
-                            }
+                            onClick={() => setPending({ kind: "maps", account })}
                           >
-                            Remove Maps key
+                            Disable and reset Maps
                           </button>
                         )}
                         <button
@@ -1069,17 +1080,21 @@ export function GoogleWorkspace({
             >
               <h2 id={`${id}-confirm`}>
                 {pending.kind === "account"
-                  ? `Disconnect ${pending.account.email}?`
-                  : pending.kind === "profile"
-                    ? `Remove ${pending.profile.name} access?`
-                    : `Replace ${pending.profile.name} connection key?`}
+                  ? `Disable and reset ${pending.account.email}?`
+                  : pending.kind === "maps"
+                    ? `Disable and reset Maps for ${pending.account.email}?`
+                    : pending.kind === "profile"
+                      ? `Remove ${pending.profile.name} access?`
+                      : `Replace ${pending.profile.name} connection key?`}
               </h2>
               <p className="setup-description" id={`${id}-confirm-description`}>
                 {pending.kind === "account"
-                  ? "Agents will lose access to this Google account. Other accounts stay connected. You can connect this account again later."
-                  : pending.kind === "profile"
-                    ? "This profile’s key and any AI authorization using this profile will stop working immediately. Your Google accounts and unrelated AI connections remain connected."
-                    : "The previous key will stop working immediately. Replace it in clients using key authentication. OAuth AI connections and your Google accounts remain connected."}
+                  ? "This removes the account’s saved sign-in tokens, Maps key, and all agent permissions for this account. Unfinished Google sign-ins will be cancelled. Other connected accounts and your shared Google app setup stay saved. To reconnect, choose Connect Google account and assign agent access again. Existing content in Google is not deleted; an action already sent to Google may still finish. This does not revoke permission in your Google account settings."
+                  : pending.kind === "maps"
+                    ? "This removes the saved Maps key and every agent’s Maps access for this account. Its other Google apps stay connected. Reconnecting Maps will require a key and assigning Maps to agents again. This does not delete the key from Google Cloud."
+                    : pending.kind === "profile"
+                      ? "This profile’s key and any AI authorization using this profile will stop working immediately. Your Google accounts and unrelated AI connections remain connected."
+                      : "The previous key will stop working immediately. Replace it in clients using key authentication. OAuth AI connections and your Google accounts remain connected."}
               </p>
               <div className="setup-button-row">
                 <button
@@ -1089,10 +1104,12 @@ export function GoogleWorkspace({
                   onClick={() => void confirmAction()}
                 >
                   {pending.kind === "account"
-                    ? "Confirm disconnect account"
-                    : pending.kind === "profile"
-                      ? "Confirm remove agent access"
-                      : "Create replacement key"}
+                    ? "Confirm disable and reset account"
+                    : pending.kind === "maps"
+                      ? "Confirm disable and reset Maps"
+                      : pending.kind === "profile"
+                        ? "Confirm remove agent access"
+                        : "Create replacement key"}
                 </button>
                 <button
                   type="button"

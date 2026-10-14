@@ -6,6 +6,8 @@ The default connection uses OAuth: you paste one public Connector URL into the A
 
 Social networks, advertising platforms, Google, and other destination services still have their own API permissions and application setup requirements. Their costs and approvals are separate from the AI connection.
 
+To remove incorrect or stale connection details, use **Disable and reset** in **AI connections**. Registered OAuth clients can be reset individually, including unfinished attempts. The advanced shared API key has a separate reset affecting every AI client using that key. Follow the [reset guide](reset-connectors.md#claude-chatgpt-grok-and-other-ai-clients) before adding the connection again.
+
 ## 1. Start Connector and make it reachable
 
 If you already have a working public HTTPS address in Connector, continue at step 8.

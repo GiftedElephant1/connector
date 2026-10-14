@@ -291,11 +291,13 @@ export function ProviderSetup({
   request,
   onSaved,
   onCancel,
+  onReset,
 }: {
   provider: Provider;
   request: ApiRequest;
   onSaved: () => Promise<void>;
   onCancel: () => void;
+  onReset: () => void;
 }) {
   const [settings, setSettings] = useState<ProviderSettings | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
@@ -492,6 +494,7 @@ export function ProviderSetup({
           {error}
         </p>
       )}
+      <button type="button" className="button button-danger-subtle connector-reset-trigger" onClick={onReset} disabled={busy}>Disable and reset</button>
     </div>
   );
 }
@@ -502,6 +505,7 @@ export function WorkspaceSetup({
   request,
   onRefresh,
   onConfigure,
+  onReset,
   onPasswordSaved,
 }: {
   settings: WorkspaceSettings;
@@ -509,6 +513,7 @@ export function WorkspaceSetup({
   request: ApiRequest;
   onRefresh: () => Promise<void>;
   onConfigure: (provider: Provider) => void;
+  onReset: (provider: Provider) => void;
   onPasswordSaved: () => void;
 }) {
   const [tunnel, setTunnel] = useState<TunnelState | null>(null);
@@ -847,12 +852,13 @@ export function WorkspaceSetup({
                       : "Application details needed"}
                   </small>
                 </span>
-                <button
+                <div className="settings-provider-actions"><button
                   className="button button-secondary"
                   onClick={() => onConfigure(provider)}
                 >
                   Manage setup
                 </button>
+                <button className="button button-danger-subtle" onClick={() => onReset(provider)}>Disable and reset</button></div>
               </div>
             ))}
         </div>

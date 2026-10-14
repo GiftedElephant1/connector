@@ -74,7 +74,7 @@ async function mockWorkspace(page: Page) {
     profiles: [] as Profile[],
     google: {
       configured: true,
-      missing: [],
+      missing: [] as string[],
       callbackUrl: "https://connector.example/api/workspace/google/callback",
     },
     mcpUrl: "https://connector.example/mcp",
@@ -152,7 +152,22 @@ async function mockWorkspace(page: Page) {
         ...account.apps.filter((app) => app !== "maps"),
         ...(account.mapsConfigured ? ["maps"] : []),
       ];
+      if (method === "DELETE") {
+        for (const profile of snapshot.profiles) {
+          profile.bindings = profile.bindings.map(binding => binding.accountId === mapsId ? { ...binding, apps: binding.apps.filter(app => app !== "maps") } : binding).filter(binding => binding.apps.length);
+          if (!profile.bindings.some(binding => binding.accountId === profile.defaultAccountId)) delete profile.defaultAccountId;
+        }
+      }
       return route.fulfill({ json: { account } });
+    }
+    const accountId = path.match(/^\/api\/workspace\/accounts\/([^/]+)$/)?.[1];
+    if (accountId && method === "DELETE") {
+      snapshot.accounts = snapshot.accounts.filter(account => account.id !== accountId);
+      for (const profile of snapshot.profiles) {
+        profile.bindings = profile.bindings.filter(binding => binding.accountId !== accountId);
+        if (profile.defaultAccountId === accountId) delete profile.defaultAccountId;
+      }
+      return route.fulfill({ json: { ok: true } });
     }
     if (path === "/api/workspace/google/start")
       return route.fulfill({
@@ -448,4 +463,84 @@ test("an agent can require an explicit Google account without resetting that cho
   await expect(form).toHaveCount(0);
   expect(writes[0].body).not.toHaveProperty("defaultAccountId");
   expect(snapshot.profiles[0].defaultAccountId).toBeUndefined();
+});
+
+test("resetting one Google account requires confirmation and lets it start again without removing another account", async ({ page }) => {
+  const { snapshot, writes } = await mockWorkspace(page);
+  snapshot.accounts[0].mapsConfigured = true;
+  snapshot.accounts[0].apps.push("maps");
+  snapshot.profiles.push({ id: "saved-agent", name: "Grok", bindings: [{ accountId: "work-account", apps: ["sheets", "maps"] }, { accountId: "personal-account", apps: ["tasks"] }], defaultAccountId: "work-account", createdAt: timestamp, updatedAt: timestamp });
+  await openWorkspace(page);
+  const account = page.getByRole("article", { name: "work@example.com", exact: true });
+  await account.getByRole("button", { name: "Disable and reset account", exact: true }).click();
+  const confirmation = page.getByRole("alertdialog");
+  await expect(confirmation).toContainText("saved sign-in tokens, Maps key, and all agent permissions");
+  await expect(confirmation).toContainText("Unfinished Google sign-ins will be cancelled");
+  expect(writes).toHaveLength(0);
+  await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(account).toBeVisible();
+  await account.getByRole("button", { name: "Disable and reset account", exact: true }).click();
+  await confirmation.getByRole("button", { name: "Confirm disable and reset account", exact: true }).click();
+  await expect(account).toHaveCount(0);
+  await expect(page.getByRole("article", { name: "personal@example.com", exact: true })).toBeVisible();
+  expect(snapshot.profiles[0].bindings).toEqual([{ accountId: "personal-account", apps: ["tasks"] }]);
+  expect(snapshot.profiles[0].defaultAccountId).toBeUndefined();
+  expect(writes).toEqual([{ method: "DELETE", path: "/api/workspace/accounts/work-account", body: null }]);
+  await page.getByRole("button", { name: "Connect Google account", exact: true }).click();
+  const form = page.getByRole("form", { name: "Choose Google apps" });
+  await expect(form.getByLabel("Google Sheets", { exact: false })).not.toBeChecked();
+  await expect(form.getByRole("button", { name: "Continue to Google" })).toBeDisabled();
+});
+
+test("Maps can be disabled and reset independently and needs agent access assigned again", async ({ page }) => {
+  const { snapshot, writes } = await mockWorkspace(page);
+  snapshot.accounts[0].mapsConfigured = true;
+  snapshot.accounts[0].apps.push("maps");
+  snapshot.profiles.push({ id: "saved-agent", name: "Grok", bindings: [{ accountId: "work-account", apps: ["sheets", "maps"] }], defaultAccountId: "work-account", createdAt: timestamp, updatedAt: timestamp });
+  await openWorkspace(page);
+  const account = page.getByRole("article", { name: "work@example.com", exact: true });
+  await account.getByRole("button", { name: "Manage Maps key", exact: true }).click();
+  await account.getByRole("button", { name: "Disable and reset Maps", exact: true }).click();
+  const confirmation = page.getByRole("alertdialog");
+  await expect(confirmation).toContainText("saved Maps key and every agent’s Maps access");
+  expect(writes).toHaveLength(0);
+  await confirmation.getByRole("button", { name: "Confirm disable and reset Maps", exact: true }).click();
+  await expect(account.getByRole("button", { name: "Connect Maps", exact: true })).toBeVisible();
+  await expect(account).toContainText("Google Sheets");
+  expect(snapshot.profiles[0].bindings).toEqual([{ accountId: "work-account", apps: ["sheets"] }]);
+  expect(snapshot.accounts).toHaveLength(2);
+  expect(writes).toEqual([{ method: "DELETE", path: "/api/workspace/accounts/work-account/maps-key", body: null }]);
+});
+
+test("shared Google setup reset warns about every account and opens clean setup fields", async ({ page }) => {
+  const { snapshot } = await mockWorkspace(page);
+  let resets = 0;
+  await page.route("**/api/connections/google-workspace/reset", async route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { provider: { id: "google-workspace", name: "Google Workspace" }, affectedProviders: [{ id: "youtube", name: "YouTube" }, { id: "google-ads", name: "Google Ads" }, { id: "google-workspace", name: "Google Workspace" }], clearsGoogleWorkspace: true, pendingJobs: 0 } });
+    expect(route.request().postDataJSON()).toEqual({ confirmed: true });
+    resets++;
+    snapshot.accounts = [];
+    snapshot.google.configured = false;
+    snapshot.google.missing = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"];
+    return route.fulfill({ json: { ok: true } });
+  });
+  await openWorkspace(page);
+  await page.getByRole("button", { name: "Manage Google setup", exact: true }).click();
+  await page.getByLabel("Google client ID", { exact: true }).fill("wrong-unsaved-client");
+  await page.getByLabel("Google client secret", { exact: true }).fill("wrong-unsaved-secret");
+  await page.getByRole("button", { name: "Disable and reset Google setup", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Google Workspace — all connected Google accounts and app access");
+  await expect(dialog).toContainText("YouTube");
+  await expect(dialog).toContainText("Google Ads");
+  expect(resets).toBe(0);
+  await dialog.getByRole("button", { name: "Disable and reset", exact: true }).click();
+  await expect(dialog).toContainText("Reset complete");
+  await dialog.getByRole("button", { name: "Set up again", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByLabel("Google client ID", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("Google client secret", { exact: true })).toHaveValue("");
+  await expect(page.getByText("No Google accounts connected yet.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Connect Google account", exact: true })).toBeDisabled();
+  expect(resets).toBe(1);
 });

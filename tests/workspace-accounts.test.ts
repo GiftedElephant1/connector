@@ -320,7 +320,11 @@ test('Maps keys stay isolated per account, bypass unrelated OAuth refresh, and n
   assert.deepEqual(await f.service.getCredential(first.id, 'maps'), { accessToken: '', fields: { mapsApiKey: 'maps-private-first' } });
   assert.equal((await f.service.getCredential(second.id, 'maps')).fields?.mapsApiKey, 'maps-private-second');
   f.service.removeMapsKey(first.id);
-  assert.throws(() => f.service.authorize(profile.profile.id, 'maps'), /not granted/);
+  assert.deepEqual(f.service.getAgent(profile.profile.id)?.bindings, []);
+  assert.equal(f.service.getAgent(profile.profile.id)?.defaultAccountId, undefined);
+  assert.throws(() => f.service.authorize(profile.profile.id, 'maps', first.id), /not allowed/);
+  f.service.saveMapsKey(first.id, 'replacement-maps-key');
+  assert.throws(() => f.service.authorize(profile.profile.id, 'maps', first.id), /not allowed/);
   const snapshot = JSON.stringify(f.service.snapshot());
   for (const secret of ['maps-private-first', 'maps-private-second', 'access-private', 'refresh-private', profile.apiKey, 'keyHash']) assert.equal(snapshot.includes(secret), false);
 });
@@ -360,4 +364,90 @@ test('unsupported apps, malformed profile input, and secret upstream errors fail
     assert.equal(error.message.includes('access-token-secret'), false);
     return true;
   });
+});
+
+test('Workspace reset clears all accounts, Maps keys, pending sign-ins and bindings while preserving profile keys and other platforms', async t => {
+  const f = fixture(t);
+  const first = await connect(f, 'first');
+  const second = await connect(f, 'second');
+  f.service.saveMapsKey(first.id, 'private-maps-key');
+  f.store.save('wordpress', { accessToken: 'private-blog-token' }, { accountName: 'Blog', resources: [] });
+  const agent = f.service.createProfile({ name: 'Grok', bindings: [{ accountId: first.id, apps: ['sheets', 'maps'] }, { accountId: second.id, apps: ['sheets'] }], defaultAccountId: first.id });
+  const pending = new URL(f.service.startOAuth(f.session, ['gmail']).url);
+  f.service.resetAll();
+  assert.deepEqual(f.service.listAccounts(), []);
+  for (const account of [first, second]) assert.equal(f.store.credential(`google-workspace:${account.id}`), null);
+  assert.deepEqual(f.service.resolveAgentKey(agent.apiKey)?.bindings, []);
+  assert.equal(f.service.resolveAgentKey(agent.apiKey)?.defaultAccountId, undefined);
+  assert.equal(f.store.credential('wordpress')?.accessToken, 'private-blog-token');
+  let requests = 0;
+  globalThis.fetch = async () => { requests++; throw new Error('Reset sign-in must never contact Google'); };
+  await assert.rejects(f.service.finishOAuth(f.session, { state: pending.searchParams.get('state'), code: 'old-code' }), /expired/);
+  assert.equal(requests, 0);
+  const reconnected = await connect(f, 'first', ['gmail']);
+  assert.equal(reconnected.id, first.id);
+  assert.deepEqual(reconnected.apps, ['gmail']);
+  assert.equal(reconnected.mapsConfigured, false);
+  assert.deepEqual(f.service.resolveAgentKey(agent.apiKey)?.bindings, []);
+  assert.throws(() => f.service.authorize(agent.profile.id, 'gmail', reconnected.id), /not allowed/);
+});
+
+test('account reset blocks an unbound OAuth callback already in flight even after the same account reconnects', async t => {
+  const f = fixture(t);
+  const first = await connect(f, 'first');
+  const other = await connect(f, 'other');
+  const start = new URL(f.service.startOAuth(f.session, ['gmail']).url);
+  let entered!: () => void;
+  let release!: () => void;
+  const waiting = new Promise<void>(resolve => { entered = resolve; });
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  globalThis.fetch = async input => {
+    if (String(input).includes('/token')) return Response.json({ access_token: 'old-late-token', refresh_token: 'old-late-refresh', scope: scopesFor('gmail') });
+    entered();
+    await blocked;
+    return Response.json({ sub: 'first', email: 'first@example.com', email_verified: true });
+  };
+  const finishing = f.service.finishOAuth(f.session, { state: start.searchParams.get('state'), code: 'old-code' });
+  await waiting;
+  f.service.disconnect(first.id);
+  const reconnected = await connect(f, 'first', ['tasks']);
+  release();
+  await assert.rejects(finishing, error => error instanceof ProviderError && error.status === 409);
+  assert.deepEqual(reconnected.apps, ['tasks']);
+  assert.equal((await f.service.getCredential(first.id)).accessToken, 'access-private-first');
+  assert.equal((await f.service.getCredential(other.id)).accessToken, 'access-private-other');
+});
+
+test('Workspace-wide reset during token exchange stops the old callback before identity lookup', async t => {
+  const f = fixture(t);
+  const start = new URL(f.service.startOAuth(f.session, ['sheets']).url);
+  let calls = 0;
+  globalThis.fetch = async input => {
+    calls++;
+    assert.equal(String(input), 'https://oauth2.googleapis.com/token');
+    f.service.resetAll();
+    return Response.json({ access_token: 'late-access', refresh_token: 'late-refresh', scope: scopesFor('sheets') });
+  };
+  await assert.rejects(f.service.finishOAuth(f.session, { state: start.searchParams.get('state'), code: 'old-code' }), error => error instanceof ProviderError && error.status === 409);
+  assert.equal(calls, 1);
+  assert.deepEqual(f.service.listAccounts(), []);
+});
+
+test('a refresh started before reset cannot replace a freshly reconnected account even if Google returns identical credentials', async t => {
+  const f = fixture(t);
+  const first = await connect(f, 'first');
+  f.store.updateCredential(`google-workspace:${first.id}`, { ...f.store.credential(`google-workspace:${first.id}`)!, expiresAt: 1 });
+  let release!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  globalThis.fetch = async () => {
+    await blocked;
+    return Response.json({ access_token: 'stale-refresh-result', refresh_token: 'stale-refresh-token', expires_in: 3600 });
+  };
+  const refreshing = f.service.getCredential(first.id);
+  f.service.disconnect(first.id);
+  await connect(f, 'first');
+  release();
+  await assert.rejects(refreshing, error => error instanceof ProviderError && error.status === 409);
+  assert.equal((await f.service.getCredential(first.id)).accessToken, 'access-private-first');
+  assert.equal(f.store.connection(`google-workspace:${first.id}`)?.status, 'connected');
 });

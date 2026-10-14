@@ -267,8 +267,34 @@ export class McpOAuth {
   }
   connections() {
     const state = this.state();
-    return { url: this.resource(), grants: state.grants.filter(item => !!this.liveGrant(state, item.id)).map(item => ({ id: item.id, clientName: item.clientName, redirectUri: item.redirectUri, createdAt: new Date(item.created).toISOString(), expiresAt: new Date(item.expires).toISOString(), ...(item.lastUsed !== undefined ? { lastUsedAt: new Date(item.lastUsed).toISOString() } : {}), platforms: item.platforms,
+    return { url: this.resource(), clients: state.clients.map(client => ({ id: client.id, name: client.name, redirectUris: client.redirects, createdAt: new Date(client.created).toISOString(),
+      grants: state.grants.filter(grant => grant.clientId === client.id).length, pendingRequests: state.pending.filter(pending => pending.clientId === client.id).length })),
+      grants: state.grants.filter(item => !!this.liveGrant(state, item.id)).map(item => ({ id: item.id, clientId: item.clientId, clientName: item.clientName, redirectUri: item.redirectUri, createdAt: new Date(item.created).toISOString(), expiresAt: new Date(item.expires).toISOString(), ...(item.lastUsed !== undefined ? { lastUsedAt: new Date(item.lastUsed).toISOString() } : {}), platforms: item.platforms,
       ...(item.workspaceProfileId ? { workspaceProfileId: item.workspaceProfileId, workspaceProfileName: this.workspace.getAgent(item.workspaceProfileId)?.name } : {}) })) };
+  }
+  resetPreview(id: string) {
+    const state = this.state();
+    const client = state.clients.find(item => item.id === id);
+    if (!client) throw new ProviderError('This AI client registration does not exist. Refresh AI connections.', 404);
+    const grants = new Set(state.grants.filter(item => item.clientId === id).map(item => item.id));
+    return { id: client.id, name: client.name, redirectUris: client.redirects, grants: grants.size,
+      pendingRequests: state.pending.filter(item => item.clientId === id).length,
+      authorizationCodes: state.codes.filter(item => item.clientId === id).length,
+      accessTokens: state.access.filter(item => grants.has(item.grantId)).length,
+      refreshTokens: state.refresh.filter(item => grants.has(item.grantId)).length };
+  }
+  resetClient(id: string, confirmed: unknown) {
+    if (confirmed !== true) throw new ProviderError('Confirm that you want to disable and reset this AI client.');
+    const state = this.state();
+    if (!state.clients.some(item => item.id === id)) throw new ProviderError('This AI client registration does not exist. Refresh AI connections.', 404);
+    const grants = new Set(state.grants.filter(item => item.clientId === id).map(item => item.id));
+    state.access = state.access.filter(item => !grants.has(item.grantId));
+    state.refresh = state.refresh.filter(item => !grants.has(item.grantId));
+    state.codes = state.codes.filter(item => item.clientId !== id && !grants.has(item.grantId));
+    state.pending = state.pending.filter(item => item.clientId !== id);
+    state.grants = state.grants.filter(item => item.clientId !== id);
+    state.clients = state.clients.filter(item => item.id !== id);
+    this.save(state);
   }
   disconnect(id: string) {
     const state = this.state(); const grant = state.grants.find(item => item.id === id);
@@ -303,6 +329,8 @@ export function mountOAuthPublic(app: express.Express, oauth: McpOAuth) {
 export function mountOAuthOwner(app: express.Express, oauth: McpOAuth, sessionToken: (request: express.Request) => string) {
   app.get('/api/ai/connectors', (_req, res) => res.json(oauth.connections()));
   app.delete('/api/ai/connectors/:id', (req, res) => { oauth.disconnect(String(req.params.id)); res.json({ ok: true }); });
+  app.get('/api/ai/clients/:id/reset', (req, res) => { res.json(oauth.resetPreview(String(req.params.id))); });
+  app.post('/api/ai/clients/:id/reset', (req, res) => { oauth.resetClient(String(req.params.id), req.body?.confirmed); res.json({ ok: true }); });
   app.get('/api/ai/authorize/:id', (req, res) => { res.json(oauth.consent(String(req.params.id), sessionToken(req))); });
   app.post('/api/ai/authorize/:id', (req, res) => { res.json(oauth.approve(String(req.params.id), sessionToken(req), req.body)); });
 }

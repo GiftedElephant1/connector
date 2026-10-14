@@ -55,17 +55,20 @@ export class WorkspacePipeline {
   async run(profileId: string, app: string, id: string, input: unknown, confirmed?: unknown, requestId?: unknown, accountId?: string, assertCurrent: () => void = () => {}): Promise<{ result: ActionResult; receipt?: WorkspaceReceipt }> {
     assertCurrent();
     const account = this.service.authorize(profileId, app, accountId);
+    const assertConnection = this.service.captureConnection(account.id, app);
     const { adapter, values } = this.action(app, id, input);
     // Refresh can wait on a network request. Re-read grants and the caller key
     // afterward so a dashboard revocation cannot race an outgoing action.
     const execute = async (action: ActionAdapter) => {
       const credential = await this.service.getCredential(account.id, app);
       assertCurrent();
+      assertConnection();
       this.service.authorize(profileId, app, account.id);
       return action.execute(credential, values, this.env);
     };
     const mayReturn = () => {
       assertCurrent();
+      assertConnection();
       this.service.authorize(profileId, app, account.id);
     };
     if (adapter.definition.kind === 'read') {

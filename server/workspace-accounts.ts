@@ -45,7 +45,7 @@ export interface AgentProfile {
   updatedAt: string;
 }
 interface StoredProfile extends AgentProfile { keyHash: string }
-interface OAuthFlow { verifier: string; apps: string[]; accountId?: string; redirectUri: string; clientId: string }
+interface OAuthFlow { verifier: string; apps: string[]; accountId?: string; redirectUri: string; clientId: string; generation: number }
 
 function inputString(value: unknown, label: string, max = 300): string {
   if (typeof value !== 'string' || !value.trim() || value.length > max || /[\u0000-\u001f\u007f]/.test(value)) throw new ProviderError(`${label} must be a valid, nonempty value.`);
@@ -131,7 +131,7 @@ export class WorkspaceAccounts {
     url.search = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: 'code', scope: scopes.join(' '),
       state, code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256', access_type: 'offline', prompt: 'consent select_account',
       ...(account ? { login_hint: account.email } : {}) }).toString();
-    const flow: OAuthFlow = { verifier, apps, redirectUri, clientId, ...(account ? { accountId: account.id } : {}) };
+    const flow: OAuthFlow = { verifier, apps, redirectUri, clientId, generation: this.store.connectionGeneration(OAUTH_PROVIDER), ...(account ? { accountId: account.id } : {}) };
     this.store.saveOAuth(state, session, OAUTH_PROVIDER, JSON.stringify(flow));
     return { url: url.toString() };
   }
@@ -142,6 +142,7 @@ export class WorkspaceAccounts {
     const saved = this.store.takeOAuth(state, session, OAUTH_PROVIDER);
     if (!saved) throw new ProviderError('This Google authorization expired or belongs to another session. Connect again.');
     const flow = JSON.parse(saved.verifier) as OAuthFlow;
+    this.store.assertConnectionGeneration(OAUTH_PROVIDER, flow.generation ?? 0);
     if (input.error) throw new ProviderError('Google authorization was declined. Your existing connections were kept.');
     const { clientId, clientSecret } = googleConfig(this.env);
     if (flow.clientId !== clientId || flow.redirectUri !== `${this.config.origin}${callbackPath}`) throw new ProviderError('Google settings changed during authorization. Connect again.');
@@ -151,6 +152,7 @@ export class WorkspaceAccounts {
     }) });
     const credential = tokenResponse(body);
     safeCredential(credential);
+    this.store.assertConnectionGeneration(OAUTH_PROVIDER, flow.generation ?? 0);
     const scopes = grantedScopes(body.scope);
     const identity = await fetchJson('Google', 'https://openidconnect.googleapis.com/v1/userinfo', { headers: { authorization: `Bearer ${credential.accessToken}` } });
     if (typeof identity.sub !== 'string' || !identity.sub || identity.sub.length > 255 || typeof identity.email !== 'string' || identity.email.length > 320 || !/^[^\s@]+@[^\s@]+$/.test(identity.email) || identity.email_verified !== true) throw new ProviderError('Google did not return a verified account identity. Connect again.', 502);
@@ -160,6 +162,7 @@ export class WorkspaceAccounts {
     const previousAccount = existingAccounts.find(account => account.id === id);
     if (!this.store.validSession(session)) throw new ProviderError('Your session ended during Google authorization. Sign in and connect again.', 401);
     if (flow.accountId && !previousAccount) throw new ProviderError('This Google account was disconnected during authorization. Use Add Google account to connect it again.', 409);
+    this.store.assertConnectionGeneration(OAUTH_PROVIDER, flow.generation ?? 0);
     if (!previousAccount && existingAccounts.length >= MAX_ACCOUNTS) throw new ProviderError(`You can connect up to ${MAX_ACCOUNTS} Google accounts. Remove an unused account first.`);
     const previousCredential = this.store.credential(connectionId(id));
     const sameClient = previousCredential?.fields?.googleClientId === clientId;
@@ -186,12 +189,15 @@ export class WorkspaceAccounts {
     if (!credential.expiresAt || credential.expiresAt > Date.now() + 60_000) return credential;
     const running = this.refreshing.get(accountId);
     if (running) return running;
-    const pending = this.refresh(accountId, credential).finally(() => this.refreshing.delete(accountId));
+    const pending = this.refresh(accountId, credential).finally(() => {
+      if (this.refreshing.get(accountId) === pending) this.refreshing.delete(accountId);
+    });
     this.refreshing.set(accountId, pending);
     return pending;
   }
 
   private async refresh(accountId: string, credential: Credential): Promise<Credential> {
+    const generation = this.store.connectionGeneration(connectionId(accountId));
     try {
       if (!credential.refreshToken) throw new ProviderError('This Google account needs authorization again. Reconnect it in Workspace settings.', 409);
       const { clientId, clientSecret } = googleConfig(this.env);
@@ -201,6 +207,7 @@ export class WorkspaceAccounts {
       const updated = tokenResponse(body, credential);
       safeCredential(updated);
       const scopes = body.scope !== undefined ? grantedScopes(body.scope) : undefined;
+      this.store.assertConnectionGeneration(connectionId(accountId), generation);
       const current = this.store.credential(connectionId(accountId));
       if (!current) throw new ProviderError('This Google account was disconnected.', 409);
       if (current.accessToken !== credential.accessToken || current.refreshToken !== credential.refreshToken) return current;
@@ -214,7 +221,7 @@ export class WorkspaceAccounts {
       return updated;
     } catch (error) {
       const current = this.store.credential(connectionId(accountId));
-      if (current?.accessToken === credential.accessToken && current.refreshToken === credential.refreshToken) this.store.markError(connectionId(accountId), 'Google authorization needs attention. Reconnect this account in Workspace settings.');
+      if (generation === this.store.connectionGeneration(connectionId(accountId)) && current?.accessToken === credential.accessToken && current.refreshToken === credential.refreshToken) this.store.markError(connectionId(accountId), 'Google authorization needs attention. Reconnect this account in Workspace settings.');
       throw error;
     }
   }
@@ -232,15 +239,45 @@ export class WorkspaceAccounts {
     const credential = this.store.credential(connectionId(accountId))!;
     const { mapsApiKey: _key, ...fields } = credential.fields || {};
     this.store.updateCredential(connectionId(accountId), { ...credential, fields });
+    this.store.disconnect(`${connectionId(accountId)}:maps`);
+    this.store.writeSetting(PROFILES, this.profiles().map(profile => {
+      const bindings = profile.bindings.map(binding => binding.accountId === accountId ? { ...binding, apps: binding.apps.filter(app => app !== 'maps') } : binding).filter(binding => binding.apps.length);
+      const { defaultAccountId, ...remaining } = profile;
+      return { ...remaining, bindings, ...(defaultAccountId && bindings.some(binding => binding.accountId === defaultAccountId) ? { defaultAccountId } : {}), updatedAt: new Date().toISOString() };
+    }));
     return this.publicAccount(account);
+  }
+  /** Keep asynchronous requests from crossing a reset, even after reconnection. */
+  captureConnection(accountId: string, app: string): () => void {
+    const provider = connectionId(accountId);
+    const generation = this.store.connectionGeneration(provider);
+    const mapsGeneration = this.store.connectionGeneration(`${provider}:maps`);
+    return () => {
+      this.store.assertConnectionGeneration(provider, generation);
+      if (app === 'maps') this.store.assertConnectionGeneration(`${provider}:maps`, mapsGeneration);
+    };
   }
   disconnect(accountId: string): void {
     this.account(accountId);
+    // New-account authorization does not identify its account until Google
+    // answers. Cancel all unfinished Google sign-ins so none can restore it.
+    this.store.disconnect(OAUTH_PROVIDER);
     this.store.disconnect(connectionId(accountId));
+    this.refreshing.delete(accountId);
     this.store.writeSetting(ACCOUNTS, this.accounts().filter(account => account.id !== accountId));
     this.store.writeSetting(PROFILES, this.profiles().map(profile => {
       const { defaultAccountId, ...remaining } = profile;
       return { ...remaining, bindings: profile.bindings.filter(binding => binding.accountId !== accountId), ...(defaultAccountId && defaultAccountId !== accountId ? { defaultAccountId } : {}), updatedAt: new Date().toISOString() };
+    }));
+  }
+  resetAll(): void {
+    this.store.disconnect(OAUTH_PROVIDER);
+    for (const account of this.accounts()) this.store.disconnect(connectionId(account.id));
+    this.refreshing.clear();
+    this.store.deleteSetting(ACCOUNTS);
+    this.store.writeSetting(PROFILES, this.profiles().map(profile => {
+      const { defaultAccountId: _default, ...remaining } = profile;
+      return { ...remaining, bindings: [], updatedAt: new Date().toISOString() };
     }));
   }
 

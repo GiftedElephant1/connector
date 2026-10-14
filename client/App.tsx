@@ -20,6 +20,7 @@ import { connectPlaid, returningFromPlaid } from "./plaid-link";
 import { GoogleWorkspace } from "./Workspace";
 import { AiAuthorization } from "./AiConnections";
 import { TikTokPublish } from "./TikTokPublish";
+import { ConnectorReset } from "./ConnectorReset";
 
 type Category =
   | "ai"
@@ -55,7 +56,7 @@ export type Provider = {
 };
 type Feedback = { kind: "success" | "error"; message: string };
 type Dialog =
-  | { type: "api-key" | "setup" | "details" | "disconnect"; provider: Provider }
+  | { type: "api-key" | "setup" | "details" | "disconnect" | "reset"; provider: Provider }
   | { type: "guide" | "public-origin" }
   | null;
 type IconName =
@@ -664,11 +665,13 @@ function Login({
 function ApiKeyDialog({
   provider,
   onClose,
+  onReset,
   onSubmit,
   busy,
 }: {
   provider: Provider;
   onClose: () => void;
+  onReset: () => void;
   onSubmit: (key: string, fields: Record<string, string>) => Promise<void>;
   busy: boolean;
 }) {
@@ -874,6 +877,7 @@ function ApiKeyDialog({
           <Icon name="shield" size={14} /> {localVault ? "Your selected vault location is saved privately." : "Credentials are encrypted on the server."}
         </p>
       </form>
+      <button type="button" className="button button-danger-subtle connector-reset-trigger" onClick={onReset} disabled={busy}>Disable and reset</button>
     </Modal>
   );
 }
@@ -895,6 +899,8 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
   const [search, setSearch] = useState("");
   const [dialog, setDialog] = useState<Dialog>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [workspaceRevision, setWorkspaceRevision] = useState(0);
 
   const fail = useCallback(
     (error: unknown) => {
@@ -1317,6 +1323,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                   setConfigureOnly(true);
                   setDialog({ type: "setup", provider });
                 }}
+                onReset={(provider) => setDialog({ type: "reset", provider })}
                 onPasswordSaved={() => {
                   setFeedback({
                     kind: "success",
@@ -1341,7 +1348,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
               </section>
             )
           ) : page === "workspace" ? (
-            <GoogleWorkspace api={api} onSettings={() => setPage("settings")} onAiConnections={() => setPage("pipeline")} />
+            <GoogleWorkspace key={workspaceRevision} api={api} onSettings={() => setPage("settings")} onAiConnections={() => setPage("pipeline")} onResetGoogleSetup={() => setDialog({ type: "reset", provider: { id: "google-workspace", name: "Google Workspace", category: "analytics", description: "Google Workspace accounts and application settings", authType: "oauth", docsUrl: "https://console.cloud.google.com/", configured: false, missing: [], connection: null } })} />
           ) : page === "tiktok" ? (
             <>
               <button className="text-button" onClick={() => setPage("connections")}>← Back to connections</button>
@@ -1697,6 +1704,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                           </div>
                           {provider.id === "tiktok" && <button className="button button-secondary full-width tiktok-open-studio" onClick={() => setPage("tiktok")}>TikTok publishing</button>}
                           {(provider.id === "linkedin" || provider.id === "linkedin-ads") && <button className="button button-secondary full-width" disabled={!!busy} onClick={() => { setConfigureOnly(true); setDialog({ type: "setup", provider }); }}>Check LinkedIn setup</button>}
+                          <button className="button button-danger-subtle full-width connector-reset-trigger" disabled={!!busy} onClick={() => setDialog({ type: "reset", provider })}>Disable and reset</button>
                         </article>
                       );
                     })}
@@ -1710,6 +1718,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                 {providers.filter((provider) => provider.category === "ai").map((provider) => <div className="ai-developer-provider" key={provider.id}>
                   <span><strong>{provider.name}</strong><small>{provider.connection ? provider.connection.status === "connected" ? "Developer API connected" : "Developer API needs attention" : "Developer API not connected"}</small></span>
                   <button className="button button-secondary" disabled={!!busy} onClick={() => provider.connection ? setDialog({ type: "details", provider }) : void connect(provider)}>{provider.connection ? `Manage ${provider.name}` : `Configure ${provider.name}`}</button>
+                  <button className="button button-danger-subtle" disabled={!!busy} onClick={() => setDialog({ type: "reset", provider })}>Disable and reset</button>
                 </div>)}
               </details>
               <div className="bottom-note">
@@ -1775,6 +1784,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
           provider={dialogProvider}
           busy={busy === dialogProvider.id}
           onClose={() => setDialog(null)}
+          onReset={() => setDialog({ type: "reset", provider: dialogProvider })}
           onSubmit={(key, fields) => connectKey(dialogProvider, key, fields)}
         />
       )}
@@ -1788,6 +1798,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
             provider={dialogProvider}
             request={api}
             onCancel={() => setDialog(null)}
+            onReset={() => setDialog({ type: "reset", provider: dialogProvider })}
             onSaved={async () => {
               const updated = await refresh();
               await refreshSettings();
@@ -1805,6 +1816,32 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                   kind: "success",
                   message: `${provider.name} application settings saved.`,
                 });
+            }}
+          />
+        </Modal>
+      )}
+      {dialog?.type === "reset" && dialogProvider && (
+        <Modal title={`Disable and reset ${dialogProvider.name}?`} onClose={() => { if (!resetBusy) setDialog(null); }}>
+          <ConnectorReset
+            key={dialogProvider.id}
+            providerId={dialogProvider.id}
+            request={api}
+            onCancel={() => { if (!resetBusy) setDialog(null); }}
+            onBusyChange={setResetBusy}
+            onReset={async () => { await Promise.all([refresh(), refreshSettings()]); setWorkspaceRevision(previous => previous + 1); }}
+            onSetUpAgain={async () => {
+              const [updated] = await Promise.all([refresh(), refreshSettings()]);
+              if (dialogProvider.id === "google-workspace") {
+                setWorkspaceRevision(previous => previous + 1);
+                setPage("workspace");
+                setDialog(null);
+                return;
+              }
+              const provider = updated.find(item => item.id === dialogProvider.id);
+              if (!provider) throw new Error("This connector is unavailable. Refresh your workspace and try again.");
+              setConfigureOnly(false);
+              setDialog(null);
+              await connect(provider);
             }}
           />
         </Modal>
@@ -1838,6 +1875,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
               >
                 Disconnect
               </button>
+              <button className="button button-danger-subtle" onClick={() => setDialog({ type: "reset", provider: dialogProvider })}>Disable and reset</button>
               <button
                 className="button button-primary"
                 onClick={() => {

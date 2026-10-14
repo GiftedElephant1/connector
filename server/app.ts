@@ -17,6 +17,8 @@ import { WorkspaceAccounts, mountWorkspace } from './workspace-accounts';
 import { McpOAuth, mountOAuthPublic, mountOAuthOwner } from './mcp-oauth';
 import { LegalPages, mountLegalPublic, mountLegalOwner } from './legal';
 import { TikTokVerification, mountTikTokVerificationPublic, mountTikTokVerificationOwner } from './tiktok-verification';
+import { mountConnectorReset } from './connector-reset';
+import { mountPipelineKeyReset } from './pipeline-key';
 
 export type ProviderService = Pick<typeof providers, 'providerCatalog' | 'getProvider' | 'getProviderSetup' | 'createOAuthRequest' | 'exchangeOAuthCode' | 'refreshCredential' | 'verifyConnection'>;
 
@@ -129,6 +131,7 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
     if (!config.pipelineKey) throw new RequestError('The connector key has not been generated. Open the desktop launcher or run setup.', 409);
     res.json({ apiKey: config.pipelineKey, url: `${config.origin}/mcp`, transport: 'Streamable HTTP' });
   });
+  mountPipelineKeyReset(app, config, store, env);
   app.post('/api/settings/password', (req, res) => {
     savePassword(store, req.body?.password);
     res.cookie('connector_session', store.createSession(), cookieOptions(req)).json({ ok: true });
@@ -150,32 +153,38 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
   const apiLimit = rateLimit({ windowMs: 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'Too many connection requests. Try again in a minute.' } });
   app.use('/api/connections', apiLimit);
   app.use('/api/oauth', apiLimit);
+  mountConnectorReset(app, store, env, service.providerCatalog, () => workspaceAccounts.resetAll());
   app.post('/api/connections/:provider/api-key', async (req, res) => {
     const id = String(req.params.provider);
     const provider = service.getProvider(id);
+    const generation = store.connectionGeneration(id);
     if (provider.authType !== 'api_key' && provider.authType !== 'local') throw new RequestError('Use the official authorization flow for this platform.');
     const fields: Record<string, string> = {};
     for (const field of provider.credentialFields || []) fields[field.name] = stringValue(req.body?.fields?.[field.name], field.label);
     const credential: providers.Credential = { accessToken: provider.authType === 'local' ? 'local-vault' : stringValue(req.body?.apiKey, 'API key or access token'), ...(Object.keys(fields).length ? { fields } : {}) };
     const account = await service.verifyConnection(id, credential, env);
+    store.assertConnectionGeneration(id, generation);
     const connection = store.save(id, credential, account);
     res.json({ connection });
   });
   app.post('/api/connections/:provider/verify', async (req, res) => {
     const id = String(req.params.provider);
     service.getProvider(id);
+    const generation = store.connectionGeneration(id);
     let credential = store.credential(id);
     if (!credential) throw new RequestError('Connect this account first.', 404);
     try {
       if (credential.expiresAt && credential.expiresAt <= Date.now() + 60_000) {
         credential = await service.refreshCredential(id, credential, env);
+        store.assertConnectionGeneration(id, generation);
         // Refresh tokens can rotate. Retain the new token even if the read check fails.
         store.updateCredential(id, credential);
       }
       const account = await service.verifyConnection(id, credential, env);
+      store.assertConnectionGeneration(id, generation);
       res.json({ connection: store.save(id, credential, account) });
     } catch (error) {
-      store.markError(id, safeError(error).message);
+      if (store.connectionGeneration(id) === generation) store.markError(id, safeError(error).message);
       throw error;
     }
   });
@@ -183,7 +192,11 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
     const id = String(req.params.provider);
     service.getProvider(id);
     const credential = store.credential(id);
-    if (id === 'plaid' && credential) await removePlaidItem(credential, env);
+    const generation = store.connectionGeneration(id);
+    if (id === 'plaid' && credential) {
+      await removePlaidItem(credential, env);
+      store.assertConnectionGeneration(id, generation);
+    }
     store.disconnect(id);
     res.json({ ok: true });
   });
@@ -212,8 +225,12 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
       if (!flow) throw new RequestError('This authorization expired or does not belong to your session. Please connect again.');
       if (req.query.error) throw new RequestError('Authorization was declined or could not be completed. Please connect again.');
       const code = stringValue(req.query.code ?? req.query.auth_code, 'Authorization code');
+      const generation = store.connectionGeneration(id);
       const credential = await service.exchangeOAuthCode(id, { code, codeVerifier: flow.verifier, redirectUri: `${config.origin}/api/oauth/${id}/callback`, env });
+      store.assertConnectionGeneration(id, generation);
       const account = await service.verifyConnection(id, credential, env);
+      store.assertConnectionGeneration(id, generation);
+      if (!store.validSession(sessionToken(req))) throw new RequestError('Your session ended during authorization. Sign in and connect again.', 409);
       store.save(id, credential, account);
       res.redirect(`/?connected=${encodeURIComponent(id)}`);
     } catch (error) {

@@ -236,3 +236,20 @@ test('revocation while Google is answering a read prevents the old profile from 
   assert.equal(response.status, 401);
   assert.equal((await response.text()).includes('private-content-from-pending-google-read'), false);
 });
+
+test('an action waiting on credentials cannot resume across account reset and explicit reauthorization', async t => {
+  const f = fixture(t);
+  const savedAccounts = f.store.readSetting('workspace.accounts.v1');
+  const credential = f.store.credential('google-workspace:work')!;
+  const original = f.accounts.getCredential.bind(f.accounts);
+  t.mock.method(f.accounts, 'getCredential', async (accountId: string, app?: string) => {
+    const previous = await original(accountId, app);
+    f.accounts.disconnect('work');
+    f.store.writeSetting('workspace.accounts.v1', savedAccounts);
+    f.store.save('google-workspace:work', credential, { accountId: 'work', accountName: 'work@example.com', resources: [] });
+    f.accounts.updateProfile(f.grok.profile.id, { name: 'Grok', bindings: [{ accountId: 'work', apps: ['sheets'] }], defaultAccountId: 'work' });
+    return previous;
+  });
+  await assert.rejects(f.pipeline.run(f.grok.profile.id, 'sheets', 'write', { text: 'Do not send an old request' }, true, 'reset-before-dispatch'), status(409));
+  assert.equal(f.seen.length, 0);
+});
