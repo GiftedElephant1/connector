@@ -1,8 +1,11 @@
 # Windows PowerShell 5.1; launched by Start Connector.vbs without a console.
 # Only this launcher's child processes are stopped. Secrets never enter arguments or logs.
+param([switch]$Background, [switch]$InitializeOnly)
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'windows-common.ps1')
+. (Join-Path $PSScriptRoot 'windows-background.ps1')
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
@@ -17,10 +20,16 @@ $script:job = $null
 $script:mutex = $null
 $script:mutexOwned = $false
 $script:desktopToken = $null
+$script:phase = 'Starting'
+$script:stopRequested = $false
+$script:instanceHash = $null
+$script:startupUpdating = $false
+$script:backgroundStart = [bool]$Background
 New-Item -ItemType Directory -Force -Path $script:stateRoot | Out-Null
 
-# A Windows job also closes npm/build descendants if the launcher is closed.
-Add-Type -TypeDefinition @'
+# The invisible launcher owns the job for its entire lifetime, including when
+# the status window is hidden. Explicit Stop and Windows shutdown close it.
+if (-not ('ConnectorChildJob' -as [type])) { Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
@@ -72,10 +81,11 @@ public sealed class ConnectorChildJob : IDisposable {
     }
 }
 '@
+}
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Connector'
-$form.ClientSize = New-Object System.Drawing.Size(550, 310)
+$form.ClientSize = New-Object System.Drawing.Size(550, 345)
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
@@ -105,14 +115,14 @@ $openButton.Text = 'Open Connector'
 $openButton.Location = New-Object System.Drawing.Point(24, 182)
 $openButton.Size = New-Object System.Drawing.Size(145, 38)
 $openButton.Enabled = $false
-$openButton.Add_Click({ if ($script:readyUrl) { Start-Process $script:readyUrl } })
+$openButton.Add_Click({ Open-ConnectorDashboard })
 $form.Controls.Add($openButton)
 
 $logButton = New-Object System.Windows.Forms.Button
 $logButton.Text = 'View status log'
 $logButton.Location = New-Object System.Drawing.Point(182, 182)
 $logButton.Size = New-Object System.Drawing.Size(145, 38)
-$logButton.Add_Click({ if (Test-Path $script:logPath) { Start-Process notepad.exe -ArgumentList ('"' + $script:logPath + '"') } })
+$logButton.Add_Click({ Open-ConnectorLog })
 $form.Controls.Add($logButton)
 
 $updateButton = New-Object System.Windows.Forms.Button
@@ -127,13 +137,152 @@ $updateButton.Add_Click({
 })
 $form.Controls.Add($updateButton)
 
+$hideButton = New-Object System.Windows.Forms.Button
+$hideButton.Text = 'Hide to tray'
+$hideButton.Location = New-Object System.Drawing.Point(182, 238)
+$hideButton.Size = New-Object System.Drawing.Size(145, 38)
+$hideButton.Enabled = $false
+$hideButton.Add_Click({ Hide-ConnectorWindow })
+$form.Controls.Add($hideButton)
+
+$startupCheckbox = New-Object System.Windows.Forms.CheckBox
+$startupCheckbox.Text = 'Start with Windows (when I sign in)'
+$startupCheckbox.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+$startupCheckbox.Location = New-Object System.Drawing.Point(24, 298)
+$startupCheckbox.Size = New-Object System.Drawing.Size(400, 25)
+$startupCheckbox.Enabled = $false
+$startupCheckbox.Add_CheckedChanged({ if (-not $script:startupUpdating) { Update-ConnectorStartup $startupCheckbox.Checked } })
+$form.Controls.Add($startupCheckbox)
+
 $stopButton = New-Object System.Windows.Forms.Button
 $stopButton.Text = 'Cancel'
 $stopButton.Location = New-Object System.Drawing.Point(381, 182)
 $stopButton.Size = New-Object System.Drawing.Size(145, 38)
-$stopButton.Add_Click({ $form.Close() })
+$stopButton.Add_Click({ Request-ConnectorStop })
 $form.Controls.Add($stopButton)
-$form.Add_FormClosing({ $script:cancelled = $true })
+
+$trayMenu = New-Object System.Windows.Forms.ContextMenuStrip
+$trayOpen = $trayMenu.Items.Add('Open Connector')
+$trayOpen.Enabled = $false
+$trayOpen.Add_Click({ Open-ConnectorDashboard })
+$trayStatus = $trayMenu.Items.Add('Show status')
+$trayStatus.Add_Click({ Show-ConnectorWindow })
+$trayLog = $trayMenu.Items.Add('View status log')
+$trayLog.Add_Click({ Open-ConnectorLog })
+[void]$trayMenu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
+$trayStartup = $trayMenu.Items.Add('Start with Windows')
+$trayStartup.Enabled = $false
+$trayStartup.CheckOnClick = $true
+$trayStartup.Add_Click({ if (-not $script:startupUpdating) { Update-ConnectorStartup $trayStartup.Checked } })
+[void]$trayMenu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
+$trayStop = $trayMenu.Items.Add('Stop Connector')
+$trayStop.Add_Click({ Request-ConnectorStop })
+
+$trayIcon = New-Object System.Windows.Forms.NotifyIcon
+$trayIcon.Icon = [System.Drawing.SystemIcons]::Application
+$trayIcon.Text = 'Connector - starting'
+$trayIcon.ContextMenuStrip = $trayMenu
+$trayIcon.Visible = $false
+$trayIcon.Add_DoubleClick({ if ($script:phase -eq 'Running') { Open-ConnectorDashboard } else { Show-ConnectorWindow } })
+
+$form.Add_FormClosing({
+    param($sender, $eventArgs)
+    if ((Get-ConnectorCloseAction $script:phase ([string]$eventArgs.CloseReason) $script:stopRequested) -eq 'Hide') {
+        $eventArgs.Cancel = $true
+        Hide-ConnectorWindow
+    } else { $script:cancelled = $true }
+})
+$form.Add_Resize({
+    if ($script:phase -eq 'Running' -and $form.WindowState -eq 'Minimized') { Hide-ConnectorWindow }
+})
+
+function Open-ConnectorDashboard {
+    if ($script:readyUrl) { Start-Process $script:readyUrl }
+}
+
+function Open-ConnectorLog {
+    if (Test-Path -LiteralPath $script:logPath) { Start-Process notepad.exe -ArgumentList (ConvertTo-ConnectorArgument $script:logPath) }
+}
+
+function Show-ConnectorWindow {
+    $form.ShowInTaskbar = $true
+    $form.WindowState = 'Normal'
+    $form.Show()
+    [void]$form.Activate()
+}
+
+function Hide-ConnectorWindow {
+    if ($script:phase -ne 'Running') { return }
+    $trayIcon.Visible = $true
+    $form.Hide()
+    $form.ShowInTaskbar = $false
+}
+
+function Request-ConnectorStop {
+    $script:stopRequested = $true
+    $script:phase = 'Stopping'
+    $form.Close()
+    # A never-shown form during sign-in startup can close without FormClosing.
+    $script:cancelled = $true
+}
+
+function Sync-ConnectorStartupControls([bool]$enabled) {
+    $script:startupUpdating = $true
+    try { $startupCheckbox.Checked = $enabled; $trayStartup.Checked = $enabled }
+    finally { $script:startupUpdating = $false }
+}
+
+function Update-ConnectorStartup([bool]$enabled) {
+    try {
+        Set-ConnectorStartWithWindows $script:root $enabled
+        Sync-ConnectorStartupControls (Get-ConnectorStartWithWindows $script:root)
+    } catch {
+        try { Sync-ConnectorStartupControls (Get-ConnectorStartWithWindows $script:root) } catch { Sync-ConnectorStartupControls $false }
+        [void][System.Windows.Forms.MessageBox]::Show('Windows could not change the startup setting. Check that this folder still contains Start Connector and that your account can update its Startup folder. Connector can still be started manually.', 'Connector startup', 'OK', 'Warning')
+    }
+}
+
+function Set-ConnectorReady {
+    $script:phase = 'Running'
+    $script:readyUrl = 'http://127.0.0.1:3000/'
+    $title.Text = 'Connector is running in the background'
+    $title.Font = New-Object System.Drawing.Font('Segoe UI', 15, [System.Drawing.FontStyle]::Bold)
+    Write-Status 'You can close this window and your browser. Scheduled posts and remote access continue while this PC is on and awake. Use the Connector tray icon to reopen or stop it.'
+    if ($script:cancelled) { $script:desktopToken = $null; return }
+    $progress.Style = 'Continuous'
+    $progress.Value = 100
+    $openButton.Enabled = $true
+    $hideButton.Enabled = $true
+    $trayOpen.Enabled = $true
+    $trayIcon.Text = 'Connector - running'
+    $stopButton.Text = 'Stop Connector'
+    $startupCheckbox.Enabled = $true
+    $trayStartup.Enabled = $true
+    if ($script:backgroundStart) { Hide-ConnectorWindow }
+    else {
+        # The initial one-use local sign-in link is opened only for an explicit
+        # user launch. Nothing sensitive is written to the instance marker.
+        if ($script:desktopToken) { $script:readyUrl += '#desktopToken=' + $script:desktopToken }
+        try { Open-ConnectorDashboard }
+        finally { $script:readyUrl = 'http://127.0.0.1:3000/' }
+    }
+    $script:desktopToken = $null
+}
+
+function Set-ConnectorFailure([string]$message) {
+    $script:phase = 'Failed'
+    $script:readyUrl = $null
+    $title.Text = 'Connector needs attention'
+    $progress.Visible = $false
+    $openButton.Enabled = $false
+    $hideButton.Enabled = $false
+    $trayOpen.Enabled = $false
+    $trayIcon.Text = 'Connector - needs attention'
+    $trayIcon.Icon = [System.Drawing.SystemIcons]::Warning
+    $stopButton.Text = 'Close'
+    Write-Status $message
+    if (-not $script:cancelled) { Show-ConnectorWindow }
+}
 
 function Write-Status([string]$message) {
     $status.Text = $message
@@ -196,16 +345,50 @@ function Get-TextHash([string]$value) {
     finally { $sha.Dispose() }
 }
 
-$form.Show()
+function Stop-ConnectorOwnedProcesses {
+    if ($script:job -and $script:child -and -not $script:child.HasExited) {
+        try {
+            $script:child.StandardInput.WriteLine('stop')
+            $script:child.StandardInput.Flush()
+            $stopDeadline = [DateTime]::UtcNow.AddSeconds(5)
+            while (-not $script:child.HasExited -and [DateTime]::UtcNow -lt $stopDeadline) {
+                [System.Windows.Forms.Application]::DoEvents()
+                Start-Sleep -Milliseconds 100
+            }
+        } catch { }
+    }
+    try { if ($script:job) { $script:job.Dispose() } }
+    finally {
+        $script:job = $null
+        if ($script:child) { $script:child.Dispose(); $script:child = $null }
+    }
+}
+
+# Tests initialize the same controls and handlers without launching a runtime,
+# changing Startup, acquiring the instance mutex, or writing instance state.
+if ($InitializeOnly) { return }
+
+# A hidden form still needs a native handle to receive Windows logoff/shutdown.
+$null = $form.Handle
+if (-not $script:backgroundStart) { $form.Show() }
 try {
     $script:mutex = New-Object System.Threading.Mutex($false, 'Local\GiftedElephantConnectorDesktop')
     try { $script:mutexOwned = $script:mutex.WaitOne(0) }
     catch [System.Threading.AbandonedMutexException] { $script:mutexOwned = $true }
     if (-not $script:mutexOwned) {
-        [void][System.Windows.Forms.MessageBox]::Show('Connector already has a launcher window open. Use Open Connector in that window.', 'Connector', 'OK', 'Information')
-        $form.Close()
+        if (-not $script:backgroundStart) {
+            if (Test-ConnectorExistingInstance (Get-ConnectorInstanceHash $script:stateRoot)) { Start-Process 'http://127.0.0.1:3000/' }
+            else { [void][System.Windows.Forms.MessageBox]::Show('Connector is already starting, updating, or needs attention. Click the Connector icon beside the Windows clock (look under the up arrow if necessary), then choose Show status. Wait for an update to finish before starting it again.', 'Connector', 'OK', 'Information') }
+        }
+        Request-ConnectorStop
         return
     }
+    $markerPath = Join-Path $script:stateRoot 'desktop-instance.txt'
+    if (Test-Path -LiteralPath $markerPath) { Remove-Item -LiteralPath $markerPath -Force }
+    $trayIcon.Visible = $true
+    try { Sync-ConnectorStartupControls (Get-ConnectorStartWithWindows $script:root) } catch { Sync-ConnectorStartupControls $false }
+    $startupCheckbox.Enabled = $true
+    $trayStartup.Enabled = $true
     Set-Content -LiteralPath $script:logPath -Value 'Connector launch status. Credentials and server output are omitted.'
     $script:job = New-Object ConnectorChildJob
     if (-not (Test-Path (Join-Path $script:root 'package-lock.json'))) { throw 'Extract the entire Connector ZIP before opening Start Connector.' }
@@ -283,7 +466,7 @@ try {
     $random = [Security.Cryptography.RandomNumberGenerator]::Create()
     try { $random.GetBytes($bytes) } finally { $random.Dispose() }
     $script:desktopToken = [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
-    $instanceHash = Get-TextHash $script:desktopToken
+    $script:instanceHash = Get-TextHash $script:desktopToken
     $run = Start-OwnedNode '--import tsx server/index.ts' @{
         CONNECTOR_DESKTOP_TOKEN = $script:desktopToken
         HOST = '127.0.0.1'
@@ -297,22 +480,16 @@ try {
         try {
             $health = Invoke-WebRequest -Uri 'http://127.0.0.1:3000/api/health' -UseBasicParsing -TimeoutSec 1
             $payload = $health.Content | ConvertFrom-Json
-            if ($health.Headers['X-Connector-App'] -eq 'gifted-elephant-connector' -and $payload.desktopInstance -eq $instanceHash) { $healthy = $true; break }
+            if ($health.Headers['X-Connector-App'] -eq 'gifted-elephant-connector' -and $payload.desktopInstance -eq $script:instanceHash) { $healthy = $true; break }
         } catch { }
         Wait-Ui
     }
-    if (-not $healthy) { throw 'Connector did not finish starting. Close the launcher and try again. Another application may have taken port 3000.' }
+    if (-not $healthy) { throw 'Connector did not finish starting. Close this status window and try again. Another application may have taken port 3000.' }
 
-    $script:readyUrl = 'http://127.0.0.1:3000/#desktopToken=' + $script:desktopToken
-    $title.Text = 'Connector is running'
-    Write-Status 'Use the browser to connect your accounts. Keep this window open for scheduled posts and remote access.'
-    $progress.Style = 'Continuous'
-    $progress.Value = 100
-    $openButton.Enabled = $true
-    $stopButton.Text = 'Stop Connector'
-    Start-Process $script:readyUrl
-    $script:readyUrl = 'http://127.0.0.1:3000/'
-    $script:desktopToken = $null
+    # The marker contains only a non-secret identity hash, never the one-use
+    # desktop sign-in link. Duplicate launches validate it before opening localhost.
+    Set-Content -LiteralPath $markerPath -Value $script:instanceHash -Encoding ASCII
+    Set-ConnectorReady
     while (-not $script:cancelled) {
         if ($script:child.HasExited) { throw 'Connector has stopped. Close this window and open Start Connector to try again.' }
         Wait-Ui
@@ -320,31 +497,22 @@ try {
 } catch {
     if (-not $script:cancelled) {
         if ($script:job) { $script:job.Dispose(); $script:job = $null }
-        $title.Text = 'Connector needs attention'
-        $progress.Visible = $false
-        $openButton.Enabled = $false
-        $stopButton.Text = 'Close'
         # Known errors are ours; unexpected exception details can include URLs or environment values.
         $message = $_.Exception.Message
         $known = @('Port 3000 ', 'Extract the entire ', 'Connector requires ', 'The official runtime ', 'Runtime download ', 'The extracted runtime ', 'Component installation ', 'Private configuration ', 'The dashboard ', 'The interrupted update ', 'Connector stopped ', 'Connector did not ', 'Connector has stopped.')
         if (-not ($known | Where-Object { $message.StartsWith($_) })) { $message = 'Connector could not complete setup. Check your Internet connection, free disk space, and permission to run applications in this folder, then try again.' }
-        Write-Status $message
+        Set-ConnectorFailure $message
         while (-not $script:cancelled) { [System.Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 100 }
     }
 } finally {
-    if ($script:job -and $script:child -and -not $script:child.HasExited) {
-        try {
-            $script:child.StandardInput.WriteLine('stop')
-            $script:child.StandardInput.Flush()
-            $stopDeadline = [DateTime]::UtcNow.AddSeconds(5)
-            while (-not $script:child.HasExited -and [DateTime]::UtcNow -lt $stopDeadline) {
-                [System.Windows.Forms.Application]::DoEvents()
-                Start-Sleep -Milliseconds 100
-            }
-        } catch { }
+    Stop-ConnectorOwnedProcesses
+    if ($script:mutexOwned) {
+        $markerPath = Join-Path $script:stateRoot 'desktop-instance.txt'
+        if (Test-Path -LiteralPath $markerPath) { Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue }
     }
-    if ($script:job) { $script:job.Dispose() }
-    if ($script:child) { $script:child.Dispose() }
+    $trayIcon.Visible = $false
+    $trayIcon.Dispose()
+    $trayMenu.Dispose()
     if ($script:mutexOwned) { $script:mutex.ReleaseMutex() }
     if ($script:mutex) { $script:mutex.Dispose() }
     $script:desktopToken = $null

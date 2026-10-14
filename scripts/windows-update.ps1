@@ -30,7 +30,7 @@ $title.Size = New-Object System.Drawing.Size(646, 40)
 $form.Controls.Add($title)
 
 $instructions = New-Object System.Windows.Forms.Label
-$instructions.Text = "This is the NEW download. Choose the OLD Connector folder you already use.`r`nYour connected accounts, encryption key, settings, and scheduled jobs stay in that original folder. Stop Connector before updating."
+$instructions.Text = "This is the NEW download. Choose the OLD Connector folder you already use.`r`nYour connected accounts, encryption key, settings, and scheduled jobs stay in that original folder. Choose Stop Connector from its tray icon or status window before updating."
 $instructions.Font = New-Object System.Drawing.Font('Segoe UI', 10)
 $instructions.Location = New-Object System.Drawing.Point(24, 72)
 $instructions.Size = New-Object System.Drawing.Size(642, 76)
@@ -206,7 +206,7 @@ $browseButton.Add_Click({
             $folderBox.Text = $script:selectedTarget
             $updateButton.Enabled = $true
             $startButton.Enabled = $false
-            Set-UpdateStatus 'Ready. Stop the existing Connector window, then click Update Connector.'
+            Set-UpdateStatus 'Ready. Choose Stop Connector from its system tray icon or status window, then click Update Connector. Closing the window only hides it.'
         }
     } finally { $dialog.Dispose() }
 })
@@ -229,7 +229,7 @@ $updateButton.Add_Click({
             throw 'Existing installation not selected.'
         }
 
-        $script:failureMessage = 'Stop Connector in its launcher window, then try Update Connector again. No running applications were stopped by the updater.'
+        $script:failureMessage = 'Choose Stop Connector from its system tray icon (near the Windows clock) or status window, then try again. Closing the window only hides it. The updater has not stopped any applications.'
         $script:mutex = New-Object System.Threading.Mutex($false, 'Local\GiftedElephantConnectorDesktop')
         try { $script:mutexOwned = $script:mutex.WaitOne(0) }
         catch [System.Threading.AbandonedMutexException] { $script:mutexOwned = $true }

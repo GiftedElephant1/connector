@@ -12,7 +12,7 @@ To remove incorrect or stale connection details, use **Disable and reset** in **
 
 If you already have a working public HTTPS address in Connector, continue at step 8.
 
-1. Open the folder where you installed Connector and double-click **Start Connector**. Keep the small Connector window open while using your AI app.
+1. Open the folder where you installed Connector and double-click **Start Connector**. After startup, Connector runs in the Windows notification area beside the clock; you can close its window and browser while your AI app uses it. Right-click its icon (under **Show hidden icons** if needed) to reopen or stop it.
 2. In the browser dashboard, sign in if asked. Use the workspace password you chose for Connector.
 3. Click **Settings** in the sidebar. Find **Make Connector available to your AI agent**.
 4. Click **Open ngrok’s Your Authtoken page**. This opens [ngrok's token page](https://dashboard.ngrok.com/get-started/your-authtoken) in another tab. Sign in or create an ngrok account if needed; this is the service that makes the app on your PC reachable through HTTPS.
@@ -23,7 +23,7 @@ If you already have a working public HTTPS address in Connector, continue at ste
 9. If you want to use Google Workspace, open **Google Workspace**, connect the intended Google accounts, and create an agent profile with the allowed accounts and apps. Follow the [Workspace guide](providers-workspace.md). You will select this profile during AI authorization.
 10. Open **AI connections** in the sidebar. Find **Connector URL** and click **Copy** beside it. The address must start with `https://` and end in `/mcp`. If the page shows **Set up public address**, finish the public-access steps above first.
 
-Cloud AI services cannot reach `http://127.0.0.1:3000` on your PC. Keep your PC awake, online, and running Connector while the AI uses its tools or while scheduled work is due. A browser bookmark opens an already-running Connector; it does not start the app.
+Cloud AI services cannot reach `http://127.0.0.1:3000` on your PC. Keep your PC on, awake, signed in, online, and running Connector while the AI uses its tools or while scheduled work is due. Locking the PC is fine if it remains awake. No browser or Connector window needs to stay open. A browser bookmark opens an already-running Connector; it does not start the app.
 
 ## 2. Add Connector to your AI app
 

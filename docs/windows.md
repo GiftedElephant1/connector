@@ -9,17 +9,29 @@ Download the Windows ZIP, extract it, and double-click **Start Connector**. You 
 3. Move the extracted **Connector** folder to a place you want to keep it, such as your Documents folder. Do not launch from inside the ZIP, a temporary preview, or a read-only folder.
 4. Open the extracted **Connector** folder and double-click **Start Connector** (`Start Connector.vbs` if extensions are visible).
 5. A small Connector window shows setup progress. On the first launch it downloads a private, checksum-verified Node.js runtime and installs the app components. This can take several minutes. Later launches reuse them.
-6. Your default browser opens Connector automatically and signs you into this local desktop session. Keep the small Connector window open while using the app.
+6. Your default browser opens Connector automatically and signs you into this local desktop session. Once startup finishes, click **Hide to tray** or the small window's **X** to hide it in the notification area beside the Windows clock. You can close the browser too without stopping scheduled posts or remote access.
 7. Follow the dashboard's connection setup. Configure required developer-app credentials in the dashboard, then choose **Connect account** and approve access on the provider's own site. Platforms still control eligibility, consent, business verification, API access, and approval.
 
 The local app runs at `http://127.0.0.1:3000`. The launcher uses a private, short-lived browser sign-in handoff; it never puts your saved provider credentials into that address. A cloud AI service needs the dashboard's remote-access setup before it can reach an app running on your PC.
 
-## Stop and reopen
+## Run in the background, stop, and reopen
 
-- Choose **Open Connector** in the small window to reopen the dashboard.
-- Choose **Stop Connector** or close that window to stop the app. Closing only the browser leaves the app running.
-- Double-click **Start Connector** again next time. The launcher will not start a second copy if another launcher is already running.
-- Keep your PC awake and online for scheduled actions and remote access. Scheduled work cannot execute while the app is stopped.
+1. Find Connector's icon in the notification area beside the Windows clock. If it is hidden, click the **Show hidden icons** arrow first.
+2. Right-click the icon and choose **Open Connector** to open the dashboard, **Show status** to bring back the small window, or **View status log** to inspect startup status.
+3. Close the browser whenever you want. If the small Connector window is visible after startup, **Hide to tray**, its **X**, or minimizing it hides it. Connector and its public connection continue running in the background.
+4. To stop the app, right-click the icon and choose **Stop Connector**. The **Stop Connector** button in its window does the same thing. Closing the window during setup still cancels startup.
+5. Double-click **Start Connector** in your original installation folder to start it again. The launcher will not start a second copy if another launcher is already running.
+
+Keep your PC on, awake, signed in, and connected to the Internet for scheduled actions and remote access. Locking the PC is fine if it remains awake; sleeping, shutting down, signing out, or choosing **Stop Connector** makes Connector unavailable. Your scheduled jobs and connected accounts stay saved, but jobs cannot run while the app is stopped. A browser bookmark opens an already-running app; it does not start Connector.
+
+## Start automatically when you sign in
+
+1. Start Connector from the folder you intend to keep using.
+2. In its small window, check **Start with Windows**. You can also right-click its notification-area icon and select **Start with Windows**. It is off by default.
+3. On your next Windows sign-in, Connector starts in the background without opening its window or your browser. Use its icon beside the clock to open the dashboard when needed.
+4. To stop automatic startup, uncheck **Start with Windows** using either control. Choosing **Stop Connector** stops the current session but does not turn off automatic startup for the next sign-in.
+
+This starts Connector for your Windows user after sign-in, without administrator access. It does not run before sign-in or keep the PC awake. Keep the installation in the same folder; updates to that original folder preserve the startup setting. Startup errors bring back the status window so you can see what needs attention.
 
 ## Update without reconnecting your accounts
 
@@ -27,7 +39,7 @@ Updates add new connector code while keeping the existing installation's saved a
 
 1. In Connector, open **Settings → Updates and new connectors** and click **Download latest update**. For an older version without this section, [download the latest app here](https://github.com/GiftedElephant1/connector/archive/refs/heads/main.zip).
 2. Open **Downloads** in File Explorer. Right-click the downloaded ZIP, select **Extract All…**, and then **Extract**. This link downloads a folder named **connector-main**. If you use a GitHub Actions artifact instead, also extract the inner **Connector-Windows.zip**.
-3. Keep the new download separate from your existing installation. In the small Connector window, click **Stop Connector**. Scheduled actions pause while the app is stopped.
+3. Keep the new download separate from your existing installation. Beside the Windows clock, click the **Show hidden icons** arrow if needed, right-click Connector's icon, and choose **Stop Connector**. If you are updating an older version without a tray icon, click **Stop Connector** in its small window. Closing the browser or hiding the current window does not stop the app. Scheduled actions pause while the app is stopped.
 4. Open the **newly downloaded** folder containing **Update Connector.vbs** and double-click **Update Connector**.
 5. Use the wizard's folder picker to select the **original Connector folder** you have been using. Choose the folder containing your existing **Start Connector** file, not the new download.
 6. Start the update in the wizard and wait for it to finish. It installs and builds the new components before changing the old app files. Internet access is needed to download dependencies. Leave the update window open until it finishes.
@@ -47,8 +59,9 @@ The launcher uses port 3000 on your own PC. If another program uses that port, i
 - **Nothing opens:** confirm you extracted the entire ZIP and are opening `Start Connector.vbs` from the extracted folder. Windows Script Host and Windows PowerShell must be available; an organization's device policies may restrict downloaded scripts. Ask that device's administrator about approved installation methods if it is blocked.
 - **Setup cannot download components:** check your Internet connection and available disk space, then close the launcher and reopen it. It downloads only the runtime from `nodejs.org` and package dependencies using npm's configured registry.
 - **A startup stage fails:** select **View status log**. The log identifies the failed stage without recording credentials or raw server output. It lives at `%LOCALAPPDATA%\Connector\launcher.log`.
-- **The browser does not open:** select **Open Connector** in the launcher window and check your default browser settings.
-- **Schedules are not running:** leave the Connector window open and check Windows sleep settings.
+- **The browser does not open:** right-click Connector's icon beside the clock and select **Open Connector**, or use that button in the startup window. Check your default browser settings.
+- **The small window disappeared:** after startup, closing or minimizing that window hides it. Automatic Windows sign-in startup is hidden too. Look beside the Windows clock or under **Show hidden icons** for Connector, then choose **Show status** to bring it back.
+- **Schedules are not running:** confirm Connector is running in the notification area and check your Internet connection and Windows sleep settings. No browser or launcher window needs to remain open.
 
 ## Maintainer notes
 
@@ -56,4 +69,4 @@ The launcher uses port 3000 on your own PC. If another program uses that port, i
 
 The launcher pins Node.js 24.13.0, verifies both the official archive checksum manifest and embedded SHA-256 expectations, and checks the runtime executable hash on later launches. Runtime files and npm's cache stay under `%LOCALAPPDATA%\Connector`; the app's private configuration and data stay in the extracted Connector folder. Downloads retain normal TLS certificate verification. No administrator permissions or system-wide runtime installation are requested.
 
-Manual Windows validation should cover a fresh user profile, paths containing spaces/non-ASCII characters, x64 and ARM64, cancelled downloads, an occupied port, a second launch, restart with saved accounts, and Stop Connector during setup and normal operation. A Linux-only build cannot establish that the native Windows launcher has passed these checks.
+Manual Windows validation should cover a fresh user profile, paths containing spaces/non-ASCII characters, x64 and ARM64, cancelled downloads, an occupied port, a second launch, restart with saved accounts, hiding and reopening through the notification area, enabling/disabling sign-in startup, sign-out/shutdown, and Stop Connector during setup and normal operation. Confirm that scheduled actions and public access continue with both windows closed, that automatic startup opens no browser, that failures restore the status window, and that the updater refuses to run until Connector is stopped. A Linux-only build cannot establish that the native Windows launcher has passed these checks.

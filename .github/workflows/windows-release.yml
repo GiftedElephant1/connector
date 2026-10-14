@@ -33,6 +33,16 @@ jobs:
             Write-Output "::error title=Windows updater verification::$message"
             exit 1
           }
+      - name: Verify Windows background launcher behavior
+        shell: powershell
+        run: |
+          try {
+            & .\tests\windows-launcher.ps1
+          } catch {
+            $message = ($_.Exception.Message + ' ' + $_.ScriptStackTrace).Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=Windows launcher verification::$message"
+            exit 1
+          }
       - run: npm ci
       - run: npm test
       - run: npm run build
@@ -44,6 +54,7 @@ jobs:
           Expand-Archive -LiteralPath artifacts\Connector-Windows.zip -DestinationPath "$env:RUNNER_TEMP\connector-package"
           $packageRoot = "$env:RUNNER_TEMP\connector-package\Connector"
           if (-not (Test-Path "$packageRoot\Start Connector.vbs")) { throw 'Launcher is missing from the package.' }
+          if (-not (Test-Path "$packageRoot\scripts\windows-background.ps1")) { throw 'Background launcher helpers are missing from the package.' }
           if (-not (Test-Path "$packageRoot\Update Connector.vbs")) { throw 'Update wizard is missing from the package.' }
           if (Test-Path "$packageRoot\.env") { throw 'Private settings must not be packaged.' }
           if (Test-Path "$packageRoot\data") { throw 'Account data must not be packaged.' }

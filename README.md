@@ -11,13 +11,15 @@ The dashboard guides you through setup, account connections, and AI-agent access
 ## Start on your Windows PC — no terminal commands
 
 1. [Download the app ZIP](https://github.com/GiftedElephant1/connector/archive/refs/heads/main.zip), choose **Extract All**, and open the extracted folder. A smaller `Connector-Windows.zip` is also available from successful **Package Windows app** workflow artifacts.
-2. Double-click **Start Connector**. Its progress window downloads a verified private runtime, installs dependencies, prepares storage, and opens the dashboard. Keep that window open while using Connector.
+2. Double-click **Start Connector**. Its progress window downloads a verified private runtime, installs dependencies, prepares storage, and opens the dashboard. Once startup finishes, click **Hide to tray** or the window's **X** to leave Connector running in the Windows notification area beside the clock.
 3. Choose your workspace password in the welcome screen.
 4. Open **Settings**, follow the link to ngrok's **Your Authtoken** page, paste its token, and click **Start public access**. No separate ngrok installation or command is needed. Connector saves the token encrypted and reconnects on later launches until you stop public access.
 5. Click **Open public workspace**, sign in with the password you chose, and click **Connect account** on a platform. If application credentials are required, the app presents a guided form, a developer-portal link, and a copyable callback address. Save credentials directly in the interface; changes apply immediately.
 6. Open **AI connections**, choose Claude, ChatGPT, or Grok, and follow the card's instructions to add the public connector URL in that AI app. Choose **OAuth** where offered, sign in with your Connector password, and approve standard platform access and/or the Google Workspace profile the agent may use. Start with an account-list request.
 
-The launcher supports Windows 10/11 x64 and ARM64 and needs Internet access for its first installation. It uses port 3000. Closing the launcher stops Connector; closing only the browser leaves it running. See [Windows use and troubleshooting](docs/windows.md).
+The launcher supports Windows 10/11 x64 and ARM64 and needs Internet access for its first installation. It uses port 3000. After startup, closing its window with **X** hides it and leaves Connector running, as does closing the browser. Right-click the Connector icon beside the clock (check the **Show hidden icons** arrow if needed) to open the dashboard, view the status log, or **Stop Connector**. Your PC must stay on, awake, signed in, and online for scheduled posts and remote access. See [Windows use and troubleshooting](docs/windows.md).
+
+To start Connector automatically when you sign in to Windows, enable **Start with Windows** in its window or tray menu. This is optional and off by default. Automatic starts run in the background without opening the browser.
 
 **Entered the wrong connection details?** Choose **Disable and reset** on the connector, review any shared accounts it affects, confirm, and select **Set up again**. This clears saved account access and developer-app details, cancels pending platform jobs, and prevents an old sign-in from restoring the connection. Google Workspace and AI connections have corresponding reset controls. See [resetting connectors](docs/reset-connectors.md).
 
@@ -31,7 +33,7 @@ The **TikTok** and **X** connection setup screens include complete developer-acc
 
 Open **Settings → Updates and new connectors** to download an update or prepare a connector request to copy into your conversation with the developer. A new platform needs an official API integration before it becomes available, followed by its own account authorization.
 
-On Windows, extract the new download, stop Connector, and double-click **Update Connector** in the **new** folder. Select your **existing** Connector folder in the wizard. It prepares the new app before replacing application files and keeps your saved accounts, workspace settings, scheduled jobs, and connector API key in the original installation. Start the app from that original folder after updating. See the [complete update steps](docs/windows.md#update-without-reconnecting-your-accounts).
+On Windows, extract the new download, right-click Connector's icon beside the clock and choose **Stop Connector**, then double-click **Update Connector** in the **new** folder. Select your **existing** Connector folder in the wizard. It prepares the new app before replacing application files and keeps your saved accounts, workspace settings, scheduled jobs, and connector API key in the original installation. Start the app from that original folder after updating. See the [complete update steps](docs/windows.md#update-without-reconnecting-your-accounts).
 
 An app update does not require authorizing every account again. A platform may still require authorization if it revokes access, a token can no longer refresh, or an added action needs new permissions. Keep the same public address for Grok and other clients; if your tunnel address changes, update their connector URL.
 
@@ -39,7 +41,7 @@ An app update does not require authorizing every account again. A platform may s
 
 Connector provides a public HTTPS MCP endpoint with OAuth sign-in and permission approval. Your AI app runs the model using your subscription; Connector supplies the tools. You do not paste your AI account password or subscription token into Connector.
 
-1. Start Connector and turn on public access in **Settings**. Keep your PC awake and the launcher open.
+1. Start Connector and turn on public access in **Settings**. Keep your PC awake and online; Connector can run in the notification area with its window and browser closed.
 2. Connect the destination accounts your AI should use. For Google Workspace, create an agent profile with the allowed accounts and apps.
 3. Open **AI connections**. Copy the displayed `/mcp` URL and open the relevant AI app's settings from its card.
 4. Add a custom connector/app using that URL and **OAuth** authentication. The client handles registration automatically; no Anthropic, OpenAI, or xAI developer registration is needed.
