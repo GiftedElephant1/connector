@@ -162,6 +162,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
+          Update-MpSignature -ErrorAction Stop
           & .\scripts\windows-scan-package.ps1 -PackagePath artifacts\Connector-Windows.zip -ReportPath reports\windows-defender-scan.json
 
       - name: Save verification reports

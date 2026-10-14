@@ -159,8 +159,13 @@ public static class ConnectorConsoleProbe {
 }
 '@
         Assert-True ([ConnectorConsoleProbe]::GetConsoleWindow() -eq [IntPtr]::Zero) 'Run the console scenario through its isolated, no-console parent harness.'
+        # CREATE_NO_WINDOW can still attach this isolated child to an invisible
+        # console: a zero window handle does not prove the process is detached.
+        # Detach only this child before allocating the visible fixture console.
+        [void][ConnectorConsoleProbe]::FreeConsole()
         $testConsoleAllocated = [ConnectorConsoleProbe]::AllocConsole()
-        Assert-True $testConsoleAllocated 'The isolated console fixture could not allocate its own console.'
+        $consoleAllocationError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        Assert-True $testConsoleAllocated ('The isolated console fixture could not allocate its own console. Win32 error: ' + $consoleAllocationError)
         $testConsoleWindow = [ConnectorConsoleProbe]::GetConsoleWindow()
         Assert-True ([ConnectorConsoleProbe]::IsWindowVisible($testConsoleWindow)) 'The new console must begin visible for publisher prompts.'
     }
