@@ -6,6 +6,8 @@ The normal **Package Windows app** workflow checks development builds and scans 
 
 This is a signed-script distribution, not an MSI/MSIX installer. The ZIP and JavaScript source do not carry Authenticode signatures. Initial setup still downloads the pinned, checksum-verified Node runtime and installs the locked npm dependencies. The release's checksum and attached reports identify the archive that was verified.
 
+GitHub's Windows image disables several Defender features and excludes entire drives. Before scanning, the workflow enables protection and removes those exclusions on its disposable hosted runner. This preparation script is excluded from the app ZIP and refuses to run on ordinary PCs or self-hosted runners. The scan independently verifies active protection, archive/script scanning, current definitions, and empty exclusions; failure to establish those conditions withholds the download.
+
 ## One-time publisher setup
 
 An authorized representative of **Vectre Pay Inc** must complete the signing provider's identity verification. This requires an Azure subscription and may incur fees; adding the workflow does not create an account, complete verification, or buy a certificate.

@@ -15,6 +15,16 @@ function Get-ConnectorDefenderScanner {
         -not $status.RealTimeProtectionEnabled -or $status.AMRunningMode -ne 'Normal') {
         throw 'Microsoft Defender must be active with real-time protection enabled.'
     }
+    $preferences = Get-MpPreference -ErrorAction Stop
+    if ($preferences.DisableArchiveScanning -or $preferences.DisableScriptScanning -or
+        -not $preferences.DisableAutoExclusions) {
+        throw 'Microsoft Defender archive/script scanning must be enabled and automatic server exclusions disabled.'
+    }
+    foreach ($property in @('ExclusionPath', 'ExclusionExtension', 'ExclusionProcess')) {
+        if (@($preferences.$property | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count) {
+            throw 'Microsoft Defender path, extension, and process exclusions must be empty for this release scan.'
+        }
+    }
     $updated = ([DateTime]$status.AntivirusSignatureLastUpdated).ToUniversalTime()
     $age = ([DateTime]::UtcNow - $updated).TotalHours
     if ($age -lt -1 -or $age -gt 48) {
@@ -42,6 +52,9 @@ function Get-ConnectorDefenderScanner {
         SignatureVersion = [string]$status.AntivirusSignatureVersion
         SignatureUpdatedUtc = $updated.ToString('o')
         RealTimeProtectionEnabled = $true
+        ArchiveScanningEnabled = $true
+        ScriptScanningEnabled = $true
+        ExclusionsEmpty = $true
     }
 }
 
@@ -165,6 +178,9 @@ function Invoke-ConnectorWindowsPackageScan([string]$package, [string]$reportPat
             signatureVersion = $scanner.SignatureVersion
             signatureUpdatedUtc = $scanner.SignatureUpdatedUtc
             realTimeProtectionEnabled = $scanner.RealTimeProtectionEnabled
+            archiveScanningEnabled = $scanner.ArchiveScanningEnabled
+            scriptScanningEnabled = $scanner.ScriptScanningEnabled
+            exclusionsEmpty = $scanner.ExclusionsEmpty
         }
         $previous = @(Get-ConnectorDefenderDetections)
         $tempRoot = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() }

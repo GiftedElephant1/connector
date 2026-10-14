@@ -81,7 +81,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($scriptFile in Get-ChildItem scripts\windows-*.ps1) {
+          foreach ($scriptFile in Get-ChildItem scripts\windows-*.ps1, .github\scripts\*.ps1) {
             $parseErrors = $null
             $tokens = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile($scriptFile.FullName, [ref]$tokens, [ref]$parseErrors)
@@ -162,7 +162,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          Update-MpSignature -ErrorAction Stop
+          & .\.github\scripts\prepare-windows-defender.ps1
           & .\scripts\windows-scan-package.ps1 -PackagePath artifacts\Connector-Windows.zip -ReportPath reports\windows-defender-scan.json
 
       - name: Save verification reports

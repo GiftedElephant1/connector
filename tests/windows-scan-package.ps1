@@ -18,9 +18,14 @@ function Assert-Rejected([scriptblock]$action, [string]$message) {
 
 $scratch = Join-Path ([IO.Path]::GetTempPath()) ('connector-scan-fixtures-' + [Guid]::NewGuid().ToString('N'))
 $oldEnvironment = @{}
-foreach ($name in @('OS', 'ProgramData', 'ProgramFiles', 'RUNNER_TEMP')) { $oldEnvironment[$name] = [Environment]::GetEnvironmentVariable($name) }
+foreach ($name in @('OS', 'ProgramData', 'ProgramFiles', 'RUNNER_TEMP', 'GITHUB_ACTIONS', 'RUNNER_ENVIRONMENT', 'RUNNER_OS')) { $oldEnvironment[$name] = [Environment]::GetEnvironmentVariable($name) }
 try {
     [void][IO.Directory]::CreateDirectory($scratch)
+    $env:GITHUB_ACTIONS = 'false'
+    $guarded = $false
+    try { & (Join-Path $repository '.github/scripts/prepare-windows-defender.ps1') }
+    catch { $guarded = $_.Exception.Message.Contains('restricted to disposable GitHub-hosted Windows runners') }
+    Assert $guarded 'Runner preparation did not reject a non-GitHub environment before changing settings.'
     $env:OS = 'Windows_NT'
     $env:ProgramData = $scratch
     $env:ProgramFiles = $scratch
@@ -35,6 +40,11 @@ try {
         AntivirusSignatureVersion = 'fixture-definitions'; AntivirusSignatureLastUpdated = [DateTime]::UtcNow
     }
     function Get-MpComputerStatus { [CmdletBinding()]param() return $script:status }
+    $script:preferences = [PSCustomObject]@{
+        DisableArchiveScanning = $false; DisableScriptScanning = $false; DisableAutoExclusions = $true
+        ExclusionPath = @(); ExclusionExtension = @(); ExclusionProcess = @()
+    }
+    function Get-MpPreference { [CmdletBinding()]param() return $script:preferences }
     $script:signature = [PSCustomObject]@{
         Status = 'Valid'; SignerCertificate = [PSCustomObject]@{ Subject = 'CN=Microsoft Windows Publisher, O=Microsoft Corporation, C=US' }
     }
@@ -46,6 +56,20 @@ try {
     $script:status.RealTimeProtectionEnabled = $false
     Assert-Rejected { Get-ConnectorDefenderScanner } 'Disabled real-time protection was accepted.'
     $script:status.RealTimeProtectionEnabled = $true
+    $script:preferences.DisableArchiveScanning = $true
+    Assert-Rejected { Get-ConnectorDefenderScanner } 'Disabled archive scanning was accepted.'
+    $script:preferences.DisableArchiveScanning = $false
+    $script:preferences.DisableScriptScanning = $true
+    Assert-Rejected { Get-ConnectorDefenderScanner } 'Disabled script scanning was accepted.'
+    $script:preferences.DisableScriptScanning = $false
+    $script:preferences.DisableAutoExclusions = $false
+    Assert-Rejected { Get-ConnectorDefenderScanner } 'Automatic server exclusions were accepted.'
+    $script:preferences.DisableAutoExclusions = $true
+    foreach ($property in @('ExclusionPath', 'ExclusionExtension', 'ExclusionProcess')) {
+        $script:preferences.$property = @('fixture-exclusion')
+        Assert-Rejected { Get-ConnectorDefenderScanner } ('An exclusion was accepted: ' + $property)
+        $script:preferences.$property = @()
+    }
     $script:signature.Status = 'NotSigned'
     Assert-Rejected { Get-ConnectorDefenderScanner } 'An unsigned scanner was accepted.'
     $script:signature.Status = 'Valid'
