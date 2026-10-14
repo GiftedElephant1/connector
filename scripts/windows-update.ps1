@@ -110,8 +110,9 @@ function Release-UpdateMutex {
 }
 
 function Show-ConnectorUpdateWindow {
-    $form.ShowInTaskbar = $true
+    if ($form.IsDisposed) { return }
     $form.WindowState = 'Normal'
+    $form.ShowInTaskbar = $true
     $form.Show()
     [void]$form.Activate()
 }

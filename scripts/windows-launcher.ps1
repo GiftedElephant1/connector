@@ -209,8 +209,11 @@ function Open-ConnectorLog {
 }
 
 function Show-ConnectorWindow {
-    $form.ShowInTaskbar = $true
+    if ($script:cancelled -or $form.IsDisposed) { return }
+    # Changing ShowInTaskbar recreates the native handle. Normalize first so
+    # that recreation cannot run the minimize-to-tray handler again.
     $form.WindowState = 'Normal'
+    $form.ShowInTaskbar = $true
     $form.Show()
     [void]$form.Activate()
 }
@@ -563,6 +566,8 @@ try {
         while (-not $script:cancelled) { [System.Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 100 }
     }
 } finally {
+    Stop-ConnectorShowListener $script:showListener
+    $script:showListener = $null
     Stop-ConnectorOwnedProcesses
     if ($script:mutexOwned) {
         $markerPath = Join-Path $script:stateRoot 'desktop-instance.txt'
@@ -571,8 +576,6 @@ try {
     $trayIcon.Visible = $false
     $trayIcon.Dispose()
     $trayMenu.Dispose()
-    Stop-ConnectorShowListener $script:showListener
-    $script:showListener = $null
     if ($script:mutexOwned) { $script:mutex.ReleaseMutex() }
     if ($script:mutex) { $script:mutex.Dispose() }
     $script:desktopToken = $null
