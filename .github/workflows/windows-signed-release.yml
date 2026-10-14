@@ -158,12 +158,22 @@ jobs:
           node --import tsx tests/update-smoke.mjs "$packageRoot"
           if ($LASTEXITCODE -ne 0) { throw 'Signed package account-preserving update failed.' }
 
-      - name: Scan the release ZIP with Microsoft Defender
+      - name: Select daily antivirus database cache
+        id: antivirus-cache-day
+        shell: pwsh
+        run: |
+          "day=$([DateTime]::UtcNow.ToString('yyyy-MM-dd'))" >> $env:GITHUB_OUTPUT
+      - name: Restore official antivirus database cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}\connector-clamav-databases
+          key: clamav-official-1.5.4-${{ runner.os }}-${{ steps.antivirus-cache-day.outputs.day }}
+          restore-keys: clamav-official-1.5.4-${{ runner.os }}-
+      - name: Scan the release ZIP with ClamAV
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          & .\.github\scripts\prepare-windows-defender.ps1
-          & .\scripts\windows-scan-package.ps1 -PackagePath artifacts\Connector-Windows.zip -ReportPath reports\windows-defender-scan.json
+          & .\.github\scripts\scan-windows-package.ps1 -PackagePath artifacts\Connector-Windows.zip -ReportPath reports\windows-antivirus-scan.json -DatabasePath "$env:RUNNER_TEMP\connector-clamav-databases"
 
       - name: Save verification reports
         if: always()
@@ -197,13 +207,13 @@ jobs:
           @"
           Connector $env:RELEASE_VERSION for Windows.
 
-          The VBS launchers and PowerShell scripts carry verified, timestamped publisher signatures. The ZIP itself and JavaScript source do not have Authenticode signatures. The included SHA-256 checksum identifies the exact archive scanned with Microsoft Defender; signature and scan reports are attached.
+          The VBS launchers and PowerShell scripts carry verified, timestamped publisher signatures. The ZIP itself and JavaScript source do not have Authenticode signatures. The included SHA-256 checksum identifies the exact archive scanned with ClamAV using current official virus databases; signature and scan reports are attached.
 
           Extract the ZIP and follow docs/windows.md. Use Update Connector with your original installation folder to preserve connected accounts. Initial setup still downloads the verified Node runtime and npm dependencies.
 
           A trusted signature and a completed malware scan do not guarantee browser reputation approval. If your browser blocks this file, keep its protections enabled and report the release URL and warning to the maintainer.
           "@ | Set-Content -LiteralPath "$env:RUNNER_TEMP\connector-release-notes.md" -Encoding utf8
-          gh release create "v$env:RELEASE_VERSION" --verify-tag --draft --title "Connector $env:RELEASE_VERSION" --notes-file "$env:RUNNER_TEMP\connector-release-notes.md" artifacts/Connector-Windows.zip artifacts/Connector-Windows.zip.sha256 reports/staged-signatures.json reports/extracted-signatures.json reports/windows-defender-scan.json
+          gh release create "v$env:RELEASE_VERSION" --verify-tag --draft --title "Connector $env:RELEASE_VERSION" --notes-file "$env:RUNNER_TEMP\connector-release-notes.md" artifacts/Connector-Windows.zip artifacts/Connector-Windows.zip.sha256 reports/staged-signatures.json reports/extracted-signatures.json reports/windows-antivirus-scan.json
           if ($LASTEXITCODE -ne 0) { throw 'Release asset upload failed. The reserved tag and any draft were preserved for inspection; no existing release was overwritten.' }
           gh release edit "v$env:RELEASE_VERSION" --draft=false
           if ($LASTEXITCODE -ne 0) { throw 'The verified release remains a draft because publication failed.' }

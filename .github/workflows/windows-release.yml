@@ -66,36 +66,42 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged dashboard build failed.' }
           node --import tsx tests/update-smoke.mjs "$packageRoot"
           if ($LASTEXITCODE -ne 0) { throw 'Existing-account upgrade verification failed.' }
+      - name: Select daily antivirus database cache
+        id: antivirus-cache-day
+        shell: pwsh
+        run: |
+          "day=$([DateTime]::UtcNow.ToString('yyyy-MM-dd'))" >> $env:GITHUB_OUTPUT
+      - name: Restore official antivirus database cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}\connector-clamav-databases
+          key: clamav-official-1.5.4-${{ runner.os }}-${{ steps.antivirus-cache-day.outputs.day }}
+          restore-keys: clamav-official-1.5.4-${{ runner.os }}-
       - name: Scan development download before making it available
-        id: defender
-        # Development checks may complete on a runner without Defender, but its
-        # ZIP is withheld. The signed-release workflow treats scan failure as fatal.
-        continue-on-error: true
+        id: antivirus
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          try { & .\.github\scripts\prepare-windows-defender.ps1 }
-          catch { Write-Warning $_.Exception.Message }
           try {
-            & .\scripts\windows-scan-package.ps1 -PackagePath artifacts\Connector-Windows.zip -ReportPath artifacts\Connector-Windows.scan.json
+            & .\.github\scripts\scan-windows-package.ps1 -PackagePath artifacts\Connector-Windows.zip -ReportPath artifacts\Connector-Windows.scan.json -DatabasePath "$env:RUNNER_TEMP\connector-clamav-databases"
           } catch {
             $message = $_.Exception.Message.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
             Write-Output "::warning title=Windows download withheld::$message"
             exit 1
           }
       - name: Record actual scan outcome
-        if: always() && steps.defender.outcome != 'skipped'
+        if: always() && steps.antivirus.outcome != 'skipped'
         shell: pwsh
         env:
-          SCAN_OUTCOME: ${{ steps.defender.outcome }}
+          SCAN_OUTCOME: ${{ steps.antivirus.outcome }}
         run: |
           if ($env:SCAN_OUTCOME -eq 'success') {
-            'Defender scanned the exact development ZIP and extracted contents. This unsigned build is not a signed release or a Chrome acceptance test.' >> $env:GITHUB_STEP_SUMMARY
+            'ClamAV scanned the exact development ZIP and extracted contents using current official databases. This unsigned build is not a signed release or a Chrome acceptance test.' >> $env:GITHUB_STEP_SUMMARY
           } else {
-            'Windows download WITHHELD: Defender did not establish a clean package. Inspect the scan report and step error. No malware verdict or browser acceptance is claimed.' >> $env:GITHUB_STEP_SUMMARY
+            'Windows download WITHHELD: antivirus verification failed. Inspect the scan report and step error. No clean verdict or browser acceptance is claimed.' >> $env:GITHUB_STEP_SUMMARY
           }
       - uses: actions/upload-artifact@v6
-        if: steps.defender.outcome == 'success'
+        if: steps.antivirus.outcome == 'success'
         with:
           name: Connector-Windows
           path: |
@@ -105,7 +111,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
       - name: Save failed or unavailable scan report
-        if: always() && steps.defender.outcome == 'failure'
+        if: always() && steps.antivirus.outcome == 'failure'
         uses: actions/upload-artifact@v6
         with:
           name: Windows-download-withheld-scan-report
