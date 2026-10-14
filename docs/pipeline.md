@@ -1,6 +1,6 @@
 # AI connector protocol
 
-Connector is a single-owner MCP server and authenticated REST pipeline. An AI app uses Connector's tools to act on destination accounts you have connected. The default AI connection uses OAuth with compatible MCP clients, including supported Claude and ChatGPT configurations; it does not call those providers' model APIs or require their developer keys. For Grok Bot, the dashboard prepares a message with the public endpoint and connection instructions; verify a real MCP tool call using its [setup guide](ai-connections.md#grok-bot). Destination platforms still use their own official API credentials and permissions.
+Connector is a single-owner MCP server and authenticated REST pipeline. An AI app uses Connector's tools to act on destination accounts you have connected. The default AI connection uses OAuth with compatible MCP clients, including supported Claude and ChatGPT configurations; it does not call those providers' model APIs or require their developer keys. For Grok Bot, the dashboard prepares instructions for authenticated HTTPS REST requests from its cloud computer; follow the [setup guide](ai-connections.md#grok-bot) and verify an actual account-list response. Destination platforms still use their own official API credentials and permissions.
 
 Open **AI connections** for guided setup, the public endpoint, and access revocation. Follow [the AI connection guide](ai-connections.md) for click-by-click instructions. The protocol details below are for administrators and custom clients.
 
@@ -58,9 +58,9 @@ If a request times out or the process restarts mid-write, check the platform and
 
 Open **Google Workspace**, connect each Google account, and create an AI agent profile. Select the permitted apps for each account and optionally choose a default account. Select that profile on the AI OAuth consent screen. One connection can include both the selected profile and standard platform tools. Leave the profile unselected when an AI should have no Workspace access.
 
-Workspace access exposes three tools: `list_workspace_accounts`, `list_workspace_actions`, and `run_workspace_action`. Have the agent list its permitted accounts, inspect an app's action schema, then pass the chosen `accountId` when calling an action. If no default exists, an explicit account selection is required. The server checks the profile's current account and app permissions on every call; a supplied account ID cannot expand them. Each AI agent can use a different profile, including different apps on the same connected Google account.
+Workspace access exposes three tools: `list_workspace_accounts`, `list_workspace_actions`, and `run_workspace_action`. Have the agent list its permitted accounts, inspect an app's action schema, then pass the chosen `accountId` when calling an action. If no default exists, an explicit account selection is required. The server checks the profile's current account and app permissions on every call; a supplied account ID cannot expand them. Each credential can be assigned a different profile, including different apps on the same connected Google account. Grok Bot shares one cloud computer and credentials across all Bots on an account: these restrictions apply per credential and cannot isolate Bots that can access one another's credentials.
 
-Legacy profile keys remain supported. Copy a profile's key and the same `/mcp` URL into a separate key-authenticated connector entry. A profile key cannot invoke standard platform tools, scheduling endpoints, or the optional server-side xAI API client endpoint. The general key cannot invoke Workspace tools. For key-only clients using both, retain two connector entries. Profile edits apply to both OAuth and key access; deleting a profile invalidates keys and OAuth grants that depended on it, including standard access within a combined grant. Rotating its API key invalidates that key, while OAuth grants are revoked separately in **AI connections**.
+Legacy profile keys remain supported. Copy a profile's key and the same `/mcp` URL into a separate key-authenticated connector entry. A profile key cannot invoke standard platform tools, scheduling endpoints, or the optional server-side xAI API client endpoint. The general key cannot invoke Workspace tools. For key-only MCP clients using both, retain two connector entries. REST clients use the appropriate key for each request. Profile edits apply to both OAuth and key access; deleting a profile invalidates keys and OAuth grants that depended on it, including standard access within a combined grant. Rotating its API key invalidates that key, while OAuth grants are revoked separately in **AI connections**.
 
 Workspace writes require `confirmed: true` and a `requestId`, using the same retry rules as other writes. Their encrypted receipts are kept separately from the general scheduled-job list. Workspace actions are immediate; native task due dates and meeting-space creation are supported where listed, but generic Workspace scheduling is not provided.
 
@@ -82,7 +82,9 @@ Job success means the action returned successfully; the result may say an upload
 
 ## REST equivalent
 
-REST clients use the existing general Connector key or an appropriate Workspace profile key in `Authorization: Bearer ...` or `X-API-Key: ...` over HTTPS. OAuth AI access tokens are restricted to `/mcp` and cannot be used for these REST endpoints. Standard platform endpoints:
+REST clients use the existing general Connector key or an appropriate Workspace profile key in `Authorization: Bearer ...` or `X-API-Key: ...` over HTTPS. OAuth AI access tokens are restricted to `/mcp` and cannot be used for these REST endpoints. Key-authenticated REST calls do not create OAuth grants or update their **Last successful tool call** field. Check the actual authenticated response to verify the connection. Grok Bot's cloud terminal can make these requests; transfer keys only through its secure secret request or a masked takeover prompt, not chat. All Bots on the same Grok Bot account share the computer and credentials.
+
+Standard platform endpoints:
 
 | Method and path | Body / purpose |
 | --- | --- |
@@ -93,6 +95,16 @@ REST clients use the existing general Connector key or an appropriate Workspace 
 | `GET /api/v1/jobs` | Latest jobs/receipts |
 | `DELETE /api/v1/jobs/ID` | `{ "confirmed": true }` |
 | `POST /api/v1/tools/TOOL_NAME` | Same arguments as the MCP tool |
+
+Workspace endpoints require a **Workspace profile key**, not the general key:
+
+| Method and path | Body / purpose |
+| --- | --- |
+| `GET /api/v1/workspace/accounts` | Accounts and apps permitted by the profile |
+| `GET /api/v1/workspace/actions/APP?accountId=ACCOUNT_ID` | Exact action schemas for a permitted account and app |
+| `POST /api/v1/workspace/actions/APP/ACTION` | `{ "accountId": "...", "values": {...}, "confirmed": true, "requestId": "UUID" }` (confirmation/id needed only for writes) |
+
+When using both groups, supply the general key only to standard endpoints and the profile key only to Workspace endpoints. A standard key provides no Workspace access, and a Workspace key provides no standard platform access. Follow the returned schemas; values are strings and account identifiers must come from discovery.
 
 Example MCP tool arguments for discovery:
 

@@ -47,12 +47,17 @@ test("AI setup targets Grok Bot, exposes no developer key prompt, and never clai
   await expect(page.locator(".ai-setup-steps")).toContainText("does not require an OpenAI API account");
   await page.getByRole("button", { name: /Grok Bot Set up connection/ }).click();
   await expect(page.getByRole("heading", { name: "Add Connector in Grok Bot" })).toBeVisible();
-  await expect(page.locator(".ai-setup-steps")).toContainText("a live Grok Bot connection have not yet been verified");
-  await expect(page.getByRole("link", { name: "About Grok Bot ↗" })).toHaveAttribute("href", "https://x.ai/news/introducing-grok-bot");
+  await expect(page.locator(".ai-setup-steps")).toContainText("A live connection from your Bot still needs verification");
+  await expect(page.getByRole("link", { name: "Download Grok Bot ↗" })).toHaveAttribute("href", "https://x.ai/bot");
+  await expect(page.getByRole("link", { name: "Official Grok Bot connection guide ↗" })).toHaveAttribute("href", "https://docs.x.ai/grok-bot/computer-and-apps");
   await expect(page.locator('.ai-setup-steps a[href="https://grok.com/"]')).toHaveCount(0);
   await expect(page.getByLabel("API key", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Copy instructions for Grok Bot" }).click();
   const setupMessage = await page.evaluate(() => navigator.clipboard.readText());
+  await expect(page.getByLabel("Connector API URL", { exact: true })).toHaveValue("https://connector.example/api/v1");
+  expect(setupMessage).toContain("GET https://connector.example/api/v1/connections");
+  expect(setupMessage).toContain("GET https://connector.example/api/v1/workspace/accounts");
+  expect(setupMessage).toContain("MCP OAuth tokens work only at /mcp, not at the REST API");
   expect(setupMessage).toContain(`MCP server URL: ${url}`);
   expect(setupMessage).toContain("list_connections");
   expect(setupMessage).toContain("Do not publish, send, edit, schedule, or delete anything during setup.");
@@ -72,6 +77,7 @@ test("Grok Bot handoff requires public access and offers a manual copy fallback 
   await expect(page.getByLabel("Setup message for Grok Bot")).toHaveCount(0);
   connectorUrl = "https://my-updated-connector.example/mcp";
   await page.getByRole("button", { name: "Refresh AI connections" }).click();
+  await expect(page.getByLabel("Connector API URL", { exact: true })).toHaveValue("https://my-updated-connector.example/api/v1");
   await page.evaluate(() => Object.defineProperty(navigator.clipboard, "writeText", { value: async () => { throw new Error("Clipboard denied"); } }));
   await page.getByRole("button", { name: "Copy instructions for Grok Bot" }).click();
   await expect(page.getByLabel("Setup message for Grok Bot")).toBeVisible();

@@ -1,8 +1,8 @@
 # Connect Claude, ChatGPT, and Grok Bot
 
-Connector gives a compatible AI client tools for the destination accounts you have connected. **This MCP connection does not call Anthropic, OpenAI, or xAI model APIs and requires no developer key from those providers.** Model access, custom connectors, and allowed actions depend on the AI product and your plan. The Grok Bot card provides a message you can copy to your Bot with this installation's connection details. Its MCP compatibility still requires a live connection check.
+Connector gives an AI client access to the destination accounts you have connected. Claude and ChatGPT use its MCP tools; Grok Bot can call its authenticated HTTPS API from the Bot's cloud computer. **Neither route calls Anthropic, OpenAI, or xAI model APIs or requires a developer key from those providers.** Model access and usage remain subject to the AI product's plan. The Grok Bot card prepares a message with this installation's connection instructions; verify access with a real account-list request.
 
-The default connection uses OAuth: you paste one public Connector URL into the AI app, sign in with your **Connector workspace password**, and approve access. Connector and the AI app exchange their connection credentials automatically. Never paste your AI account password into Connector.
+The MCP connection uses OAuth: you paste one public Connector URL into the AI app, sign in with your **Connector workspace password**, and approve access. Connector and the AI app exchange their connection credentials automatically. Never paste your AI account password into Connector.
 
 Social networks, advertising platforms, Google, and other destination services still have their own API permissions and application setup requirements. Their costs and approvals are separate from the AI connection.
 
@@ -53,20 +53,25 @@ Custom app creation, write tools, and developer mode depend on your ChatGPT plan
 
 ### Grok Bot
 
-[Grok Bot](https://x.ai/news/introducing-grok-bot) runs agents with their own cloud computers, and you can give a Bot instructions by messaging it. Connector's **Copy instructions for Grok Bot** button prepares that message using your actual public Connector address. It includes no passwords or API keys.
+Grok Bot has a persistent cloud computer with a browser and command line. The **Copy instructions for Grok Bot** button prepares a message that tells your Bot how to call Connector's HTTPS API from that computer. It includes your public API address and supported requests, but no passwords or API keys. You do not need to type commands yourself.
 
 1. Complete section 1 above so Connector is running and **Public access is on**. Your existing destination accounts stay connected.
-2. Open **AI connections**, select **Grok Bot**, and click **About Grok Bot**. This opens xAI's announcement. Follow its **Download for Windows** link and installation instructions, then open Grok Bot and sign in. If already installed, open your existing Grok Bot app.
-3. Follow Grok Bot's setup to create a Bot, or open the Bot you want to use. Keep that Bot's conversation available.
-4. Return to Connector and click **Copy instructions for Grok Bot**. If the button is unavailable, finish public-address setup first. Return to the Bot's conversation, paste the copied message, and send it. The message contains your HTTPS `/mcp` address, supported authentication methods, and a first request to list accounts without changing anything.
-5. The Bot should check whether it can use a custom MCP connection with **Streamable HTTP**. If it supports Connector's OAuth flow, complete the approval in section 3 yourself. If it supports secret HTTP headers instead, use the advanced Connector-key instructions below and enter the key only in its supported secure configuration fields. **Never put a password or key in the Bot conversation or URL.** No Anthropic, OpenAI, or xAI developer key is needed for these MCP methods.
-6. Have the Bot perform the account-list request in the copied message. Follow section 4 to inspect the actual tool result; for OAuth, also check **Last successful tool call** in Connector. Only after that succeeds should you ask it to act on an account.
+2. Install Grok Bot from [x.ai/bot](https://x.ai/bot) if needed. For Windows, choose **x64** or **Arm64** to match **Settings → System → About → System type**, run the installer, then open **Grok Bot** from the Start menu.
+3. Choose **Sign in** and complete the Cursor account sign-in in your browser. Return to Grok Bot. If your access comes from SuperGrok, follow the app's prompt to link that subscription. Review [Grok Bot's current access and billing requirements](https://cursor.com/help/grok-bot/plans); no xAI developer account is needed for this connection.
+4. Open an existing Bot, choose a suggested teammate during first setup, or use **New → Create new Bot**. Give it a name and job, then open its conversation.
+5. In Connector, open **AI connections**, select **Grok Bot**, and click **Copy instructions for Grok Bot**. Return to the Bot's conversation, paste the message, and send it. If the copy button is unavailable, finish public-address setup first.
+6. Choose the access you want to give it. For social, advertising, communications, WordPress, and other standard connections, expand **Advanced: connect with a Connector API key** in Connector, then click **Show Connector API key** and copy the key. This key permits all standard connected platforms and future standard additions. For Google Workspace, use a key from the intended agent profile instead; see the [profile instructions](providers-workspace.md#grok-bot-and-other-clients-using-the-https-api). Standard access and Workspace access require separate keys.
+7. Give the key to Grok Bot only through a supported **secure secret request**, where the value is masked and excluded from the conversation. If that is unavailable, have the Bot prepare a masked terminal prompt, choose **Take over**, enter the value yourself, and choose **I'm done**. The prompt must not echo or log the key or save it in command history. Do not paste the key into chat, the public URL, a shared file, or a skill. The Bot should send it only to your Connector origin in an `Authorization: Bearer ...` or `X-API-Key` header.
+8. Have the Bot make the first read-only request: `GET /api/v1/connections` with the standard key, or `GET /api/v1/workspace/accounts` with a Workspace profile key. Inspect the returned account list and any error before requesting work. These REST requests do not create an entry under **Approved AI connections** or update OAuth's **Last successful tool call** field; the actual request and response verify this route.
+9. Once that works, ask the Bot to inspect the available actions for a connected account. Give it explicit instructions for any publishing, scheduling, sending, editing, or campaign changes. Connector requires write confirmation and a unique request ID; the copied message explains those requirements. A request accepted by an advertising or social platform can still require later processing or approval.
 
-The announcement describes Grok Bot's cloud computer and ability to use tools and websites; it does not establish support for Connector's specific MCP transport and authentication. If the Bot cannot configure that connection, have it report the unsupported method rather than assume it connected. These instructions do not claim a completed live Grok Bot test. The optional xAI API client below is a separate feature and does not connect Grok Bot.
+**All Bots on your Grok Bot account share one cloud computer, including files, browser sessions, and command-line credentials.** Installed plugins are also account-wide. Each Connector key limits the requests made with that key; it cannot prevent another Bot on that shared computer from using a credential available there. Do not put a key on that computer if another Bot on the same account must not have its access. Separate Bot names and profile labels do not create a security boundary.
 
-Grok Bot's cloud computer does not move this Connector installation off your PC. Keep the PC awake, online, and running Connector with public access on while the Bot needs it. The browser and Connector window may remain closed. Grok Bot's own account eligibility and usage charges are governed by xAI.
+Grok Bot's documented plugin flow is **Connect apps → Add → browser authentication**, then type **@** in chat to attach an installed connector. This project does not claim a Connector plugin is listed there, and those instructions do not document installing an arbitrary custom MCP server. If your Grok Bot client independently offers compatible **Streamable HTTP MCP with OAuth**, you may use Connector's `/mcp` URL and section 3 below instead. A live Grok Bot call has not yet been tested; the HTTPS API route uses Connector's existing authenticated REST endpoints.
 
-## 3. Approve the AI connection
+Grok Bot can continue cloud work with its app closed, but this Connector installation remains on your PC. Keep that PC awake, online, and running Connector with public access on while the Bot needs it. The browser and Connector window may remain closed. The optional xAI API client below is a separate developer tool and is not part of this setup.
+
+## 3. Approve an MCP OAuth connection
 
 1. Check that the authorization page is at your own public Connector address. The page is headed **Authorize an AI connection** and shows the requesting client's name. A client-supplied name is not proof of its identity; start this flow from the AI app you intend to connect.
 2. Enter your **Connector workspace password** when asked. This is the password you chose when setting up Connector, not your AI account password.
@@ -83,7 +88,7 @@ Start with a read-only request in the AI app:
 
 > Use Connector to list the accounts you can access. Do not publish, send, edit, schedule, or delete anything.
 
-The AI should use `list_connections` for approved standard platforms and/or `list_workspace_accounts` for the selected Google profile. The displayed accounts should match your approval. An answer based only on chat history is not a connection test; inspect the app's tool activity when available. Return to **AI connections** and click **Refresh AI connections**. Under **Approved AI connections**, the grant should now show **Last successful tool call** and a time. **Approved; waiting for the first successful tool call** means the sign-in succeeded but Connector has not yet recorded a successful tool call.
+An MCP client should use `list_connections` for approved standard platforms and/or `list_workspace_accounts` for the selected Google profile. A Grok Bot using REST should make the corresponding HTTPS account-list request in its setup steps above. The displayed accounts should match the access granted. An answer based only on chat history is not a connection test; inspect the app's tool activity when available. For an OAuth connection, return to **AI connections** and click **Refresh AI connections**. Under **Approved AI connections**, the grant should now show **Last successful tool call** and a time. **Approved; waiting for the first successful tool call** means the sign-in succeeded but Connector has not yet recorded a successful tool call.
 
 Then ask it to inspect a connected destination:
 
@@ -112,22 +117,22 @@ AI authorizations expire after 30 days. Reconnect and approve that AI when its a
 
 ## Advanced: an AI client that accepts a Connector API key
 
-Use this only when the client supports key authentication but not the OAuth flow above. It still requires no AI developer account.
+Use this for a client using Connector's HTTPS API, such as Grok Bot, or a compatible MCP client using key authentication. This is a Connector key, not an AI developer key.
 
 1. Open **AI connections**, expand **Advanced: connect with a Connector API key**, and click **Show Connector API key**.
-2. Copy the public **Connector URL** into the AI client's MCP URL field.
-3. Copy the revealed **Connector API key** into the client's API-key field. If it asks for a header, use `Authorization: Bearer YOUR_CONNECTOR_KEY` or `X-API-Key: YOUR_CONNECTOR_KEY`. Never append the key to the URL.
+2. For an MCP client, copy the public **Connector URL** into its MCP URL field. For Grok Bot's HTTPS API route, use **Copy instructions for Grok Bot**, which includes the correct API base address.
+3. Enter the revealed **Connector API key** only in the client's supported secure secret field or through the masked takeover prompt described above. Use `Authorization: Bearer YOUR_CONNECTOR_KEY` or `X-API-Key: YOUR_CONNECTOR_KEY` for requests. Never append the key to the URL or paste it into chat.
 4. Save and run the read-only connection check above.
 
-The general key grants access to all standard platform connections. It does not grant Google Workspace access and cannot be revoked as an individual OAuth connection. For a Google-only key connection, use the agent profile key from **Google Workspace** instead; such a client needs separate standard and Workspace entries to access both. Keep existing key connections if they already work; OAuth is the simpler method for new compatible clients.
+The general key grants access to all standard platform connections. It does not grant Google Workspace access and cannot be revoked as an individual OAuth connection. For a Google-only key connection, use the agent profile key from **Google Workspace** instead; a key-based client needs separate credentials for standard and Workspace access, using separate connector entries when required by an MCP client. Keep existing key connections if they already work; OAuth is the simpler method for new compatible clients.
 
-The app retains optional developer API integrations for existing users. The optional **xAI API client**, started with the existing `npm run grok` command, calls the separately billed xAI API. It is separate from Grok Bot and is not required for MCP connections.
+The app retains optional developer API integrations for existing users. The optional **xAI API client**, started with the existing `npm run grok` command, calls the separately billed xAI API. It is separate from Grok Bot and is not required for the MCP or HTTPS API connections above.
 
 ## Troubleshooting
 
 | What you see | What to check |
 | --- | --- |
-| An Anthropic, OpenAI, or xAI developer-key form | Return to **AI connections**. Those forms belong to optional developer API integrations, not the MCP connection. |
+| An Anthropic, OpenAI, or xAI developer-key form | Return to **AI connections**. Those forms belong to optional developer model API integrations; neither the MCP route nor the Grok Bot HTTPS route requires them. |
 | A public-address warning | Start public access under **Settings**, then copy the resulting HTTPS `/mcp` URL. |
 | The AI cannot reach the server | Keep the PC awake, Connector running, and public access on. Open **Open public workspace** to check the address. Check for tunnel errors or an expired tunnel session in Settings. |
 | No custom-app or connector setting in the AI app | Check the AI provider's current plan and workspace-admin requirements. This server cannot add a missing client feature. |
@@ -140,7 +145,9 @@ See also [the MCP protocol guide](pipeline.md), [Windows update instructions](wi
 
 ## Reference guides
 
-- [xAI's Grok Bot announcement](https://x.ai/news/introducing-grok-bot), describing Bots' cloud computers, messaging, and product downloads; it does not specify this MCP connection's compatibility.
+- [Grok Bot: Get started](https://docs.x.ai/grok-bot/get-started), covering installation, Cursor sign-in, Bot creation, and takeover.
+- [Grok Bot: Use the computer and apps](https://docs.x.ai/grok-bot/computer-and-apps), documenting the shared computer, secure secret requests, and plugin flow.
+- [Grok Bot: Settings and notifications](https://docs.x.ai/grok-bot/settings-and-notifications), including account-wide plugins and usage controls.
 - [OpenAI's official Apps SDK examples: testing in ChatGPT](https://github.com/openai/openai-apps-sdk-examples#testing-in-chatgpt).
 - [OpenAI's authenticated MCP server example](https://github.com/openai/openai-apps-sdk-examples/blob/main/authenticated_server_python/README.md).
 - [Zernio's Claude plugin and connector instructions](https://github.com/zernio-dev/zernio-claude-plugin), describing the OAuth connection pattern this app implements with its own URL.

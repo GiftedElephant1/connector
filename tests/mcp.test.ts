@@ -155,6 +155,40 @@ test('REST discovery exposes action schemas and public account data without cred
   assert.equal((await f.api('/api/v1/tools/run_action', { provider: 'x', action: 'read', values: { amount: 1 } })).status, 400);
 });
 
+test('a remote HTTP client can use Connector tools without model API credentials or model requests', async (t) => {
+  const f = await fixture(t);
+  for (const provider of ['xai', 'anthropic', 'openai']) assert.equal(f.store.credential(provider), null);
+  const originalFetch = globalThis.fetch;
+  const upstreamRequests: string[] = [];
+  t.mock.method(globalThis, 'fetch', async (url: string | URL | Request, init?: RequestInit) => {
+    const destination = url instanceof Request ? url.url : String(url);
+    if (destination.startsWith('http://127.0.0.1:')) return originalFetch(url, init);
+    upstreamRequests.push(destination);
+    throw new Error('Direct Connector tools must not call a model API.');
+  });
+
+  const connections = await f.api('/api/v1/tools/list_connections', {});
+  assert.equal(connections.status, 200);
+  assert.match(await connections.text(), /Test account/);
+  const actions = await f.api('/api/v1/tools/list_actions', { provider: 'x' });
+  assert.equal(actions.status, 200);
+  assert.deepEqual((await actions.json() as { actions: { id: string }[] }).actions.map(action => action.id), ['read', 'publish']);
+  const read = await f.api('/api/v1/tools/run_action', { provider: 'x', action: 'read', values: {} });
+  assert.equal(read.status, 200);
+  assert.equal((await read.json() as { result: { summary: string } }).result.summary, 'Action completed');
+
+  const write = { provider: 'x', action: 'publish', values: { text: 'User-approved remote publication' }, requestId: 'http-client-write-123' };
+  assert.equal((await f.api('/api/v1/tools/run_action', write)).status, 409);
+  assert.equal(f.calls(), 1, 'an unconfirmed remote write must not reach the platform');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await f.api('/api/v1/tools/run_action', { ...write, confirmed: true });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json() as { job: { status: string } }).job.status, 'succeeded');
+  }
+  assert.equal(f.calls(), 2, 'retrying the same remote write must reuse its receipt');
+  assert.deepEqual(upstreamRequests, []);
+});
+
 test('REST writes require approval, return idempotent receipts and allow confirmed pending cancellation', async (t) => {
   const f = await fixture(t);
   const input = { values: { text: 'Approved text' }, requestId: 'rest-write-123' };
