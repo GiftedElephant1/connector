@@ -76,7 +76,13 @@ jobs:
           $ErrorActionPreference = 'Stop'
           try { Update-MpSignature -ErrorAction Stop }
           catch { Write-Warning 'Could not refresh Defender definitions; the scan still requires active protection and recent definitions.' }
-          & .\scripts\windows-scan-package.ps1 -PackagePath artifacts\Connector-Windows.zip -ReportPath artifacts\Connector-Windows.scan.json
+          try {
+            & .\scripts\windows-scan-package.ps1 -PackagePath artifacts\Connector-Windows.zip -ReportPath artifacts\Connector-Windows.scan.json
+          } catch {
+            $message = $_.Exception.Message.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::warning title=Windows download withheld::$message"
+            exit 1
+          }
       - name: Record actual scan outcome
         if: always() && steps.defender.outcome != 'skipped'
         shell: pwsh
