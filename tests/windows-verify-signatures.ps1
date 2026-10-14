@@ -32,6 +32,9 @@ function New-FixtureCertificate([string]$subject, [string]$issuer, [string]$usag
 
 # The production script resolves this local mock instead of the Windows cmdlet.
 # No test adds certificates to a store or generates an actual signed file.
+# Windows PowerShell 5.1 closures run in a dynamic module that cannot resolve
+# this script's helper functions. Capture the factory itself, not just its name.
+$fixtureCertificateFactory = ${function:New-FixtureCertificate}
 ${function:Get-AuthenticodeSignature} = {
     param([string]$LiteralPath)
     $subject = 'CN=Fixture Publisher, O=Not A Real Code Signing Certificate'
@@ -52,7 +55,7 @@ ${function:Get-AuthenticodeSignature} = {
     }
     return [PSCustomObject]@{
         Status = $status
-        SignerCertificate = (New-FixtureCertificate $subject $issuer $usage)
+        SignerCertificate = (& $fixtureCertificateFactory $subject $issuer $usage)
         TimeStamperCertificate = $timestamp
     }
 }.GetNewClosure()
