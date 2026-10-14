@@ -2,7 +2,7 @@
 
 Connector can keep several Google accounts connected at the same time. Each AI agent uses a profile with an explicit list of accounts and apps it may use. Select that profile when authorizing the AI's OAuth connection; no Anthropic, OpenAI, or xAI developer key is needed. Adding an account or an app does not remove your existing social, advertising, WordPress, Mailchimp, or Google connections.
 
-For example, give **Grok — business** access to Sheets, Gmail, and Tasks on `business@example.com`, and give **Claude — personal** access to Docs and Drive on `personal@gmail.com`. You can also let one agent use several accounts. Choose a default account or ask the agent to specify an account for each operation.
+For a compatible client, give a profile such as **Grok Bot — business** access to Sheets, Gmail, and Tasks on `business@example.com`, and give **Claude — personal** access to Docs and Drive on `personal@gmail.com`. You can also let one agent use several accounts. Choose a default account or ask the agent to specify an account for each operation.
 
 ## One-time Google app setup
 
@@ -33,12 +33,12 @@ Connector records the permissions Google actually granted. If you deselect a per
 
 ## Give an AI agent access
 
-1. In **Google Workspace**, create an AI agent profile and name it, such as **Grok — work**.
+1. In **Google Workspace**, create an AI agent profile and name it, such as **Grok Bot — work**.
 2. Select the Google accounts this agent may use. Check their exact email addresses.
 3. For each selected account, choose the apps the agent may use.
 4. Optionally choose a default Google account. With no default, the agent must specify an account ID when calling an app action.
 5. Save the profile. The profile's generated API key is available for advanced key-based clients; you do not need to copy or enter it for OAuth.
-6. Open **AI connections** and follow the [AI app setup guide](ai-connections.md) to add the public MCP URL in Claude, ChatGPT, or a compatible Grok client with OAuth authentication.
+6. Open **AI connections** and follow the [AI app setup guide](ai-connections.md) to add the public MCP URL in a compatible MCP client with OAuth authentication. For Grok Bot, use **Copy instructions for Grok Bot**, send the message to your Bot, and verify it supports the connection before approving access.
 7. On Connector's **Authorize an AI connection** page, select this profile under **Google Workspace agent profile**. Review the account emails and app permissions. Check **Standard platform tools** too if this AI should also use your social, advertising, communications, website, bank-data, and Obsidian connections. Leave it unchecked for a Google-only agent. Click **Approve selected access**.
 8. Return to the AI app, enable Connector for the conversation, and ask the agent to list its permitted Workspace accounts without making changes. Then inspect an app's available actions. Writes require explicit confirmation through the tool's confirmation argument.
 9. Create a separate profile and authorize each additional AI connection when it should have different permissions. Selecting the same profile gives those AI connections the same Google account/app permissions.

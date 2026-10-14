@@ -277,7 +277,7 @@ export function SetupChecklist({
           <span className="step-number">3</span>
           <span>
             <strong>Connect your AI agent</strong>
-            <small>Use your existing Claude, ChatGPT, or Grok app</small>
+            <small>Set up Claude, ChatGPT, or Grok Bot</small>
           </span>
           <span aria-hidden="true">→</span>
         </button>

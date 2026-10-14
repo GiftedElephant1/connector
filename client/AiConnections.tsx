@@ -36,8 +36,40 @@ const errorMessage = (error: unknown) =>
 const apps = [
   { name: "Claude", symbol: "✳", url: "https://claude.ai/settings/connectors", instructions: "Open Settings → Connectors → Add custom connector. Name it Connector, paste the Connector URL below, and add it. Select Connect if prompted, then sign in to Connector and review the access request.", note: "Use your existing Claude subscription. Custom connectors must be available on your plan." },
   { name: "ChatGPT", symbol: "✦", url: "https://chatgpt.com/", instructions: "Open Settings → Apps (or Connectors). If needed, enable Developer mode under Advanced settings. Choose Create app (or Create connector), enter the Connector URL below, and select OAuth authentication. Leave optional OAuth client ID and secret fields empty. Sign in to Connector and review the access request.", note: "Developer mode is a ChatGPT setting; it does not require an OpenAI API account. Availability depends on your plan and workspace administrator." },
-  { name: "Grok", symbol: "𝕏", url: "https://grok.com/", instructions: "Open the custom connector settings you use for Zernio. Paste the Connector URL below and choose OAuth if offered. Sign in to Connector and review the access request. If the setting accepts only a Connector API key, use the advanced connection option below.", note: "Requires a Grok client with custom remote MCP support. Availability and authentication options vary; adding this URL cannot enable a missing Grok feature." },
+  { name: "Grok Bot", symbol: "◇", url: "https://x.ai/news/introducing-grok-bot", instructions: "Open Grok Bot. If you have not installed it, use Download for Windows in xAI’s announcement below, sign in, and create your Bot. Copy the setup instructions below and send them to the Bot you want to use with Connector.", note: "Grok Bot has its own cloud computer. This setup asks it to connect through MCP; its supported connection methods and a live Grok Bot connection have not yet been verified. Opening the announcement does not connect your accounts." },
 ];
+
+function GrokBotHandoff({ url, publicReady }: { url: string; publicReady: boolean }) {
+  const id = useId();
+  const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const instructions = `Set up Connector for you, Grok Bot, to use as my account pipeline.
+
+MCP server URL: ${url}
+Transport: Streamable HTTP, not legacy SSE.
+
+Use your supported custom MCP connection feature or MCP client on your cloud computer. Connector supports MCP OAuth discovery, dynamic client registration, and PKCE. Register this Bot separately so I can choose its access and revoke it independently. Ask me to complete sign-in and permission approval on Connector's authorization page. I will select standard platform tools and/or the Google Workspace agent profile this Bot may use.
+
+If you support only a URL and secret HTTP headers, have me enter a Connector-generated key in your secure credential settings as Authorization: Bearer <key> or X-API-Key: <key>. The general key permits standard platforms only; Google Workspace uses a separate agent-profile key. Do not ask me to paste any key or password into chat or a URL.
+
+Do not create an xAI, Anthropic, or OpenAI developer account or request their API keys. Do not start the optional npm run grok xAI API client. Keep my existing destination accounts connected. If your environment cannot use these connection methods, report exactly what is missing rather than claiming success.
+
+After authorization, call list_connections for approved standard platforms and/or list_workspace_accounts for an approved Google profile. Show the actual tool result to verify the connection. Do not publish, send, edit, schedule, or delete anything during setup.
+
+For later tasks, inspect list_actions or list_workspace_actions first. Before a write, obtain my authorization for its content, destination, timing, and any spend; use confirmed=true and a unique requestId, reusing that ID on retries. My PC must remain awake, online, and running Connector with public access on for your tools to work.`;
+  async function copy() {
+    setCopied(false); setCopyFailed(false);
+    try { await navigator.clipboard.writeText(instructions); setCopied(true); }
+    catch { setCopyFailed(true); }
+  }
+  return <div className="grok-bot-handoff">
+    <p>Send these instructions to your chosen Bot. They contain your Connector address and setup steps, with no passwords or keys.</p>
+    <button className="button button-primary" disabled={!publicReady} onClick={() => void copy()}>Copy instructions for Grok Bot</button>
+    {copied && <p role="status">Copied. Paste the instructions into your Grok Bot conversation.</p>}
+    {!publicReady && <p className="setup-help">Turn on public HTTPS access above before copying instructions.</p>}
+    {publicReady && <details open={copyFailed || undefined}><summary>View instructions{copyFailed ? " — copying was unavailable; select and copy the text below" : ""}</summary><label htmlFor={`${id}-instructions`}>Setup message for Grok Bot</label><textarea id={`${id}-instructions`} readOnly rows={12} value={instructions} onFocus={event => event.currentTarget.select()} /></details>}
+  </div>;
+}
 
 export function AiConnections({ request, onSettings, onAuthError }: {
   request: ApiRequest;
@@ -108,8 +140,8 @@ export function AiConnections({ request, onSettings, onAuthError }: {
   }
   return <section className="setup-panel ai-connections" aria-label="AI app connections">
     <div className="eyebrow">USE THE AI APPS YOU ALREADY HAVE</div>
-    <h2>Claude, ChatGPT, and Grok</h2>
-    <p className="setup-description">Your AI app creates the content. Connector supplies tools for your connected accounts. You do not need an Anthropic, OpenAI, or xAI developer API key for this connection.</p>
+    <h2>Claude, ChatGPT, and Grok Bot</h2>
+    <p className="setup-description">Your AI app creates the content. Connector supplies tools for your connected accounts. Connector’s MCP tools do not need an Anthropic, OpenAI, or xAI developer API key. Your AI app must support the connection method.</p>
     <div className="ai-app-grid" role="group" aria-label="Choose your AI app">
       {apps.map((item) => <button key={item.name} className={`ai-app-card ${selected === item.name ? "selected" : ""}`} aria-pressed={selected === item.name} onClick={() => setSelected(item.name)}>
         <span className="ai-app-symbol" aria-hidden="true">{item.symbol}</span><strong>{item.name}</strong><span>Set up connection →</span>
@@ -121,10 +153,11 @@ export function AiConnections({ request, onSettings, onAuthError }: {
       <CopyValue label="Connector URL" value={data.url} />
       <div className="ai-setup-steps">
         <h3>Add Connector in {app.name}</h3>
-        <ol><li>{app.instructions}</li><li>On Connector’s approval screen, choose your platform access and, optionally, a Google Workspace agent profile. Approve only the client and return address you recognize.</li><li>Enable Connector in a new chat and ask: <strong>“List my connected accounts. Do not publish or change anything.”</strong> A successful tool result verifies the connection.</li></ol>
+        <ol><li>{app.instructions}</li><li>{app.name === "Grok Bot" ? "Follow the Bot’s supported connection flow. If it uses OAuth, sign in on Connector’s approval page and choose the platform access and Google Workspace profile this Bot may use. For a supported key-only connection, use the advanced Connector API key instructions below and enter the key only in secure credential settings." : "On Connector’s approval screen, choose your platform access and, optionally, a Google Workspace agent profile. Approve only the client and return address you recognize."}</li><li>{app.name === "Grok Bot" ? "After the Bot configures the connection, ask it: " : "After adding the connector in your AI app, enable it in a new chat and ask: "}<strong>“List my connected accounts. Do not publish or change anything.”</strong> A successful tool result verifies the connection.</li></ol>
+        {app.name === "Grok Bot" && <GrokBotHandoff key={data.url} url={data.url} publicReady={Boolean(publicReady)} />}
         <p className="setup-help">{app.note}</p>
-        <a className="button button-secondary" href={app.url} target="_blank" rel="noopener noreferrer">Open {app.name} ↗</a>
-        <p className="setup-help">Opening the AI app does not connect it automatically. Your subscription’s usage limits and connected platforms’ requirements still apply.</p>
+        <a className="button button-secondary" href={app.url} target="_blank" rel="noopener noreferrer">{app.name === "Grok Bot" ? "About Grok Bot" : `Open ${app.name}`} ↗</a>
+        <p className="setup-help">Opening a link does not connect the AI app automatically. Your AI provider’s plan limits and connected platforms’ requirements still apply.</p>
       </div>
     </>}
     <div className="ai-grants">

@@ -11,6 +11,13 @@
 .ai-setup-steps { margin-top: 25px; }
 .ai-setup-steps ol { padding-left: 22px; line-height: 1.7; color: #495b52; }
 .ai-setup-steps li { margin-bottom: 12px; }
+.grok-bot-handoff { margin: 20px 0; padding: 18px; border: 1px solid #dce5df; border-radius: 10px; background: #f5f8f6; }
+.grok-bot-handoff p { line-height: 1.6; }
+.grok-bot-handoff .button { max-width: 100%; white-space: normal; }
+.grok-bot-handoff details { margin-top: 16px; }
+.grok-bot-handoff summary { cursor: pointer; }
+.grok-bot-handoff label { display: block; margin: 14px 0 8px; }
+.grok-bot-handoff textarea { display: block; width: 100%; min-width: 0; box-sizing: border-box; padding: 12px; border: 1px solid #dce5df; border-radius: 7px; font: inherit; font-size: 13px; line-height: 1.6; resize: vertical; }
 .ai-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
 .ai-grants, .ai-client-registrations { border-top: 1px solid #e5ebe7; margin-top: 24px; padding-top: 20px; }
 .ai-grant { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border: 1px solid #e2e8e4; border-radius: 10px; padding: 17px; margin-top: 12px; }

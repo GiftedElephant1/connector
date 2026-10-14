@@ -149,7 +149,7 @@ test("AI connections explain subscription access and schedule shows actual empty
   await login(page);
   await page.getByRole("button", { name: "AI connections", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Claude, ChatGPT, and Grok" }),
+    page.getByRole("heading", { name: "Claude, ChatGPT, and Grok Bot", exact: true }),
   ).toBeVisible();
   await expect(page.getByLabel("Connector URL", { exact: true })).toHaveValue(
     /\/mcp$/,

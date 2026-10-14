@@ -57,7 +57,7 @@ Maps business listing management would require a separate Google Business Profil
 
 ## AI connections
 
-Claude, ChatGPT, and compatible Grok clients call Connector's authorized tools to perform these reads and writes. There is no extra destination-side read-only switch on an AI grant. Standard platform tools must be included in its grant, and Workspace writes must use an assigned Google account/app profile. Any confirmation controls in the AI client's interface still apply.
+Compatible MCP clients, including supported Claude and ChatGPT configurations, call Connector's authorized tools to perform these reads and writes. There is no extra destination-side read-only switch on an AI grant. Standard platform tools must be included in its grant, and Workspace writes must use an assigned Google account/app profile. Any confirmation controls in the AI client's interface still apply. For Grok Bot, follow the [copied-message setup](ai-connections.md#grok-bot) and verify an actual MCP tool call before assuming access works.
 
 The optional Anthropic/OpenAI/xAI developer-key cards only verify API model access; they are not write destinations for the consumer chat accounts. You do not need these developer keys to use supported subscription clients through Connector's MCP connection.
 

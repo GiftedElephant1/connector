@@ -376,7 +376,7 @@ export function Pipeline({
           <div className="capability-note">
             <p>
               {provider?.category === "ai"
-                ? "AI connections provide optional developer API access. An xAI API key is used by the optional local bot; the direct Grok MCP connection does not require it."
+                ? "AI connections provide optional developer API access. The local xAI API client requires an xAI API key and uses separate API billing."
                 : "No operations are currently available through this connector."}
             </p>
           </div>
@@ -443,10 +443,10 @@ export function Pipeline({
         </section>
         <section className="action-panel pipeline-start">
           <div className="action-panel-heading">
-            <h2>Optional: run a local Grok API bot</h2>
+            <h2>Optional: run a local xAI API client</h2>
             <p>
-              Use this alternative when you want a terminal-based bot instead of
-              the custom connector in your existing Grok interface.
+              This optional terminal client is a separate developer tool from
+              Grok Bot and uses its own API setup and billing.
             </p>
           </div>
           <ol className="guide-steps">
@@ -455,7 +455,7 @@ export function Pipeline({
               <div>
                 <h3>Connect an xAI developer API key</h3>
                 <p>
-                  This optional bot uses separately billed xAI API access. Your
+                  This optional client uses separately billed xAI API access. Your
                   xAI API connection is{" "}
                   {xai?.connection?.status === "connected"
                     ? "connected and verified"

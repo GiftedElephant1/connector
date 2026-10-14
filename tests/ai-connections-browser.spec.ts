@@ -23,14 +23,14 @@ async function login(page: Page, path = "/") {
   }
 }
 
-test("AI apps use subscription instructions, expose no developer key prompt, and never claim an opened app is connected", async ({ page, context }) => {
+test("AI setup targets Grok Bot, exposes no developer key prompt, and never claims an opened link is connected", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.route("**/api/ai/connectors", (route) => route.fulfill({ json: { url, grants: [] } }));
   await page.route("https://claude.ai/**", (route) => route.fulfill({ contentType: "text/html", body: "Claude setup placeholder" }));
   await login(page);
   await expect(page.locator(".provider-card")).toHaveCount(25);
   await expect(page.locator(".provider-card").filter({ hasText: "Anthropic" })).toHaveCount(0);
-  await page.getByRole("button", { name: "Use Claude, ChatGPT, or Grok" }).click();
+  await page.getByRole("button", { name: "Use Claude, ChatGPT, or Grok Bot" }).click();
   await expect(page.getByLabel("Connector URL", { exact: true })).toHaveValue(url);
   await expect(page.getByRole("region", { name: "AI app connections" })).toContainText("do not need an Anthropic, OpenAI, or xAI developer API key");
   await expect(page.getByLabel("API key", { exact: true })).toHaveCount(0);
@@ -45,8 +45,40 @@ test("AI apps use subscription instructions, expose no developer key prompt, and
   await page.getByRole("button", { name: /ChatGPT Set up connection/ }).click();
   await expect(page.getByRole("heading", { name: "Add Connector in ChatGPT" })).toBeVisible();
   await expect(page.locator(".ai-setup-steps")).toContainText("does not require an OpenAI API account");
-  await page.getByRole("button", { name: /Grok Set up connection/ }).click();
-  await expect(page.locator(".ai-setup-steps")).toContainText("Requires a Grok client with custom remote MCP support");
+  await page.getByRole("button", { name: /Grok Bot Set up connection/ }).click();
+  await expect(page.getByRole("heading", { name: "Add Connector in Grok Bot" })).toBeVisible();
+  await expect(page.locator(".ai-setup-steps")).toContainText("a live Grok Bot connection have not yet been verified");
+  await expect(page.getByRole("link", { name: "About Grok Bot ↗" })).toHaveAttribute("href", "https://x.ai/news/introducing-grok-bot");
+  await expect(page.locator('.ai-setup-steps a[href="https://grok.com/"]')).toHaveCount(0);
+  await expect(page.getByLabel("API key", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Copy instructions for Grok Bot" }).click();
+  const setupMessage = await page.evaluate(() => navigator.clipboard.readText());
+  expect(setupMessage).toContain(`MCP server URL: ${url}`);
+  expect(setupMessage).toContain("list_connections");
+  expect(setupMessage).toContain("Do not publish, send, edit, schedule, or delete anything during setup.");
+  await expect(page.getByRole("status").filter({ hasText: "Copied. Paste the instructions" })).toBeVisible();
+  await expect(page.locator(".ai-grants")).toContainText("No AI app has been approved yet");
+});
+
+test("Grok Bot handoff requires public access and offers a manual copy fallback without requesting secrets", async ({ page }) => {
+  let connectorUrl = "http://127.0.0.1:3000/mcp";
+  await page.route("**/api/ai/connectors", route => route.fulfill({ json: { url: connectorUrl, grants: [] } }));
+  await login(page);
+  const requests: string[] = [];
+  page.on("request", request => requests.push(new URL(request.url()).pathname));
+  await page.getByRole("button", { name: "AI connections", exact: true }).click();
+  await page.getByRole("button", { name: /Grok Bot Set up connection/ }).click();
+  await expect(page.getByRole("button", { name: "Copy instructions for Grok Bot" })).toBeDisabled();
+  await expect(page.getByLabel("Setup message for Grok Bot")).toHaveCount(0);
+  connectorUrl = "https://my-updated-connector.example/mcp";
+  await page.getByRole("button", { name: "Refresh AI connections" }).click();
+  await page.evaluate(() => Object.defineProperty(navigator.clipboard, "writeText", { value: async () => { throw new Error("Clipboard denied"); } }));
+  await page.getByRole("button", { name: "Copy instructions for Grok Bot" }).click();
+  await expect(page.getByLabel("Setup message for Grok Bot")).toBeVisible();
+  await expect(page.getByLabel("Setup message for Grok Bot")).toHaveValue(new RegExp(connectorUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(requests.some(path => /pipeline-key|credentials|\/bot\/turn/.test(path))).toBe(false);
 });
 
 test("authorization survives password sign-in, starts with no access, and approves only the selected Google profile", async ({ page }) => {

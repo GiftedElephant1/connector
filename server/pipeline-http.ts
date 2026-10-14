@@ -182,7 +182,7 @@ export function mountPipeline(app: express.Express, config: AppConfig, store: St
   router.post('/bot/turn', async (req, res) => {
     const generation = store.connectionGeneration('xai');
     const credential = store.credential('xai');
-    if (!credential) throw new ProviderError('Connect xAI in the dashboard before starting the Grok bot.', 409);
+    if (!credential) throw new ProviderError('Connect an xAI developer API key in the dashboard before starting the optional xAI API client.', 409);
     if (!Array.isArray(req.body?.messages) || req.body.messages.length > 100 || JSON.stringify(req.body.messages).length > 150_000) throw new ProviderError('Provide at most 100 chat messages and 150,000 characters. Start a new conversation when needed.');
     const messages = records(req.body.messages);
     if (messages.length !== req.body.messages.length || messages.some(message => !['user', 'assistant', 'tool'].includes(String(message.role)))) throw new ProviderError('Chat messages must have user, assistant, or tool roles.');

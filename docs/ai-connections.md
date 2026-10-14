@@ -1,12 +1,12 @@
-# Connect Claude, ChatGPT, and Grok using your subscription
+# Connect Claude, ChatGPT, and Grok Bot
 
-Your AI app runs the model using your existing subscription. Connector gives that app tools for the destination accounts you have connected. **You do not need an Anthropic, OpenAI, or xAI developer account, developer API key, or API billing to use this connection.** Your AI app must support custom MCP connections on your plan and allow the actions you want to perform.
+Connector gives a compatible AI client tools for the destination accounts you have connected. **This MCP connection does not call Anthropic, OpenAI, or xAI model APIs and requires no developer key from those providers.** Model access, custom connectors, and allowed actions depend on the AI product and your plan. The Grok Bot card provides a message you can copy to your Bot with this installation's connection details. Its MCP compatibility still requires a live connection check.
 
-The default connection uses OAuth: you paste one public Connector URL into the AI app, sign in with your **Connector workspace password**, and approve access. Connector and the AI app exchange their connection credentials automatically. Never paste your Claude, ChatGPT, or Grok password into Connector.
+The default connection uses OAuth: you paste one public Connector URL into the AI app, sign in with your **Connector workspace password**, and approve access. Connector and the AI app exchange their connection credentials automatically. Never paste your AI account password into Connector.
 
 Social networks, advertising platforms, Google, and other destination services still have their own API permissions and application setup requirements. Their costs and approvals are separate from the AI connection.
 
-To remove incorrect or stale connection details, use **Disable and reset** in **AI connections**. Registered OAuth clients can be reset individually, including unfinished attempts. The advanced shared API key has a separate reset affecting every AI client using that key. Follow the [reset guide](reset-connectors.md#claude-chatgpt-grok-and-other-ai-clients) before adding the connection again.
+To remove incorrect or stale connection details, use **Disable and reset** in **AI connections**. Registered OAuth clients can be reset individually, including unfinished attempts. The advanced shared API key has a separate reset affecting every AI client using that key. Follow the [reset guide](reset-connectors.md#claude-chatgpt-grok-bot-and-other-ai-clients) before adding the connection again.
 
 ## 1. Start Connector and make it reachable
 
@@ -51,17 +51,20 @@ Claude Max supplies the model usage for this workflow. It does not need separate
 
 Custom app creation, write tools, and developer mode depend on your ChatGPT plan and workspace policy. Enabling this server cannot unlock a missing ChatGPT feature. OAuth does not cause Connector to call the separately billed OpenAI model API.
 
-### Grok
+### Grok Bot
 
-Use this section **if your Grok account offers the custom connector URL setting where you previously added Zernio**. A consumer Grok custom-MCP feature and its exact menus could not be independently confirmed from public official documentation; this guide does not assume that every Grok account has it.
+[Grok Bot](https://x.ai/news/introducing-grok-bot) runs agents with their own cloud computers, and you can give a Bot instructions by messaging it. Connector's **Copy instructions for Grok Bot** button prepares that message using your actual public Connector address. It includes no passwords or API keys.
 
-1. In Connector's **AI connections** page, select **Grok** and click **Open Grok**. Sign in to the same account where you used Zernio.
-2. Open the connector settings you used for Zernio. Choose the option to add a custom connector and name it **Connector**.
-3. Paste the **Connector URL**. If offered a transport, choose **Streamable HTTP**. If offered authentication, choose **OAuth**.
-4. Continue to Connector's authorization page and complete section 3 below. Then return to Grok and enable the connector for the conversation if required.
-5. Follow section 4 to check the connection.
+1. Complete section 1 above so Connector is running and **Public access is on**. Your existing destination accounts stay connected.
+2. Open **AI connections**, select **Grok Bot**, and click **About Grok Bot**. This opens xAI's announcement. Follow its **Download for Windows** link and installation instructions, then open Grok Bot and sign in. If already installed, open your existing Grok Bot app.
+3. Follow Grok Bot's setup to create a Bot, or open the Bot you want to use. Keep that Bot's conversation available.
+4. Return to Connector and click **Copy instructions for Grok Bot**. If the button is unavailable, finish public-address setup first. Return to the Bot's conversation, paste the copied message, and send it. The message contains your HTTPS `/mcp` address, supported authentication methods, and a first request to list accounts without changing anything.
+5. The Bot should check whether it can use a custom MCP connection with **Streamable HTTP**. If it supports Connector's OAuth flow, complete the approval in section 3 yourself. If it supports secret HTTP headers instead, use the advanced Connector-key instructions below and enter the key only in its supported secure configuration fields. **Never put a password or key in the Bot conversation or URL.** No Anthropic, OpenAI, or xAI developer key is needed for these MCP methods.
+6. Have the Bot perform the account-list request in the copied message. Follow section 4 to inspect the actual tool result; for OAuth, also check **Last successful tool call** in Connector. Only after that succeeds should you ask it to act on an account.
 
-If this Grok interface accepts **only a URL and API key**, use the advanced Connector-key steps below. That key comes from this app; it is **not** an xAI developer key. If the interface does not support custom MCP connections or the required transport/authentication, Connector cannot provide a direct connection from that interface. Do not buy xAI API access to complete these steps.
+The announcement describes Grok Bot's cloud computer and ability to use tools and websites; it does not establish support for Connector's specific MCP transport and authentication. If the Bot cannot configure that connection, have it report the unsupported method rather than assume it connected. These instructions do not claim a completed live Grok Bot test. The optional xAI API client below is a separate feature and does not connect Grok Bot.
+
+Grok Bot's cloud computer does not move this Connector installation off your PC. Keep the PC awake, online, and running Connector with public access on while the Bot needs it. The browser and Connector window may remain closed. Grok Bot's own account eligibility and usage charges are governed by xAI.
 
 ## 3. Approve the AI connection
 
@@ -118,13 +121,13 @@ Use this only when the client supports key authentication but not the OAuth flow
 
 The general key grants access to all standard platform connections. It does not grant Google Workspace access and cannot be revoked as an individual OAuth connection. For a Google-only key connection, use the agent profile key from **Google Workspace** instead; such a client needs separate standard and Workspace entries to access both. Keep existing key connections if they already work; OAuth is the simpler method for new compatible clients.
 
-The app retains optional developer API integrations for existing users. The standalone `npm run grok` bot calls the separately billed xAI API. It is not used when connecting your subscription through these instructions.
+The app retains optional developer API integrations for existing users. The optional **xAI API client**, started with the existing `npm run grok` command, calls the separately billed xAI API. It is separate from Grok Bot and is not required for MCP connections.
 
 ## Troubleshooting
 
 | What you see | What to check |
 | --- | --- |
-| An Anthropic, OpenAI, or xAI developer-key form | Return to **AI connections**. Those forms belong to optional developer API integrations, not the subscription connection. |
+| An Anthropic, OpenAI, or xAI developer-key form | Return to **AI connections**. Those forms belong to optional developer API integrations, not the MCP connection. |
 | A public-address warning | Start public access under **Settings**, then copy the resulting HTTPS `/mcp` URL. |
 | The AI cannot reach the server | Keep the PC awake, Connector running, and public access on. Open **Open public workspace** to check the address. Check for tunnel errors or an expired tunnel session in Settings. |
 | No custom-app or connector setting in the AI app | Check the AI provider's current plan and workspace-admin requirements. This server cannot add a missing client feature. |
@@ -137,6 +140,7 @@ See also [the MCP protocol guide](pipeline.md), [Windows update instructions](wi
 
 ## Reference guides
 
+- [xAI's Grok Bot announcement](https://x.ai/news/introducing-grok-bot), describing Bots' cloud computers, messaging, and product downloads; it does not specify this MCP connection's compatibility.
 - [OpenAI's official Apps SDK examples: testing in ChatGPT](https://github.com/openai/openai-apps-sdk-examples#testing-in-chatgpt).
 - [OpenAI's authenticated MCP server example](https://github.com/openai/openai-apps-sdk-examples/blob/main/authenticated_server_python/README.md).
 - [Zernio's Claude plugin and connector instructions](https://github.com/zernio-dev/zernio-claude-plugin), describing the OAuth connection pattern this app implements with its own URL.

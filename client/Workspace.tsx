@@ -909,7 +909,7 @@ export function GoogleWorkspace({
                   onChange={(event) =>
                     setProfile({ ...profile, name: event.target.value })
                   }
-                  placeholder="For example, Grok — work"
+                  placeholder="For example, Grok Bot — work"
                   maxLength={100}
                   disabled={busy}
                   required

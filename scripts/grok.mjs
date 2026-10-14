@@ -33,7 +33,7 @@ async function turn(prompt) {
   for (let round = 0; round < 12; round++) {
     const { message } = await request('/api/v1/bot/turn', { messages, ...(process.env.XAI_MODEL ? { model: process.env.XAI_MODEL } : {}) });
     messages.push(message);
-    if (message.content) console.log(`\nGrok: ${message.content}`);
+    if (message.content) console.log(`\nxAI: ${message.content}`);
     if (!message.tool_calls?.length) return;
     for (const call of message.tool_calls) {
       let result;
@@ -62,7 +62,7 @@ async function turn(prompt) {
 }
 
 try {
-  console.log('Connector Grok client. Uses the xAI API account connected in the dashboard; separate API billing applies.');
+  console.log('Connector xAI API client. This developer tool is separate from Grok Bot. It uses the xAI API account connected in the dashboard; separate API billing applies.');
   if (approveWrites) console.log('Unattended writes are enabled for this session.');
   if (oneMessage) await turn(oneMessage);
   else {
@@ -74,6 +74,6 @@ try {
     }
   }
 } catch (error) {
-  console.error(error instanceof Error ? error.message : 'The Grok client could not complete the request.');
+  console.error(error instanceof Error ? error.message : 'The xAI API client could not complete the request.');
   process.exitCode = 1;
 } finally { rl.close(); }

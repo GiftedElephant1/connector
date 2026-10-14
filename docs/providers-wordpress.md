@@ -29,7 +29,7 @@ Connector stores the Application Password in its encrypted credential store. To 
 
 ## Use it through your AI agent
 
-Your existing Grok/AI connection to Connector can discover this platform under provider ID `wordpress-self-hosted`. After connecting the website, ask the agent to refresh its Connector account list. If the client caches available connections, refresh the connector in that client's settings.
+Your existing compatible AI connection to Connector can discover this platform under provider ID `wordpress-self-hosted`. After connecting the website, ask the agent to refresh its Connector account list. If the client caches available connections, refresh the connector in that client's settings.
 
 Examples:
 

@@ -26,7 +26,7 @@ Use **Connect Google account** to authorize the account again, then explicitly g
 
 If the Google developer Client ID or secret is wrong, choose **Disable and reset Google setup**. Its confirmation lists all affected Google connectors and Workspace accounts because they share the same developer credentials. After reset, enter the correct Google app settings and connect the desired accounts again.
 
-## Claude, ChatGPT, Grok, and other AI clients
+## Claude, ChatGPT, Grok Bot, and other AI clients
 
 Open **AI connections** and find the registered client you want to remove. Check its registration ID and return addresses as well as its display name. Choose **Disable and reset** and confirm. This removes that registration, every authorization and token belonging to it, and any unfinished authorization requests. Other AI registrations and destination accounts remain connected.
 

@@ -1405,8 +1405,8 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                 onAgents={() => setPage("pipeline")}
               />
               <section className="ai-discovery" aria-label="Connect your AI apps">
-                <div><strong>Bring your existing AI subscriptions.</strong><p>Let Claude, ChatGPT, or Grok use your connected accounts. No AI developer API key needed.</p></div>
-                <button className="button button-secondary" onClick={() => setPage("pipeline")}>Use Claude, ChatGPT, or Grok</button>
+                <div><strong>Connect your AI assistants.</strong><p>Set up Claude, ChatGPT, or Grok Bot with Connector’s MCP tools. Check each assistant’s connection requirements.</p></div>
+                <button className="button button-secondary" onClick={() => setPage("pipeline")}>Use Claude, ChatGPT, or Grok Bot</button>
               </section>
               {settings?.origin.startsWith("https://") &&
                 settings.origin !== window.location.origin && (
@@ -2072,7 +2072,7 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                 <h3>Choose a platform</h3>
                 <p>
                   Use the connection method shown on each platform card. Open AI
-                  connections to use your existing Claude, ChatGPT, or Grok app
+                  connections to set up Claude, ChatGPT, or Grok Bot
                   without an AI developer API key.
                 </p>
               </div>
