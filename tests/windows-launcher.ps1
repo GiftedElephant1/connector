@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 if (-not $Scenario) {
     . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts/windows-common.ps1')
     $failedScenarios = New-Object 'System.Collections.Generic.List[string]'
-    foreach ($case in @('background', 'failure', 'stop', 'shutdown', 'startup', 'duplicate')) {
+    foreach ($case in @('background', 'failure', 'stop', 'shutdown', 'startup', 'duplicate', 'reopen-starting', 'reopen-failed', 'reopen-running', 'reopen-update', 'reopen-legacy', 'reopen-legacy-update', 'reopen-unidentified')) {
         $scenarioInfo = New-Object System.Diagnostics.ProcessStartInfo
         $scenarioInfo.FileName = Join-Path $PSHOME 'powershell.exe'
         $scenarioArguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-Scenario', $case)
@@ -70,6 +70,51 @@ function Wait-TestCondition([scriptblock]$condition, [string]$message) {
         Start-Sleep -Milliseconds 25
     }
     throw $message
+}
+
+function Start-TestPowerShell([string]$path, [string[]]$arguments) {
+    $info = New-Object System.Diagnostics.ProcessStartInfo
+    $info.FileName = Join-Path $PSHOME 'powershell.exe'
+    $nativeArguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', $path) + $arguments
+    $info.Arguments = ($nativeArguments | ForEach-Object { ConvertTo-ConnectorArgument $_ }) -join ' '
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $true
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $info
+    try {
+        [void]$process.Start()
+        return @{ Process = $process; Output = $process.StandardOutput.ReadToEndAsync(); Errors = $process.StandardError.ReadToEndAsync() }
+    } catch { $process.Dispose(); throw }
+}
+
+function Stop-TestPowerShell($run) {
+    if (-not $run) { return }
+    if (-not $run.Process.HasExited) { $run.Process.Kill(); $run.Process.WaitForExit() }
+    $run.Process.Dispose()
+}
+
+function Assert-TestPowerShellExit($run, [string]$message) {
+    Assert-True ($run.Process.WaitForExit(20000)) ($message + ' The process did not exit within 20 seconds.')
+    $output = $run.Output.GetAwaiter().GetResult()
+    $errors = $run.Errors.GetAwaiter().GetResult()
+    Assert-Equal $run.Process.ExitCode 0 ($message + ' ' + $output + ' ' + $errors)
+}
+
+function Get-TestOwnerSnapshot([string]$directory) {
+    $request = [Guid]::NewGuid().ToString('N')
+    Set-Content -LiteralPath (Join-Path $directory 'snapshot-request.txt') -Value $request
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        try {
+            $snapshot = Get-Content -LiteralPath (Join-Path $directory 'snapshot.json') -Raw -ErrorAction Stop | ConvertFrom-Json
+            if ($snapshot.request -ceq $request) { return $snapshot }
+        } catch { }
+        [System.Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 25
+    }
+    throw 'The existing launcher did not respond to the isolated state inspection.'
 }
 
 $repository = Split-Path -Parent $PSScriptRoot
@@ -308,6 +353,23 @@ output.Close
             Assert-True (-not $startupCheckbox.Checked -and -not (Test-Path -LiteralPath $shortcutPath)) 'The tray startup toggle did not disable startup and synchronize its checkbox.'
         }
         'duplicate' {
+            $nativeExecutable = Join-Path $PSHOME 'powershell.exe'
+            $nativeLauncher = Join-Path $temporary 'scripts/windows-launcher.ps1'
+            $ownerProcess = [pscustomobject]@{
+                ExecutablePath = $nativeExecutable
+                CommandLine = (@($nativeExecutable, '-NoProfile', '-File', $nativeLauncher) | ForEach-Object { ConvertTo-ConnectorArgument $_ }) -join ' '
+            }
+            Assert-True (Test-ConnectorWindowOwner $ownerProcess 'Connector') 'The native fallback rejected the exact launcher file argument.'
+            Assert-True (-not (Test-ConnectorWindowOwner $ownerProcess 'Update Connector')) 'The native fallback accepted a launcher as an updater window.'
+            foreach ($unsafeArguments in @(
+                @('-Command', ('Write-Output "-File ' + $nativeLauncher + '"')),
+                @('-EncodedCommand', [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($nativeLauncher))),
+                @('-File', (Join-Path $temporary 'scripts/unrelated.ps1'), '-File', $nativeLauncher),
+                @('-File', (Join-Path $temporary 'other/windows-launcher.ps1'))
+            )) {
+                $ownerProcess.CommandLine = (@($nativeExecutable) + $unsafeArguments | ForEach-Object { ConvertTo-ConnectorArgument $_ }) -join ' '
+                Assert-True (-not (Test-ConnectorWindowOwner $ownerProcess 'Connector')) 'The native fallback accepted an unrelated command mentioning the launcher.'
+            }
             $hash = 'a' * 64
             $marker = Join-Path $script:stateRoot 'desktop-instance.txt'
             Assert-True ($null -eq (Get-ConnectorInstanceHash $script:stateRoot)) 'A missing instance marker was accepted.'
@@ -383,6 +445,220 @@ function Invoke-WebRequest {
                 if ($owned) { $mutex.ReleaseMutex() }
                 $mutex.Dispose()
             }
+        }
+        { $_ -like 'reopen-*' } {
+            # A real second PowerShell process owns the real WinForms controls,
+            # mutex, message loop and harmless child. The duplicate runs the
+            # production entry point, not a reimplementation of its decisions.
+            $state = switch ($Scenario) {
+                'reopen-failed' { 'Failed' }
+                'reopen-running' { 'Running' }
+                'reopen-update' { 'Updating' }
+                'reopen-legacy-update' { 'Updating' }
+                default { 'Starting' }
+            }
+            $legacy = $Scenario -eq 'reopen-legacy' -or $Scenario -eq 'reopen-legacy-update' -or $Scenario -eq 'reopen-unidentified'
+            $blocked = $Scenario -eq 'reopen-unidentified'
+            $fixtureDirectory = Join-Path $temporary 'owner fixture'
+            $fixtureScripts = Join-Path $fixtureDirectory 'scripts'
+            New-Item -ItemType Directory -Path $fixtureScripts | Out-Null
+            # Nonlegacy owners cannot pass the native fallback's -File filter;
+            # these cases therefore prove the production event/timer works.
+            $ownerName = 'event-owner.ps1'
+            if ($legacy) { $ownerName = 'windows-launcher.ps1' }
+            if ($legacy -and $state -eq 'Updating') { $ownerName = 'windows-update.ps1' }
+            if ($blocked) { $ownerName = 'unrelated-window.ps1' }
+            $ownerPath = Join-Path $fixtureScripts $ownerName
+            $ownerSource = @'
+param([string]$Launcher, [string]$Updater, [string]$State, [string]$ControlDirectory, [string]$NodeExecutable, [string]$Legacy)
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+. $Launcher -InitializeOnly
+if ($State -eq 'Updating') {
+    $trayIcon.Dispose()
+    $trayMenu.Dispose()
+    $form.Dispose()
+    . $Updater -InitializeOnly
+}
+$listener = $null
+function Start-Process { throw 'An isolated owner unexpectedly opened an external application.' }
+try {
+    $script:mutex = New-Object System.Threading.Mutex($false, 'Local\GiftedElephantConnectorDesktop')
+    $script:mutexOwned = $script:mutex.WaitOne(0)
+    if (-not $script:mutexOwned) { throw 'Another application owns the test launcher mutex.' }
+    Set-Content -LiteralPath (Join-Path $script:stateRoot 'desktop-instance.txt') -Value ('a' * 64)
+    $script:root = $ControlDirectory
+    $script:nodeExe = $NodeExecutable
+    $script:nodeDirectory = Split-Path -Parent $NodeExecutable
+    $script:job = New-Object ConnectorChildJob
+    $arguments = (@((Join-Path $ControlDirectory 'owner-child.mjs'), $ControlDirectory) | ForEach-Object { ConvertTo-ConnectorArgument $_ }) -join ' '
+    $run = Start-OwnedNode $arguments
+    $script:child = $run.Process
+    $childReady = Join-Path $ControlDirectory 'child-ready.txt'
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while (-not (Test-Path -LiteralPath $childReady)) {
+        if ($script:child.HasExited -or [DateTime]::UtcNow -ge $deadline) { throw 'The owner child fixture did not start.' }
+        [System.Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 25
+    }
+    $script:backgroundStart = $true
+    $null = $form.Handle
+    if ($State -eq 'Running') { Set-ConnectorReady }
+    elseif ($State -eq 'Failed') { Set-ConnectorFailure 'Isolated original failure details remain available.' }
+    elseif ($State -eq 'Updating') { $script:phase = 'Updating'; $script:busy = $true; $status.Text = 'Updating isolated fixture; do not stop this owner.' }
+    $form.WindowState = 'Minimized'
+    $form.Hide()
+    $form.ShowInTaskbar = $false
+    if ($Legacy -ne 'yes') {
+        if ($State -eq 'Updating') { $listener = Start-ConnectorShowListener { Show-ConnectorUpdateWindow } }
+        else { $listener = Start-ConnectorShowListener { Show-ConnectorWindow } }
+    }
+    Set-Content -LiteralPath (Join-Path $ControlDirectory 'owner-ready.txt') -Value $PID
+    $lastRequest = ''
+    while (-not (Test-Path -LiteralPath (Join-Path $ControlDirectory 'owner-stop.txt'))) {
+        [System.Windows.Forms.Application]::DoEvents()
+        $requestPath = Join-Path $ControlDirectory 'snapshot-request.txt'
+        if (Test-Path -LiteralPath $requestPath) {
+            $request = (Get-Content -LiteralPath $requestPath -Raw).Trim()
+            if ($request -and $request -cne $lastRequest) {
+                $lastRequest = $request
+                $pingPath = Join-Path $ControlDirectory 'child-ping.txt'
+                if (Test-Path -LiteralPath $pingPath) { Remove-Item -LiteralPath $pingPath -Force }
+                $responsive = $false
+                if (-not $script:child.HasExited) {
+                    $script:child.StandardInput.WriteLine('ping')
+                    $script:child.StandardInput.Flush()
+                    $pingDeadline = [DateTime]::UtcNow.AddSeconds(5)
+                    while (-not (Test-Path -LiteralPath $pingPath) -and [DateTime]::UtcNow -lt $pingDeadline) {
+                        [System.Windows.Forms.Application]::DoEvents()
+                        Start-Sleep -Milliseconds 25
+                    }
+                    $responsive = Test-Path -LiteralPath $pingPath
+                }
+                @{
+                    request = $request; phase = $script:phase; visible = $form.Visible;
+                    windowState = [string]$form.WindowState; title = $title.Text; status = $status.Text;
+                    cancelled = $script:cancelled; stopped = $script:stopRequested;
+                    responsive = $responsive; childId = $script:child.Id; ownerId = $PID;
+                    marker = Get-ConnectorInstanceHash $script:stateRoot;
+                } | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $ControlDirectory 'snapshot.json')
+            }
+        }
+        Start-Sleep -Milliseconds 25
+    }
+} finally {
+    if ($listener) { Stop-ConnectorShowListener $listener }
+    Stop-ConnectorOwnedProcesses
+    if ($script:mutexOwned) { $script:mutex.ReleaseMutex() }
+    if ($script:mutex) { $script:mutex.Dispose() }
+    $form.Dispose()
+    if ($State -ne 'Updating') { $trayIcon.Dispose(); $trayMenu.Dispose() }
+}
+'@
+            [IO.File]::WriteAllText($ownerPath, $ownerSource, (New-Object System.Text.UTF8Encoding($false)))
+            $childSource = @'
+import { writeFileSync } from 'node:fs';
+import { createInterface } from 'node:readline';
+const folder = process.argv[2];
+createInterface({ input: process.stdin }).on('line', (line) => {
+  if (line === 'ping') writeFileSync(folder + '/child-ping.txt', 'responsive');
+  if (line === 'stop') process.exit(0);
+});
+writeFileSync(folder + '/child-ready.txt', 'ready');
+setInterval(() => {}, 1000);
+'@
+            [IO.File]::WriteAllText((Join-Path $fixtureDirectory 'owner-child.mjs'), $childSource, (New-Object System.Text.UTF8Encoding($false)))
+            $duplicatePath = Join-Path $temporary 'reopen-duplicate.ps1'
+            $duplicateSource = @'
+param([string]$Launcher, [string]$ControlDirectory, [string]$BackgroundMode, [string]$ExpectBlocked)
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+function Start-Process { throw 'A duplicate with no verified server unexpectedly opened a browser.' }
+function Invoke-WebRequest { throw 'No test server is listening on port 3000.' }
+$testTimer = $null
+$script:blockedError = ''
+$script:blockedVerified = $false
+if ($ExpectBlocked -eq 'yes' -and $BackgroundMode -ne 'yes') {
+    Add-Type -AssemblyName System.Windows.Forms
+    $testTimer = New-Object System.Windows.Forms.Timer
+    $testTimer.Interval = 100
+    $script:blockedDeadline = [DateTime]::UtcNow.AddSeconds(10)
+    $testTimer.Add_Tick({
+        try {
+            if ($script:phase -eq 'Existing') {
+                $testTimer.Stop()
+                if (-not $form.Visible -or -not $openButton.Enabled -or $openButton.Text -ne 'Retry opening Connector') { throw 'The blocked launcher did not expose an actionable Retry window.' }
+                $openButton.PerformClick()
+                if ($script:phase -ne 'Existing' -or $script:mutexOwned) { throw 'Retry bypassed the mutex held by an unidentified owner.' }
+                if ((Get-ConnectorInstanceHash $script:stateRoot) -cne ('a' * 64)) { throw 'Retry changed the existing owner marker.' }
+                $script:blockedVerified = $true
+                $stopButton.PerformClick()
+            } elseif ([DateTime]::UtcNow -ge $script:blockedDeadline) { throw 'The duplicate did not provide its nonmodal Retry window.' }
+        } catch {
+            $script:blockedError = $_.Exception.Message
+            $testTimer.Stop()
+            Request-ConnectorStop
+        }
+    })
+    $testTimer.Start()
+}
+try { . $Launcher -Background:($BackgroundMode -eq 'yes') }
+finally { if ($testTimer) { $testTimer.Stop(); $testTimer.Dispose() } }
+if ($script:blockedError) { throw $script:blockedError }
+if ($ExpectBlocked -eq 'yes' -and $BackgroundMode -ne 'yes') {
+    if (-not $script:blockedVerified) { throw 'The unknown owner was treated as a verified Connector window.' }
+    Set-Content -LiteralPath (Join-Path $ControlDirectory 'blocked-verified.txt') -Value 'verified'
+}
+'@
+            [IO.File]::WriteAllText($duplicatePath, $duplicateSource, (New-Object System.Text.UTF8Encoding($false)))
+            $legacyArgument = 'no'
+            if ($legacy) { $legacyArgument = 'yes' }
+            $blockedArgument = 'no'
+            if ($blocked) { $blockedArgument = 'yes' }
+            $owner = $null
+            try {
+                $ownerArguments = @('-Launcher', (Join-Path $repository 'scripts/windows-launcher.ps1'), '-Updater', (Join-Path $repository 'scripts/windows-update.ps1'), '-State', $state, '-ControlDirectory', $fixtureDirectory, '-NodeExecutable', (Get-Command node -ErrorAction Stop).Source, '-Legacy', $legacyArgument)
+                $owner = Start-TestPowerShell $ownerPath $ownerArguments
+                Wait-TestCondition {
+                    if ($owner.Process.HasExited) { throw ('The isolated owner exited before readiness. ' + $owner.Errors.GetAwaiter().GetResult()) }
+                    Test-Path -LiteralPath (Join-Path $fixtureDirectory 'owner-ready.txt')
+                } 'The real owner fixture did not become ready.'
+                $initial = Get-TestOwnerSnapshot $fixtureDirectory
+                Assert-True (-not $initial.visible -and $initial.responsive) 'The owner must begin hidden with a responsive child.'
+                foreach ($mode in @('yes', 'no')) {
+                    $duplicate = $null
+                    try {
+                        $arguments = @('-Launcher', (Join-Path $repository 'scripts/windows-launcher.ps1'), '-ControlDirectory', $fixtureDirectory, '-BackgroundMode', $mode, '-ExpectBlocked', $blockedArgument)
+                        $duplicate = Start-TestPowerShell $duplicatePath $arguments
+                        Assert-TestPowerShellExit $duplicate ('Duplicate launch failed for ' + $Scenario + ', background=' + $mode + '.')
+                    } finally { Stop-TestPowerShell $duplicate }
+                    $snapshot = Get-TestOwnerSnapshot $fixtureDirectory
+                    if ($mode -eq 'no' -and -not $blocked) {
+                        # A named event and ShowWindowAsync both return before
+                        # the other UI thread necessarily handles activation.
+                        $restoreDeadline = [DateTime]::UtcNow.AddSeconds(10)
+                        while ((-not $snapshot.visible -or $snapshot.windowState -ne 'Normal') -and [DateTime]::UtcNow -lt $restoreDeadline) {
+                            Start-Sleep -Milliseconds 50
+                            $snapshot = Get-TestOwnerSnapshot $fixtureDirectory
+                        }
+                    }
+                    Assert-Equal $snapshot.ownerId $initial.ownerId 'A duplicate replaced the original launcher owner.'
+                    Assert-Equal $snapshot.childId $initial.childId 'A duplicate replaced the original child process.'
+                    Assert-True ($snapshot.responsive -and -not $snapshot.cancelled -and -not $snapshot.stopped) 'A duplicate interrupted the original launcher or its child.'
+                    Assert-Equal $snapshot.marker ('a' * 64) 'A duplicate removed or changed the original instance marker.'
+                    Assert-Equal $snapshot.phase $state 'Reopening changed the original launcher state.'
+                    if ($mode -eq 'yes' -or $blocked) {
+                        Assert-True (-not $snapshot.visible) 'Unattended startup or an unverified duplicate displayed the owner window.'
+                    } else {
+                        Assert-True ($snapshot.visible -and $snapshot.windowState -eq 'Normal') 'A manual duplicate did not restore the existing hidden or minimized window.'
+                        if ($state -eq 'Failed') { Assert-Equal $snapshot.status $initial.status 'Reopening replaced the original failure details.' }
+                    }
+                }
+                if ($blocked) { Assert-True (Test-Path -LiteralPath (Join-Path $fixtureDirectory 'blocked-verified.txt')) 'The blocked duplicate did not exercise Retry and Close safely.' }
+                Assert-True (-not (Test-Path -LiteralPath (Join-Path $script:stateRoot 'runtime'))) 'A duplicate began preparing a second private runtime.'
+                Set-Content -LiteralPath (Join-Path $fixtureDirectory 'owner-stop.txt') -Value 'stop'
+                Assert-TestPowerShellExit $owner 'The isolated owner did not shut down cleanly.'
+            } finally { Stop-TestPowerShell $owner }
         }
         default { throw ('Unknown launcher test scenario: ' + $Scenario) }
     }

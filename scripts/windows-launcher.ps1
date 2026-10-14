@@ -25,6 +25,7 @@ $script:stopRequested = $false
 $script:instanceHash = $null
 $script:startupUpdating = $false
 $script:backgroundStart = [bool]$Background
+$script:showListener = $null
 New-Item -ItemType Directory -Force -Path $script:stateRoot | Out-Null
 
 # The invisible launcher owns the job for its entire lifetime, including when
@@ -115,7 +116,10 @@ $openButton.Text = 'Open Connector'
 $openButton.Location = New-Object System.Drawing.Point(24, 182)
 $openButton.Size = New-Object System.Drawing.Size(145, 38)
 $openButton.Enabled = $false
-$openButton.Add_Click({ Open-ConnectorDashboard })
+$openButton.Add_Click({
+    if ($script:phase -eq 'Existing') { Retry-ConnectorExistingInstance }
+    else { Open-ConnectorDashboard }
+})
 $form.Controls.Add($openButton)
 
 $logButton = New-Object System.Windows.Forms.Button
@@ -209,6 +213,57 @@ function Show-ConnectorWindow {
     $form.WindowState = 'Normal'
     $form.Show()
     [void]$form.Activate()
+}
+
+function Open-ConnectorExistingInstance {
+    if (Test-ConnectorExistingInstance (Get-ConnectorInstanceHash $script:stateRoot)) {
+        try { Start-Process 'http://127.0.0.1:3000/'; return $true }
+        catch { } # If Windows cannot open a browser, reveal the owner's controls.
+    }
+    return Request-ConnectorExistingWindow
+}
+
+function Try-ConnectorInstanceMutex {
+    if ($script:mutexOwned) { return $true }
+    try { $script:mutexOwned = $script:mutex.WaitOne(0) }
+    catch [System.Threading.AbandonedMutexException] { $script:mutexOwned = $true }
+    return $script:mutexOwned
+}
+
+function Retry-ConnectorExistingInstance {
+    $openButton.Enabled = $false
+    try {
+        if (Open-ConnectorExistingInstance) { Request-ConnectorStop; return }
+        # A previous owner may have closed since the first attempt. Starting is
+        # safe only after this process actually acquires the same instance lock.
+        if (Try-ConnectorInstanceMutex) { $form.Hide(); return }
+        $status.Text = 'The existing Connector window is not responding yet. Try again shortly or open View status log. If an update is running, let it finish. If no update is running and this continues, restart Windows, then open Start Connector.'
+    } finally { if (-not $script:cancelled -and -not $script:mutexOwned) { $openButton.Enabled = $true } }
+}
+
+function Show-ConnectorExistingStatus {
+    $script:phase = 'Existing'
+    $title.Text = 'Connector is already open'
+    $status.Text = 'Another Connector launch or update is active, but its window could not be opened yet. Click Retry opening Connector or View status log. If an update is running, let it finish. Your accounts and the existing process have not been changed.'
+    $status.Height = 72
+    $progress.Visible = $false
+    $openButton.Text = 'Retry opening Connector'
+    $openButton.Enabled = $true
+    $updateButton.Enabled = $false
+    $stopButton.Text = 'Close'
+    Show-ConnectorWindow
+}
+
+function Set-ConnectorStartingStatus {
+    $script:phase = 'Starting'
+    $title.Text = 'Starting Connector'
+    $status.Text = 'Preparing your private workspace...'
+    $status.Height = 62
+    $progress.Visible = $true
+    $openButton.Text = 'Open Connector'
+    $openButton.Enabled = $false
+    $updateButton.Enabled = $true
+    $stopButton.Text = 'Cancel'
 }
 
 function Hide-ConnectorWindow {
@@ -370,19 +425,22 @@ if ($InitializeOnly) { return }
 
 # A hidden form still needs a native handle to receive Windows logoff/shutdown.
 $null = $form.Handle
-if (-not $script:backgroundStart) { $form.Show() }
 try {
     $script:mutex = New-Object System.Threading.Mutex($false, 'Local\GiftedElephantConnectorDesktop')
-    try { $script:mutexOwned = $script:mutex.WaitOne(0) }
-    catch [System.Threading.AbandonedMutexException] { $script:mutexOwned = $true }
-    if (-not $script:mutexOwned) {
-        if (-not $script:backgroundStart) {
-            if (Test-ConnectorExistingInstance (Get-ConnectorInstanceHash $script:stateRoot)) { Start-Process 'http://127.0.0.1:3000/' }
-            else { [void][System.Windows.Forms.MessageBox]::Show('Connector is already starting, updating, or needs attention. Click the Connector icon beside the Windows clock (look under the up arrow if necessary), then choose Show status. Wait for an update to finish before starting it again.', 'Connector', 'OK', 'Information') }
+    if (-not (Try-ConnectorInstanceMutex)) {
+        if ($script:backgroundStart -or (Open-ConnectorExistingInstance)) {
+            Request-ConnectorStop
+            return
         }
-        Request-ConnectorStop
-        return
+        # No speculative Starting window or blocking modal obscures the owner.
+        # If it cannot be reached, provide a normal retry/log window instead.
+        Show-ConnectorExistingStatus
+        while (-not $script:cancelled -and -not $script:mutexOwned) { Wait-Ui }
+        if ($script:cancelled) { return }
     }
+    $script:showListener = Start-ConnectorShowListener { Show-ConnectorWindow }
+    Set-ConnectorStartingStatus
+    if (-not $script:backgroundStart) { $form.Show() }
     $markerPath = Join-Path $script:stateRoot 'desktop-instance.txt'
     if (Test-Path -LiteralPath $markerPath) { Remove-Item -LiteralPath $markerPath -Force }
     $trayIcon.Visible = $true
@@ -513,6 +571,8 @@ try {
     $trayIcon.Visible = $false
     $trayIcon.Dispose()
     $trayMenu.Dispose()
+    Stop-ConnectorShowListener $script:showListener
+    $script:showListener = $null
     if ($script:mutexOwned) { $script:mutex.ReleaseMutex() }
     if ($script:mutex) { $script:mutex.Dispose() }
     $script:desktopToken = $null

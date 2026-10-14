@@ -1,8 +1,11 @@
 # Windows PowerShell 5.1. The downloaded bundle updates an EXISTING installation.
 # No credentials or raw child-process output are shown or logged.
+param([switch]$InitializeOnly)
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'windows-common.ps1')
+. (Join-Path $PSScriptRoot 'windows-background.ps1')
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
@@ -13,6 +16,7 @@ $script:selectedTarget = $null
 $script:busy = $false
 $script:mutex = $null
 $script:mutexOwned = $false
+$script:showListener = $null
 $script:failureMessage = 'The update could not finish. Keep both folders and try Update Connector again to recover any interrupted update.'
 
 $form = New-Object System.Windows.Forms.Form
@@ -99,8 +103,17 @@ function Set-UpdateStatus([string]$message) {
 }
 
 function Release-UpdateMutex {
+    Stop-ConnectorShowListener $script:showListener
+    $script:showListener = $null
     if ($script:mutexOwned) { $script:mutex.ReleaseMutex(); $script:mutexOwned = $false }
     if ($script:mutex) { $script:mutex.Dispose(); $script:mutex = $null }
+}
+
+function Show-ConnectorUpdateWindow {
+    $form.ShowInTaskbar = $true
+    $form.WindowState = 'Normal'
+    $form.Show()
+    [void]$form.Activate()
 }
 
 function Assert-UpdatePortAvailable([int]$port) {
@@ -234,6 +247,7 @@ $updateButton.Add_Click({
         try { $script:mutexOwned = $script:mutex.WaitOne(0) }
         catch [System.Threading.AbandonedMutexException] { $script:mutexOwned = $true }
         if (-not $script:mutexOwned) { throw 'Connector is running.' }
+        $script:showListener = Start-ConnectorShowListener { Show-ConnectorUpdateWindow }
         Assert-UpdatePortAvailable 3000
 
         $script:failureMessage = 'The private runtime is missing. Open Start Connector in the NEW download, let setup finish, then Stop Connector. Reopen this updater and choose your OLD folder.'
@@ -282,6 +296,9 @@ $startButton.Add_Click({
         $form.Close()
     } catch { Set-UpdateStatus 'The update is complete. Open Start Connector from your ORIGINAL Connector folder to launch it.' }
 })
+
+# Native Windows tests use the production controls without starting an update.
+if ($InitializeOnly) { return }
 
 try { [void]$form.ShowDialog() }
 finally { Release-UpdateMutex; $form.Dispose() }

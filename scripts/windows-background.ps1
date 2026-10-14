@@ -127,3 +127,166 @@ function Test-ConnectorExistingInstance([string]$instanceHash) {
         return $health.Headers['X-Connector-App'] -eq 'gifted-elephant-connector' -and $payload.desktopInstance -ceq $instanceHash
     } catch { return $false }
 }
+
+# The mutex still decides which process may run or update Connector. This
+# separate, session-local event only asks that owner to reveal its status UI.
+function New-ConnectorShowSignal {
+    return New-Object System.Threading.EventWaitHandle($false, [System.Threading.EventResetMode]::AutoReset, 'Local\GiftedElephantConnectorShowStatus')
+}
+
+function Send-ConnectorShowSignal {
+    $signal = $null
+    try {
+        $signal = [System.Threading.EventWaitHandle]::OpenExisting('Local\GiftedElephantConnectorShowStatus')
+        return $signal.Set()
+    } catch { return $false }
+    finally { if ($signal) { $signal.Dispose() } }
+}
+
+function Start-ConnectorShowListener([scriptblock]$show) {
+    $signal = New-ConnectorShowSignal
+    $timer = New-Object System.Windows.Forms.Timer
+    try {
+        $timer.Interval = 150
+        # WinForms timers run on the same thread as DoEvents/ShowDialog. No
+        # background runspace may touch these controls or the owned mutex.
+        $tick = {
+            try { if ($signal.WaitOne(0)) { & $show } }
+            catch [System.ObjectDisposedException] { }
+        }.GetNewClosure()
+        $timer.Add_Tick($tick)
+        $timer.Start()
+        return @{ Signal = $signal; Timer = $timer }
+    } catch {
+        $timer.Dispose()
+        $signal.Dispose()
+        throw
+    }
+}
+
+function Stop-ConnectorShowListener($listener) {
+    if (-not $listener) { return }
+    $listener.Timer.Stop()
+    $listener.Timer.Dispose()
+    $listener.Signal.Dispose()
+}
+
+function Initialize-ConnectorWindowActivation {
+    if ('ConnectorWindowActivation' -as [type]) { return }
+    Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class ConnectorWindowActivation {
+    public sealed class WindowInfo {
+        public IntPtr Handle;
+        public uint ProcessId;
+        public string Title;
+        public string ClassName;
+    }
+    private delegate bool EnumWindowsCallback(IntPtr window, IntPtr parameter);
+    [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsCallback callback, IntPtr parameter);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr window, StringBuilder text, int maximum);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr window, StringBuilder name, int maximum);
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+    [DllImport("user32.dll")] private static extern bool ShowWindowAsync(IntPtr window, int command);
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern IntPtr CommandLineToArgvW(string commandLine, out int count);
+    [DllImport("kernel32.dll")] private static extern IntPtr LocalFree(IntPtr memory);
+
+    public static WindowInfo[] FindWindows(int excludedProcessId) {
+        var windows = new List<WindowInfo>();
+        // EnumWindows includes hidden and minimized forms, unlike MainWindowHandle.
+        EnumWindows(delegate(IntPtr window, IntPtr parameter) {
+            uint processId;
+            GetWindowThreadProcessId(window, out processId);
+            if (processId == excludedProcessId) return true;
+            var title = new StringBuilder(256);
+            GetWindowText(window, title, title.Capacity);
+            if (title.ToString() != "Connector" && title.ToString() != "Update Connector") return true;
+            var className = new StringBuilder(256);
+            GetClassName(window, className, className.Capacity);
+            if (!className.ToString().StartsWith("WindowsForms10.Window.", StringComparison.Ordinal)) return true;
+            windows.Add(new WindowInfo { Handle = window, ProcessId = processId, Title = title.ToString(), ClassName = className.ToString() });
+            return true;
+        }, IntPtr.Zero);
+        return windows.ToArray();
+    }
+
+    public static string[] Arguments(string commandLine) {
+        int count;
+        IntPtr arguments = CommandLineToArgvW(commandLine, out count);
+        if (arguments == IntPtr.Zero) return new string[0];
+        try {
+            var result = new string[count];
+            for (int index = 0; index < count; index++) result[index] = Marshal.PtrToStringUni(Marshal.ReadIntPtr(arguments, index * IntPtr.Size));
+            return result;
+        } finally { LocalFree(arguments); }
+    }
+
+    public static bool Show(IntPtr window) {
+        if (!IsWindow(window)) return false;
+        ShowWindowAsync(window, 9); // SW_RESTORE also reveals hidden forms.
+        SetForegroundWindow(window); // Windows may instead flash its taskbar button.
+        return true;
+    }
+}
+'@
+}
+
+function Test-ConnectorWindowOwner($process, [string]$title) {
+    if (-not $process -or -not $process.CommandLine -or -not $process.ExecutablePath) { return $false }
+    if ($title -ne 'Connector' -and $title -ne 'Update Connector') { return $false }
+    # Only the Windows PowerShell executable used by our launchers qualifies.
+    $executables = @(
+        (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'),
+        (Join-Path $env:SystemRoot 'SysWOW64\WindowsPowerShell\v1.0\powershell.exe')
+    )
+    if ($executables -inotcontains $process.ExecutablePath) { return $false }
+    Initialize-ConnectorWindowActivation
+    $arguments = [ConnectorWindowActivation]::Arguments($process.CommandLine)
+    for ($index = 1; $index -lt $arguments.Length - 1; $index++) {
+        $argument = $arguments[$index]
+        if (@('-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-MTA') -icontains $argument) { continue }
+        if ($argument -ieq '-ExecutionPolicy' -or $argument -ieq '-WindowStyle') {
+            $index++
+            if ($argument -ieq '-ExecutionPolicy' -and $arguments[$index] -ine 'Bypass') { return $false }
+            if ($argument -ieq '-WindowStyle' -and @('Hidden', 'Normal', 'Minimized', 'Maximized') -inotcontains $arguments[$index]) { return $false }
+            continue
+        }
+        # Do not mistake -File appearing inside -Command/-c or an arbitrary
+        # script argument for PowerShell actually executing one of our scripts.
+        if ($argument -ine '-File') { return $false }
+        $path = $arguments[$index + 1]
+        $expectedFile = if ($title -eq 'Connector') { 'windows-launcher.ps1' } else { 'windows-update.ps1' }
+        try {
+            return [IO.Path]::IsPathRooted($path) -and
+                [IO.Path]::GetFileName($path) -ieq $expectedFile -and
+                [IO.Path]::GetFileName([IO.Path]::GetDirectoryName($path)) -ieq 'scripts'
+        } catch { return $false }
+    }
+    return $false
+}
+
+function Show-ConnectorExistingWindow {
+    try {
+        Initialize-ConnectorWindowActivation
+        foreach ($window in [ConnectorWindowActivation]::FindWindows($PID)) {
+            # Older releases lack the event listener. Verify the exact title,
+            # WinForms class, executable and -File argument before restoring one.
+            $process = Get-CimInstance Win32_Process -Filter ('ProcessId = ' + $window.ProcessId) -ErrorAction Stop
+            if ((Test-ConnectorWindowOwner $process $window.Title) -and [ConnectorWindowActivation]::Show($window.Handle)) { return $true }
+        }
+    } catch { }
+    return $false
+}
+
+function Request-ConnectorExistingWindow {
+    # The listener belongs to the lock owner. An idle updater or recovery
+    # window may also exist, so only search older windows if no listener exists.
+    if (Send-ConnectorShowSignal) { return $true }
+    return Show-ConnectorExistingWindow
+}
