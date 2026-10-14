@@ -1,4 +1,27 @@
-# Fix LinkedIn redirect registration
+# Connect LinkedIn and fix authorization errors
+
+## Check product permissions first
+
+If LinkedIn displays **“Bummer, something went wrong”** and then redirects back, check your approved scopes as well as the redirect addresses. That message alone does not identify the cause. Connector's member connection requests `openid profile w_member_social`; all three must appear under your developer app's **Auth → OAuth 2.0 scopes**.
+
+If your list includes `w_member_social` and `r_basicprofile` but lacks `openid` and `profile`, the sign-in permissions Connector needs have not been granted. `r_basicprofile` is a separate permission and cannot authorize Connector's OpenID Connect user-info request.
+
+1. Open [LinkedIn developer apps](https://www.linkedin.com/developers/apps), select the same app whose Client ID is saved in Connector, and click **Products**.
+2. Find **Sign In with LinkedIn using OpenID Connect**. Click **Request access** or the access button LinkedIn offers, and complete its prompts.
+3. Wait for access to become active. Return to **Auth**, scroll to **OAuth 2.0 scopes**, and confirm both `openid` and `profile` are listed. Submitting a request is not the same as receiving access.
+4. Confirm `w_member_social` is listed for posting. If it is already there, you do not need to request that permission again. Otherwise request **Share on LinkedIn** under Products.
+5. In Connector, choose **Connections → LinkedIn → Check LinkedIn setup**. Keep **Approved LinkedIn member reading** set to **false** unless LinkedIn also lists the restricted `r_member_social` scope. Click **Save and continue** if you changed this setting.
+6. Click **Connect account** on the LinkedIn card to start a fresh authorization. Use the public workspace and leave it signed in through the return from LinkedIn.
+
+The setup guide shows **Permissions Connector will request**, including optional scopes you enable. Compare that exact list with LinkedIn's Auth tab. Keep **Approved LinkedIn conversion uploads** false on Campaign Manager until `rw_conversions` is granted; the base ads connection uses `r_ads rw_ads r_ads_reporting`.
+
+If you exposed a client secret in a screenshot or message, generate a replacement in LinkedIn's **Auth** tab, paste it only into Connector's **LinkedIn client secret** field, click **Save and continue**, and revoke the exposed secret in LinkedIn. The two LinkedIn connectors share these saved app credentials. You do not need to reset other connectors or change correctly registered redirect URLs. A new secret does not add product permissions.
+
+Connector now translates recognized LinkedIn OAuth callback errors into setup instructions after validating your browser session and authorization state. It never displays the provider's raw error description or credentials. If LinkedIn returns you without a callback error, the generic LinkedIn screen alone cannot establish the cause; use the scope checklist above. If asked to sign in to Connector again, sign in and read the returned message, then start a new connection.
+
+LinkedIn's [official SDK setup example](https://github.com/linkedin-developers/linkedin-api-python-client#getting-started) confirms that `/v2/userinfo` requires `openid` and `profile` from its OpenID Connect sign-in product.
+
+## Fix redirect registration
 
 **“The redirect_uri does not match the registered value”** is an error from LinkedIn before account authorization. The callback Connector sends must be registered in the LinkedIn developer app identified by its saved Client ID. A website URL, product application, or saved client secret does not register this callback.
 

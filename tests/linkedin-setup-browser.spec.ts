@@ -81,3 +81,36 @@ test("reopening LinkedIn setup refreshes changed public URLs and fits a narrow s
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
 });
+
+test("LinkedIn setup shows the actual requested permissions and optional approval switches", async ({ page }) => {
+  await login(page);
+  const headers = { "x-connector-request": "1" };
+  const flags = { LINKEDIN_ENABLE_MEMBER_READ: "false", LINKEDIN_ENABLE_CONVERSIONS: "false" };
+  expect((await page.request.put("/api/settings", { headers, data: { values: { ...flags, LINKEDIN_CLIENT_ID: "browser-linkedin-app", LINKEDIN_CLIENT_SECRET: "browser-linkedin-secret" } } })).ok()).toBe(true);
+  await page.reload();
+  try {
+    for (const [name, provider, label, base, optional] of [
+      ["LinkedIn", "linkedin", "Approved LinkedIn member reading", "openid profile w_member_social", "r_member_social"],
+      ["LinkedIn Campaign Manager", "linkedin-ads", "Approved LinkedIn conversion uploads", "r_ads rw_ads r_ads_reporting", "rw_conversions"],
+    ]) {
+      const dialog = await openGuide(page, name);
+      await expect(dialog.getByLabel("Permissions Connector will request", { exact: true })).toHaveValue(base);
+      if (provider === "linkedin") {
+        await expect(dialog.getByText("Sign In with LinkedIn using OpenID Connect", { exact: true })).toBeVisible();
+        await expect(dialog.getByText(/r_basicprofile does not replace openid or profile/)).toBeVisible();
+      }
+      await dialog.getByLabel(label, { exact: false }).selectOption("true");
+      const expected = `${base} ${optional}`;
+      await expect(dialog.getByLabel("Permissions Connector will request", { exact: true })).toHaveValue(expected);
+      await dialog.getByRole("button", { name: "Save and continue", exact: true }).click();
+      await expect(dialog).toHaveCount(0);
+      // Compare the displayed scope list with the actual authorization request,
+      // without navigating to LinkedIn or touching a real account.
+      const started = await page.request.post(`/api/oauth/${provider}/start`, { headers });
+      expect(started.ok()).toBe(true);
+      expect(new URL((await started.json()).url).searchParams.get("scope")).toBe(expected);
+    }
+  } finally {
+    await page.request.put("/api/settings", { headers, data: { values: flags } });
+  }
+});

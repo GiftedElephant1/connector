@@ -10,6 +10,8 @@ const account: VerifiedAccount = { accountName: 'Connected account', accountId: 
 const definitions: ProviderDefinition[] = [
   { id: 'openai', name: 'OpenAI', category: 'ai', authType: 'api_key', description: 'Test API', docsUrl: 'https://example.com' },
   { id: 'oauth', name: 'OAuth', category: 'social', authType: 'oauth', description: 'Test OAuth', docsUrl: 'https://example.com' },
+  { id: 'linkedin', name: 'LinkedIn', category: 'social', authType: 'oauth', description: 'Test LinkedIn', docsUrl: 'https://example.com' },
+  { id: 'linkedin-ads', name: 'LinkedIn Campaign Manager', category: 'advertising', authType: 'oauth', description: 'Test LinkedIn Ads', docsUrl: 'https://example.com' },
   { id: 'fields', name: 'Fields', category: 'websites', authType: 'api_key', description: 'Test fields', docsUrl: 'https://example.com', credentialFields: [{ name: 'site', label: 'Site URL' }] },
 ];
 const config: AppConfig = {
@@ -274,6 +276,127 @@ test('denied and incomplete OAuth callbacks consume state without exchanging or 
   }
   assert.equal(exchanges, 0);
   assert.equal(f.store.credential('oauth'), null);
+});
+
+test('LinkedIn scope callbacks explain the matching product requirements without leaking callback values', async (t) => {
+  let exchanges = 0;
+  let verifications = 0;
+  const f = await fixture(t, {
+    exchangeOAuthCode: async () => { exchanges++; return { accessToken: 'must-not-be-issued' }; },
+    verifyConnection: async () => { verifications++; return account; },
+  });
+  const cookie = await f.login();
+  for (const provider of ['linkedin', 'linkedin-ads']) {
+    for (const error of ['unauthorized_scope_error', 'invalid_scope']) {
+      const { url } = await (await f.mutation(`/api/oauth/${provider}/start`, undefined, cookie)).json() as { url: string };
+      const state = new URL(url).searchParams.get('state')!;
+      const params = new URLSearchParams({ state, error, code: 'private-code', error_description: 'private-token <script>untrusted</script>', access_token: 'private-access-token' });
+      const response = await f.request(`/api/oauth/${provider}/callback?${params}`, { headers: { cookie } });
+      assert.equal(response.status, 302);
+      const location = new URL(response.headers.get('location')!, config.origin);
+      assert.equal(location.origin, config.origin);
+      assert.equal(location.pathname, '/');
+      assert.deepEqual([...location.searchParams.keys()], ['error']);
+      const message = location.searchParams.get('error')!;
+      assert.match(message, /Check LinkedIn setup/);
+      if (provider === 'linkedin') {
+        assert.match(message, /Sign In with LinkedIn using OpenID Connect for openid and profile/);
+        assert.match(message, /Share on LinkedIn for w_member_social/);
+        assert.match(message, /r_member_social disabled unless LinkedIn has approved/);
+        assert.doesNotMatch(message, /Advertising API/);
+      } else {
+        assert.match(message, /LinkedIn Campaign Manager/);
+        assert.match(message, /approved Advertising API access/);
+        assert.match(message, /rw_conversions only after Conversions API access is approved/);
+        assert.doesNotMatch(message, /OpenID/);
+      }
+      for (const privateValue of [state, error, 'private-code', 'private-token', '<script>', 'private-access-token']) assert.equal(message.includes(privateValue), false);
+      const replay = await f.request(`/api/oauth/${provider}/callback?state=${state}&code=private-code`, { headers: { cookie } });
+      assert.match(decodeURIComponent(replay.headers.get('location')!), /expired or does not belong/);
+      assert.equal(f.store.credential(provider), null);
+    }
+  }
+  assert.equal(exchanges, 0);
+  assert.equal(verifications, 0);
+});
+
+test('LinkedIn authorization errors give safe recovery advice and retain an existing connection', async (t) => {
+  let exchanges = 0;
+  let verifications = 0;
+  const f = await fixture(t, {
+    exchangeOAuthCode: async () => { exchanges++; return { accessToken: 'must-not-be-issued' }; },
+    verifyConnection: async () => { verifications++; return account; },
+  });
+  const cookie = await f.login();
+  const existing = { accessToken: 'existing-verified-token' };
+  f.store.save('linkedin', existing, account);
+  const cases: [string, RegExp][] = [
+    ['user_cancelled_login', /was cancelled/],
+    ['user_cancelled_authorize', /was cancelled/],
+    ['access_denied', /did not grant access/],
+    ['invalid_client_id', /saved Client ID with the Auth tab/],
+    ['invalid_client', /saved Client ID with the Auth tab/],
+    ['invalid_redirect_uri', /exact OAuth redirect URL/],
+    ['invalid_request', /check the Client ID, exact callback address and approved products/],
+    ['server_error', /temporary authorization error/],
+    ['temporarily_unavailable', /temporary authorization error/],
+    ['unknown-private-error-<script>', /authorization could not be completed/],
+    ['', /authorization could not be completed/],
+  ];
+  for (const [error, expected] of cases) {
+    const { url } = await (await f.mutation('/api/oauth/linkedin/start', undefined, cookie)).json() as { url: string };
+    const state = new URL(url).searchParams.get('state')!;
+    const params = new URLSearchParams({ state, error, error_description: 'secret-provider-message', code: 'ignored-code' });
+    const response = await f.request(`/api/oauth/linkedin/callback?${params}`, { headers: { cookie } });
+    assert.equal(response.status, 302);
+    const message = new URL(response.headers.get('location')!, config.origin).searchParams.get('error')!;
+    assert.match(message, expected);
+    assert.doesNotMatch(message, /secret-provider-message|unknown-private-error|<script>|ignored-code/);
+    assert.deepEqual(f.store.credential('linkedin'), existing);
+    assert.equal(f.store.connection('linkedin')?.status, 'connected');
+  }
+  const { url } = await (await f.mutation('/api/oauth/linkedin/start', undefined, cookie)).json() as { url: string };
+  const state = new URL(url).searchParams.get('state')!;
+  const malformed = await f.request(`/api/oauth/linkedin/callback?state=${state}&error=invalid_scope&error=private-extra-value&code=ignored-code`, { headers: { cookie } });
+  const message = new URL(malformed.headers.get('location')!, config.origin).searchParams.get('error')!;
+  assert.match(message, /authorization could not be completed/);
+  assert.doesNotMatch(message, /private-extra-value|ignored-code/);
+  assert.equal(exchanges, 0);
+  assert.equal(verifications, 0);
+});
+
+test('LinkedIn error callbacks remain session- and provider-bound and consume a valid state once', async (t) => {
+  let exchanges = 0;
+  let verifications = 0;
+  const f = await fixture(t, {
+    exchangeOAuthCode: async () => { exchanges++; return { accessToken: 'must-not-be-issued' }; },
+    verifyConnection: async () => { verifications++; return account; },
+  });
+  const owner = await f.login();
+  const other = await f.login();
+  const { url } = await (await f.mutation('/api/oauth/linkedin/start', undefined, owner)).json() as { url: string };
+  const state = new URL(url).searchParams.get('state')!;
+  const suffix = `state=${state}&error=unauthorized_scope_error&error_description=private-provider-description`;
+  assert.equal((await f.request(`/api/oauth/linkedin/callback?${suffix}`)).status, 401);
+  for (const [provider, cookie, query] of [
+    ['linkedin', other, suffix],
+    ['linkedin-ads', owner, suffix],
+    ['linkedin', owner, 'state=unknown-state&error=unauthorized_scope_error'],
+  ]) {
+    const response = await f.request(`/api/oauth/${provider}/callback?${query}`, { headers: { cookie } });
+    const message = new URL(response.headers.get('location')!, config.origin).searchParams.get('error')!;
+    assert.match(message, /expired or does not belong to your session/);
+    assert.doesNotMatch(message, /OpenID|private-provider-description/);
+  }
+  const accepted = await f.request(`/api/oauth/linkedin/callback?${suffix}`, { headers: { cookie: owner } });
+  assert.match(new URL(accepted.headers.get('location')!, config.origin).searchParams.get('error')!, /OpenID Connect/);
+  for (const query of [suffix, `state=${state}&code=ignored-code`]) {
+    const replay = await f.request(`/api/oauth/linkedin/callback?${query}`, { headers: { cookie: owner } });
+    assert.match(new URL(replay.headers.get('location')!, config.origin).searchParams.get('error')!, /expired or does not belong/);
+  }
+  assert.equal(exchanges, 0);
+  assert.equal(verifications, 0);
+  assert.equal(f.store.credential('linkedin'), null);
 });
 
 test('OAuth exchange failures use a safe redirect and cannot be replayed', async (t) => {

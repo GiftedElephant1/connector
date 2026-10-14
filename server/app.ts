@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { AppConfig } from './config';
 import { Store } from './store';
+import { oauthAuthorizationError } from './oauth-errors';
 import * as providers from './providers';
 import { Pipeline } from './pipeline';
 import { mountPipeline } from './pipeline-http';
@@ -223,7 +224,7 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
       const state = stringValue(req.query.state, 'OAuth state', 128);
       const flow = store.takeOAuth(state, sessionToken(req), id);
       if (!flow) throw new RequestError('This authorization expired or does not belong to your session. Please connect again.');
-      if (req.query.error) throw new RequestError('Authorization was declined or could not be completed. Please connect again.');
+      if (req.query.error !== undefined) throw new RequestError(oauthAuthorizationError(id, req.query.error));
       const code = stringValue(req.query.code ?? req.query.auth_code, 'Authorization code');
       const generation = store.connectionGeneration(id);
       const credential = await service.exchangeOAuthCode(id, { code, codeVerifier: flow.verifier, redirectUri: `${config.origin}/api/oauth/${id}/callback`, env });

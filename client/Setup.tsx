@@ -368,7 +368,13 @@ export function ProviderSetup({
             </li>
             {settings.callbackUrl && (
               <li>
-                {provider.id === "linkedin" || provider.id === "linkedin-ads" ? <LinkedInSetup callbackUrl={settings.callbackUrl} clientId={values.LINKEDIN_CLIENT_ID ?? settings.fields.find(field => field.key === "LINKEDIN_CLIENT_ID")?.value ?? ""} /> : <>
+                {provider.id === "linkedin" || provider.id === "linkedin-ads" ? <LinkedInSetup
+                  callbackUrl={settings.callbackUrl}
+                  clientId={values.LINKEDIN_CLIENT_ID ?? settings.fields.find(field => field.key === "LINKEDIN_CLIENT_ID")?.value ?? ""}
+                  advertising={provider.id === "linkedin-ads"}
+                  memberRead={(values.LINKEDIN_ENABLE_MEMBER_READ ?? settings.fields.find(field => field.key === "LINKEDIN_ENABLE_MEMBER_READ")?.value) === "true"}
+                  conversions={(values.LINKEDIN_ENABLE_CONVERSIONS ?? settings.fields.find(field => field.key === "LINKEDIN_ENABLE_CONVERSIONS")?.value) === "true"}
+                /> : <>
                 <strong>Add this redirect address</strong>
                 <p>
                   In the developer portal’s OAuth or redirect settings, paste
