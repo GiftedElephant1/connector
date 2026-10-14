@@ -192,8 +192,11 @@ public static class ConnectorWindowActivation {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr window, StringBuilder name, int maximum);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
     [DllImport("user32.dll")] private static extern bool ShowWindowAsync(IntPtr window, int command);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern IntPtr SendMessageTimeout(IntPtr window, uint message, IntPtr parameter, IntPtr extra, uint flags, uint timeout, out UIntPtr result);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr window);
     [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
     [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern IntPtr CommandLineToArgvW(string commandLine, out int count);
     [DllImport("kernel32.dll")] private static extern IntPtr LocalFree(IntPtr memory);
 
@@ -229,7 +232,22 @@ public static class ConnectorWindowActivation {
 
     public static bool Show(IntPtr window) {
         if (!IsWindow(window)) return false;
-        ShowWindowAsync(window, 9); // SW_RESTORE also reveals hidden forms.
+        // SW_RESTORE alone can reveal the HWND without WM_SHOWWINDOW, leaving
+        // WinForms Visible=false and its controls uncreated on an old launcher.
+        ShowWindowAsync(window, 5); // SW_SHOW initializes managed visibility.
+        ShowWindowAsync(window, 9); // SW_RESTORE normalizes a minimized form.
+        // Both requests are asynchronous. Wait briefly for the native restore
+        // before initializing managed visibility, so STARTUPINFO cannot undo it.
+        var restoreWait = System.Diagnostics.Stopwatch.StartNew();
+        while (!IsWindowVisible(window) || IsIconic(window)) {
+            if (!IsWindow(window) || restoreWait.ElapsedMilliseconds >= 1000) return false;
+            System.Threading.Thread.Sleep(25);
+        }
+        // WinForms itself forces this first-show notification when STARTUPINFO
+        // suppresses it (our VBS launches PowerShell hidden). Let its own window
+        // procedure set Visible and CreateControl; never hang on a stuck owner.
+        UIntPtr result;
+        if (SendMessageTimeout(window, 0x0018, new IntPtr(1), IntPtr.Zero, 0x0002, 1500, out result) == IntPtr.Zero) return false;
         SetForegroundWindow(window); // Windows may instead flash its taskbar button.
         return true;
     }

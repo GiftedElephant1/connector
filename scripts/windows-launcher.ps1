@@ -215,6 +215,9 @@ function Show-ConnectorWindow {
     $form.WindowState = 'Normal'
     $form.ShowInTaskbar = $true
     $form.Show()
+    # A previously shown, hidden form can recover its old native minimized
+    # placement during handle recreation. Normalize the visible handle too.
+    $form.WindowState = 'Normal'
     [void]$form.Activate()
 }
 

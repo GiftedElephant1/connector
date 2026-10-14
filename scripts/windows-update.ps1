@@ -114,6 +114,7 @@ function Show-ConnectorUpdateWindow {
     $form.WindowState = 'Normal'
     $form.ShowInTaskbar = $true
     $form.Show()
+    $form.WindowState = 'Normal'
     [void]$form.Activate()
 }
 

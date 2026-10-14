@@ -497,6 +497,21 @@ if ($State -eq 'Updating') {
     $form.Dispose()
     . $Updater -InitializeOnly
 }
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class ConnectorFixtureWindowInspection {
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr window);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr window, StringBuilder text, int maximum);
+    public static string Text(IntPtr window) {
+        var text = new StringBuilder(1024);
+        GetWindowText(window, text, text.Capacity);
+        return text.ToString();
+    }
+}
+"@
 $listener = $null
 function Start-Process { throw 'An isolated owner unexpectedly opened an external application.' }
 try {
@@ -570,7 +585,32 @@ try {
                     marker = Get-ConnectorInstanceHash $script:stateRoot;
                     activationCount = $script:activationCount; activationState = $script:activationState;
                     handleCreated = $form.IsHandleCreated; disposed = $form.IsDisposed; showInTaskbar = $form.ShowInTaskbar;
-                } | ConvertTo-Json -Compress
+                    nativeVisible = [ConnectorFixtureWindowInspection]::IsWindowVisible($form.Handle);
+                    nativeMinimized = [ConnectorFixtureWindowInspection]::IsIconic($form.Handle);
+                    titleHandleCreated = $title.IsHandleCreated; titleNativeVisible = $false; titleNativeText = '';
+                    statusHandleCreated = $status.IsHandleCreated; statusNativeVisible = $false; statusNativeText = '';
+                    actionHandleCreated = $false; actionNativeVisible = $false; actionNativeText = ''; actionText = '';
+                }
+                # Looking at Handle itself creates it. Never do that for an
+                # uncreated child: inspection must not make a blank legacy
+                # frame appear usable by constructing its missing controls.
+                if ($title.IsHandleCreated) {
+                    $snapshot.titleNativeVisible = [ConnectorFixtureWindowInspection]::IsWindowVisible($title.Handle)
+                    $snapshot.titleNativeText = [ConnectorFixtureWindowInspection]::Text($title.Handle)
+                }
+                if ($status.IsHandleCreated) {
+                    $snapshot.statusNativeVisible = [ConnectorFixtureWindowInspection]::IsWindowVisible($status.Handle)
+                    $snapshot.statusNativeText = [ConnectorFixtureWindowInspection]::Text($status.Handle)
+                }
+                $actionButton = $stopButton
+                if ($State -eq 'Updating') { $actionButton = $closeButton }
+                $snapshot.actionText = $actionButton.Text
+                $snapshot.actionHandleCreated = $actionButton.IsHandleCreated
+                if ($actionButton.IsHandleCreated) {
+                    $snapshot.actionNativeVisible = [ConnectorFixtureWindowInspection]::IsWindowVisible($actionButton.Handle)
+                    $snapshot.actionNativeText = [ConnectorFixtureWindowInspection]::Text($actionButton.Handle)
+                }
+                $snapshot = $snapshot | ConvertTo-Json -Compress
                 $responsePath = Join-Path $ControlDirectory ('snapshot-' + $request + '.json')
                 [IO.File]::WriteAllText(($responsePath + '.tmp'), $snapshot)
                 [IO.File]::Move(($responsePath + '.tmp'), $responsePath)
@@ -683,6 +723,10 @@ if ($ExpectBlocked -eq 'yes' -and $BackgroundMode -ne 'yes') {
                         Assert-True (-not $snapshot.visible) 'Unattended startup or an unverified duplicate displayed the owner window.'
                     } else {
                         Assert-True ($snapshot.visible -and $snapshot.windowState -eq 'Normal') ('A manual duplicate did not restore the existing hidden or minimized window. ' + ($snapshot | ConvertTo-Json -Compress))
+                        Assert-True ($snapshot.nativeVisible -and -not $snapshot.nativeMinimized -and $snapshot.titleNativeVisible -and $snapshot.statusNativeVisible -and $snapshot.actionNativeVisible) ('The restored owner did not display its actual status and action controls. ' + ($snapshot | ConvertTo-Json -Compress))
+                        Assert-Equal $snapshot.titleNativeText $snapshot.title ('The restored native title did not match the owner UI. ' + ($snapshot | ConvertTo-Json -Compress))
+                        Assert-Equal $snapshot.statusNativeText $snapshot.status ('The restored native status did not match the owner UI. ' + ($snapshot | ConvertTo-Json -Compress))
+                        Assert-Equal $snapshot.actionNativeText $snapshot.actionText ('The restored native action button did not match the owner UI. ' + ($snapshot | ConvertTo-Json -Compress))
                         if ($state -eq 'Failed') { Assert-Equal $snapshot.status $initial.status 'Reopening replaced the original failure details.' }
                     }
                 }
