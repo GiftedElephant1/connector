@@ -28,6 +28,8 @@ jobs:
           }
           try {
             & .\tests\windows-update.ps1
+            & .\tests\windows-scan-package.ps1
+            & .\tests\windows-verify-signatures.ps1
           } catch {
             $message = ($_.Exception.Message + ' ' + $_.ScriptStackTrace).Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
             Write-Output "::error title=Windows updater verification::$message"

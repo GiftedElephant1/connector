@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 if (-not $Scenario) {
     . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts/windows-common.ps1')
     $failedScenarios = New-Object 'System.Collections.Generic.List[string]'
-    foreach ($case in @('background', 'failure', 'stop', 'shutdown', 'startup', 'duplicate', 'reopen-starting', 'reopen-failed', 'reopen-running', 'reopen-update', 'reopen-legacy', 'reopen-legacy-update', 'reopen-unidentified')) {
+    foreach ($case in @('background', 'failure', 'stop', 'shutdown', 'startup', 'launch-console', 'duplicate', 'reopen-starting', 'reopen-failed', 'reopen-running', 'reopen-update', 'reopen-legacy', 'reopen-legacy-update', 'reopen-unidentified')) {
         $scenarioInfo = New-Object System.Diagnostics.ProcessStartInfo
         $scenarioInfo.FileName = Join-Path $PSHOME 'powershell.exe'
         $scenarioArguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-Scenario', $case)
@@ -138,11 +138,35 @@ $originalLocalAppData = $env:LOCALAPPDATA
 New-Item -ItemType Directory -Path $temporary | Out-Null
 $env:LOCALAPPDATA = $temporary
 $script:scenarioFailure = $null
+$testConsoleAllocated = $false
 
 try {
+    if ($Scenario -eq 'launch-console') {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class ConnectorConsoleProbe {
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool AllocConsole();
+    [DllImport("kernel32.dll")]
+    public static extern bool FreeConsole();
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GetConsoleWindow();
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr window, int command);
+}
+'@
+        Assert-True ([ConnectorConsoleProbe]::GetConsoleWindow() -eq [IntPtr]::Zero) 'Run the console scenario through its isolated, no-console parent harness.'
+        $testConsoleAllocated = [ConnectorConsoleProbe]::AllocConsole()
+        Assert-True $testConsoleAllocated 'The isolated console fixture could not allocate its own console.'
+        $testConsoleWindow = [ConnectorConsoleProbe]::GetConsoleWindow()
+        Assert-True ([ConnectorConsoleProbe]::IsWindowVisible($testConsoleWindow)) 'The new console must begin visible for publisher prompts.'
+    }
     # The initialize-only entry point creates the exact production controls and
     # event handlers, but never downloads or starts the real Connector server.
-    . (Join-Path $repository 'scripts/windows-launcher.ps1') -InitializeOnly
+    . (Join-Path $repository 'scripts/windows-launcher.ps1') -InitializeOnly -HideLaunchConsole:($Scenario -eq 'launch-console')
 
     $script:browserLaunches = New-Object 'System.Collections.Generic.List[string]'
     function Start-Process {
@@ -183,6 +207,21 @@ setInterval(() => {}, 1000);
     }
 
     switch ($Scenario) {
+        'launch-console' {
+            Assert-True (-not [ConnectorConsoleProbe]::IsWindowVisible($testConsoleWindow)) 'The explicit signed-launch switch did not hide the launcher console after helpers loaded.'
+            Assert-True (-not $form.IsDisposed -and -not $form.Visible) 'Hiding the launch console damaged or displayed the status form.'
+            $form.Dispose()
+            [void][ConnectorConsoleProbe]::ShowWindow($testConsoleWindow, 5)
+            . (Join-Path $repository 'scripts/windows-update.ps1') -InitializeOnly
+            Assert-True ([ConnectorConsoleProbe]::IsWindowVisible($testConsoleWindow)) 'The updater hid its caller console without the explicit signed-launch switch.'
+            $form.Dispose()
+            . (Join-Path $repository 'scripts/windows-update.ps1') -InitializeOnly -HideLaunchConsole
+            Assert-True (-not [ConnectorConsoleProbe]::IsWindowVisible($testConsoleWindow)) 'The explicit signed-launch switch did not hide the updater console after helpers loaded.'
+            Assert-True (-not $form.IsDisposed) 'Hiding the updater console disposed its form.'
+            Assert-True ([ConnectorConsoleProbe]::FreeConsole()) 'The isolated console fixture could not release its console.'
+            $testConsoleAllocated = $false
+            Assert-True (-not (Hide-ConnectorLaunchConsole)) 'The console helper claimed to hide a console when no console exists.'
+        }
         'background' {
             Start-TestChild
             $form.Show()
@@ -377,12 +416,21 @@ output.Close
             }
             Assert-True (Test-ConnectorWindowOwner $ownerProcess 'Connector') 'The native fallback rejected the exact launcher file argument.'
             Assert-True (-not (Test-ConnectorWindowOwner $ownerProcess 'Update Connector')) 'The native fallback accepted a launcher as an updater window.'
+            foreach ($policy in @('AllSigned', 'Bypass')) {
+                $ownerProcess.CommandLine = (@($nativeExecutable, '-NoLogo', '-NoProfile', '-STA', '-ExecutionPolicy', $policy, '-WindowStyle', 'Normal', '-File', $nativeLauncher, '-HideLaunchConsole', '-Background') | ForEach-Object { ConvertTo-ConnectorArgument $_ }) -join ' '
+                Assert-True (Test-ConnectorWindowOwner $ownerProcess 'Connector') ('The native fallback rejected the supported launcher policy: ' + $policy)
+                $ownerProcess.CommandLine = (@($nativeExecutable, '-NoLogo', '-NoProfile', '-STA', '-ExecutionPolicy', $policy, '-WindowStyle', 'Normal', '-File', (Join-Path $temporary 'scripts/windows-update.ps1'), '-HideLaunchConsole') | ForEach-Object { ConvertTo-ConnectorArgument $_ }) -join ' '
+                Assert-True (Test-ConnectorWindowOwner $ownerProcess 'Update Connector') ('The native fallback rejected the supported updater policy: ' + $policy)
+            }
             foreach ($unsafeArguments in @(
                 @('-Command', ('Write-Output "-File ' + $nativeLauncher + '"')),
                 @('-c', 'Write-Output', '-File', $nativeLauncher),
                 @('-EncodedCommand', [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($nativeLauncher))),
                 @('-File', (Join-Path $temporary 'scripts/unrelated.ps1'), '-File', $nativeLauncher),
-                @('-File', (Join-Path $temporary 'other/windows-launcher.ps1'))
+                @('-File', (Join-Path $temporary 'other/windows-launcher.ps1')),
+                @('-ExecutionPolicy', 'Unrestricted', '-File', $nativeLauncher),
+                @('-ExecutionPolicy', 'RemoteSigned', '-File', $nativeLauncher),
+                @('-ExecutionPolicy', 'unexpected', '-File', $nativeLauncher)
             )) {
                 $ownerProcess.CommandLine = (@($nativeExecutable) + $unsafeArguments | ForEach-Object { ConvertTo-ConnectorArgument $_ }) -join ' '
                 Assert-True (-not (Test-ConnectorWindowOwner $ownerProcess 'Connector')) 'The native fallback accepted an unrelated command mentioning the launcher.'
@@ -747,6 +795,7 @@ if ($ExpectBlocked -eq 'yes' -and $BackgroundMode -ne 'yes') {
     if (Get-Variable trayIcon -ErrorAction SilentlyContinue) { $trayIcon.Visible = $false; $trayIcon.Dispose() }
     if (Get-Variable trayMenu -ErrorAction SilentlyContinue) { $trayMenu.Dispose() }
     if (Get-Variable form -ErrorAction SilentlyContinue) { $form.Dispose() }
+    if ($testConsoleAllocated) { [void][ConnectorConsoleProbe]::FreeConsole() }
     $env:LOCALAPPDATA = $originalLocalAppData
     if (Test-Path -LiteralPath $temporary) {
         # Windows may still be releasing child-job handles immediately after

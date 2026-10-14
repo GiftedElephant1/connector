@@ -1,11 +1,12 @@
 # Windows PowerShell 5.1. The downloaded bundle updates an EXISTING installation.
 # No credentials or raw child-process output are shown or logged.
-param([switch]$InitializeOnly)
+param([switch]$InitializeOnly, [switch]$HideLaunchConsole)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'windows-common.ps1')
 . (Join-Path $PSScriptRoot 'windows-background.ps1')
+if ($HideLaunchConsole) { [void](Hide-ConnectorLaunchConsole) }
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
@@ -184,10 +185,10 @@ function Invoke-UpdateEngine([string[]]$arguments, [switch]$checkOnly) {
                 switch ($failure.code) {
                     'UNSAFE_PATH' { $script:failureMessage = 'Choose two separate, fully extracted Connector folders. Neither folder may be inside the other or reached through a folder shortcut or junction.' }
                     'INVALID_INSTALLATION' { $script:failureMessage = 'Choose your OLD Connector folder containing the saved configuration and Start Connector file.' }
-                    'INVALID_BUNDLE' { $script:failureMessage = 'Download the newest Connector package and extract both ZIP layers before opening Update Connector.' }
+                    'INVALID_BUNDLE' { $script:failureMessage = 'Use Connector-Windows.zip from a signed GitHub release and extract it completely before opening Update Connector.' }
                     'INVALID_CONFIGURATION' { $script:failureMessage = 'Your original private configuration is incomplete. Keep the existing folder and account data. Restore your original .env from a private backup or ask for help.' }
                     'UNSAFE_DATA_DIRECTORY' { $script:failureMessage = 'Your custom account storage overlaps application files. The updater has stopped to protect it. Keep your existing folder and ask for help moving that storage.' }
-                    'DOWNGRADE' { $script:failureMessage = 'This download is older than your installed Connector. Download the newest successful Package Windows app build.' }
+                    'DOWNGRADE' { $script:failureMessage = 'This download is older than your installed Connector. Check GitHub Releases for a newer signed Connector-Windows.zip.' }
                     'PREPARATION_FAILED' { $script:failureMessage = 'The new app could not be installed or built. Check your Internet connection and free disk space, then try again. The installed app was not changed.' }
                     'UPDATE_FAILED' { $script:failureMessage = 'The update could not be applied. The previous application files have been restored. Close any apps using your Connector folder and try again.' }
                     'RECOVERY_REQUIRED' { $script:failureMessage = 'An interrupted update needs recovery. Keep both folders, close applications using your Connector folder, then run Update Connector again.' }

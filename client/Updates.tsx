@@ -105,7 +105,7 @@ export function ConnectorUpdates({ request }: { request: ApiRequest }) {
               target="_blank"
               rel="noopener noreferrer"
             >
-              Download latest update ↗
+              View Windows releases ↗
             </a>
             <a
               className="button button-secondary"
@@ -118,13 +118,13 @@ export function ConnectorUpdates({ request }: { request: ApiRequest }) {
           </div>
           <ol className="setup-instructions update-steps">
             <li>
-              <strong>Download and extract the update</strong>
-              <p>Right-click the downloaded ZIP, choose Extract All, then open the extracted folder.</p>
+              <strong>Choose a signed Windows release</strong>
+              <p>On the releases page, choose Connector-Windows.zip from a signed release. If none is published yet, keep your current installation. After downloading, right-click the ZIP and choose Extract All.</p>
             </li>
             <li>
               <strong>Stop Connector, then open Update Connector</strong>
               <p>
-                Close the small desktop Connector window. In the new folder,
+                Right-click Connector’s icon beside the Windows clock and choose Stop Connector. In the new folder,
                 double-click <strong>Update Connector.vbs</strong> and select your
                 existing Connector folder when prompted.
               </p>

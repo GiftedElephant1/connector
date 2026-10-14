@@ -1,11 +1,12 @@
-# Windows PowerShell 5.1; launched by Start Connector.vbs without a console.
+# Windows PowerShell 5.1; signed launches hide their console after publisher prompts.
 # Only this launcher's child processes are stopped. Secrets never enter arguments or logs.
-param([switch]$Background, [switch]$InitializeOnly)
+param([switch]$Background, [switch]$InitializeOnly, [switch]$HideLaunchConsole)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'windows-common.ps1')
 . (Join-Path $PSScriptRoot 'windows-background.ps1')
+if ($HideLaunchConsole) { [void](Hide-ConnectorLaunchConsole) }
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
@@ -135,9 +136,9 @@ $updateButton.Location = New-Object System.Drawing.Point(24, 238)
 $updateButton.Size = New-Object System.Drawing.Size(145, 38)
 $updateButton.Add_Click({
     [void][System.Windows.Forms.MessageBox]::Show(
-        "Download Connector-Windows from the newest successful Package Windows app run. Extract both ZIP layers.`r`n`r`nThen click Stop Connector here. Open Update Connector in the NEW download and choose this EXISTING Connector folder to keep your connected accounts and settings.`r`n`r`nExisting folder:`r`n" + $script:root,
+        "Choose Connector-Windows.zip from a signed release and extract it. If no signed release has been published, keep your current installation.`r`n`r`nBefore updating, click Stop Connector here. Open Update Connector in the NEW download and choose this EXISTING Connector folder to keep your connected accounts and settings.`r`n`r`nExisting folder:`r`n" + $script:root,
         'Update without reconnecting accounts', 'OK', 'Information')
-    Start-Process 'https://github.com/GiftedElephant1/connector/actions/workflows/windows-release.yml'
+    Start-Process 'https://github.com/GiftedElephant1/connector/releases'
 })
 $form.Controls.Add($updateButton)
 

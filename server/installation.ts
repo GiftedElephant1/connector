@@ -4,7 +4,7 @@ const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.
 
 export const installation = Object.freeze({
   version: manifest.version,
-  downloadUrl: 'https://github.com/GiftedElephant1/connector/archive/refs/heads/main.zip',
+  downloadUrl: 'https://github.com/GiftedElephant1/connector/releases',
   updateGuideUrl: 'https://github.com/GiftedElephant1/connector/blob/main/docs/windows.md#update-without-reconnecting-your-accounts',
   preservesConnections: true,
 });

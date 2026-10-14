@@ -271,7 +271,7 @@ function Test-ConnectorWindowOwner($process, [string]$title) {
         if (@('-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-MTA') -icontains $argument) { continue }
         if ($argument -ieq '-ExecutionPolicy' -or $argument -ieq '-WindowStyle') {
             $index++
-            if ($argument -ieq '-ExecutionPolicy' -and $arguments[$index] -ine 'Bypass') { return $false }
+            if ($argument -ieq '-ExecutionPolicy' -and @('Bypass', 'AllSigned') -inotcontains $arguments[$index]) { return $false }
             if ($argument -ieq '-WindowStyle' -and @('Hidden', 'Normal', 'Minimized', 'Maximized') -inotcontains $arguments[$index]) { return $false }
             continue
         }

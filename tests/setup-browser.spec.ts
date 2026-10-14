@@ -236,10 +236,10 @@ test("updates show the installed version and prepare a local connector request w
   const updates = page.getByRole("region", { name: "Updates and new connectors" });
   await expect(updates).toContainText(`Installed version ${installation.version}`);
   await expect(
-    updates.getByRole("link", { name: "Download latest update ↗" }),
+    updates.getByRole("link", { name: "View Windows releases ↗" }),
   ).toHaveAttribute(
     "href",
-    "https://github.com/GiftedElephant1/connector/archive/refs/heads/main.zip",
+    "https://github.com/GiftedElephant1/connector/releases",
   );
   await expect(updates.getByRole("link", { name: "Open update guide ↗" })).toHaveAttribute(
     "href",
@@ -283,6 +283,6 @@ test("installation details can be retried while connector requests remain availa
   await expect(updates.getByRole("alert")).toHaveText("Installation details are temporarily unavailable.");
   await expect(updates.getByText("Request another connector", { exact: true })).toBeVisible();
   await updates.getByRole("button", { name: "Retry installation details" }).click();
-  await expect(updates.getByRole("link", { name: "Download latest update ↗" })).toBeVisible();
+  await expect(updates.getByRole("link", { name: "View Windows releases ↗" })).toBeVisible();
   await expect(updates.getByRole("alert")).toHaveCount(0);
 });

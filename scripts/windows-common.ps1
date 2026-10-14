@@ -1,4 +1,34 @@
 # Shared by the desktop launcher and updater. Compatible with Windows PowerShell 5.1.
+function Hide-ConnectorLaunchConsole {
+    # Signed launchers start visibly so PowerShell can display its normal
+    # publisher prompt. Call this only after every launcher helper has loaded.
+    # Never hide a console shared with the terminal that started Connector.
+    if (-not ('ConnectorLaunchConsole' -as [type])) { Add-Type -TypeDefinition @'
+using System;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+public static class ConnectorLaunchConsole {
+    [DllImport("kernel32.dll")]
+    static extern IntPtr GetConsoleWindow();
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern uint GetConsoleProcessList([Out] uint[] processes, uint count);
+    [DllImport("user32.dll")]
+    static extern bool ShowWindow(IntPtr window, int command);
+
+    public static bool HideOwnedConsole() {
+        IntPtr window = GetConsoleWindow();
+        if (window == IntPtr.Zero) return false;
+        var processes = new uint[2];
+        if (GetConsoleProcessList(processes, 2) != 1 || processes[0] != (uint)Process.GetCurrentProcess().Id) return false;
+        ShowWindow(window, 0); // SW_HIDE, after any signature approval prompts.
+        return true;
+    }
+}
+'@
+    }
+    return [ConnectorLaunchConsole]::HideOwnedConsole()
+}
+
 function Get-ConnectorRuntimeSpecification([string]$stateRoot, [string]$processor = '') {
     if (-not $processor) {
         $processor = $env:PROCESSOR_ARCHITECTURE

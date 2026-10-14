@@ -1,0 +1,208 @@
+name: Publish signed Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version in package.json, without v (a new release and tag are required)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-signed-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      SIGNING_ENDPOINT: ${{ vars.SIGNING_ENDPOINT }}
+      SIGNING_ACCOUNT: ${{ vars.SIGNING_ACCOUNT }}
+      SIGNING_CERTIFICATE_PROFILE: ${{ vars.SIGNING_CERTIFICATE_PROFILE }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Validate release and signing configuration before signing
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REF -ne 'refs/heads/main') { throw 'Run this workflow from main.' }
+          if ($env:RELEASE_VERSION -cnotmatch '^\d+\.\d+\.\d+$') { throw 'Enter a release version such as 1.2.3, without v.' }
+          $manifest = Get-Content package.json -Raw | ConvertFrom-Json
+          if ($manifest.version -cne $env:RELEASE_VERSION) { throw 'The requested version must match package.json at this commit.' }
+          foreach ($name in @('AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID')) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            $identifier = [Guid]::Empty
+            if (-not [Guid]::TryParse($value, [ref]$identifier) -or $identifier -eq [Guid]::Empty) {
+              throw "Configure the repository Actions variable $name. See docs/windows-signing.md."
+            }
+          }
+          if ($env:SIGNING_ENDPOINT -cnotmatch '^https://[a-z0-9-]+\.codesigning\.azure\.net/?$') {
+            throw 'Set SIGNING_ENDPOINT to the regional HTTPS endpoint shown by Azure Artifact Signing.'
+          }
+          foreach ($name in @('SIGNING_ACCOUNT', 'SIGNING_CERTIFICATE_PROFILE')) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            if ([string]::IsNullOrWhiteSpace($value) -or $value -cnotmatch '^[A-Za-z0-9-]+$') {
+              throw "Configure the repository Actions variable $name. See docs/windows-signing.md."
+            }
+          }
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
+          foreach ($resource in @("git/ref/tags/v$env:RELEASE_VERSION", "releases/tags/v$env:RELEASE_VERSION")) {
+            $exists = $true
+            try { $null = Invoke-RestMethod -Uri "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/$resource" -Headers $headers }
+            catch {
+              if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404) { $exists = $false }
+              else { throw 'Could not verify whether this release/tag already exists. No release will be published.' }
+            }
+            if ($exists) { throw 'This release or tag already exists. Use a new version; existing downloads are never overwritten.' }
+          }
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Check native launcher and updater
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($scriptFile in Get-ChildItem scripts\windows-*.ps1) {
+            $parseErrors = $null
+            $tokens = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($scriptFile.FullName, [ref]$tokens, [ref]$parseErrors)
+            if ($parseErrors.Count) { throw "Invalid PowerShell syntax: $($scriptFile.Name)" }
+          }
+          & .\tests\windows-update.ps1
+          & .\tests\windows-launcher.ps1
+          & .\tests\windows-scan-package.ps1
+          & .\tests\windows-verify-signatures.ps1
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+      - name: Stage distribution with signed-script execution policy
+        shell: pwsh
+        run: |
+          node scripts/package-windows.mjs --stage "$env:RUNNER_TEMP\connector-signing-stage"
+          if ($LASTEXITCODE -ne 0) { throw 'Could not prepare the signing stage.' }
+          New-Item -ItemType Directory -Path reports -Force | Out-Null
+
+      - name: Authenticate to the publisher signing account
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign staged Windows launchers and PowerShell scripts
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.SIGNING_CERTIFICATE_PROFILE }}
+          files-folder: ${{ runner.temp }}\connector-signing-stage
+          files-folder-filter: ps1,vbs
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          description: Connector by Vectre Pay Inc
+          description-url: https://github.com/GiftedElephant1/connector
+          exclude-environment-credential: true
+          exclude-azure-cli-credential: false
+          cache-dependencies: false
+
+      - name: Verify trusted signatures and package the exact signed files
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\scripts\windows-verify-signatures.ps1 -Path "$env:RUNNER_TEMP\connector-signing-stage" -ReportPath reports\staged-signatures.json
+          node scripts/package-windows.mjs artifacts --source "$env:RUNNER_TEMP\connector-signing-stage" --signed
+          if ($LASTEXITCODE -ne 0) { throw 'Signed packaging failed.' }
+          Expand-Archive -LiteralPath artifacts\Connector-Windows.zip -DestinationPath "$env:RUNNER_TEMP\connector-signed-extracted"
+          $packageRoot = "$env:RUNNER_TEMP\connector-signed-extracted\Connector"
+          & .\scripts\windows-verify-signatures.ps1 -Path $packageRoot -ReportPath reports\extracted-signatures.json
+          foreach ($file in Get-ChildItem "$env:RUNNER_TEMP\connector-signing-stage" -Recurse -File) {
+            $relative = $file.FullName.Substring(("$env:RUNNER_TEMP\connector-signing-stage").Length + 1)
+            $extracted = Join-Path $packageRoot $relative
+            if (-not (Test-Path -LiteralPath $extracted -PathType Leaf) -or (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $extracted -Algorithm SHA256).Hash) {
+              throw "Packaging changed or omitted a staged file: $relative"
+            }
+          }
+
+      - name: Verify extracted build and account-preserving update
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $packageRoot = "$env:RUNNER_TEMP\connector-signed-extracted\Connector"
+          npm.cmd ci --prefix "$packageRoot"
+          if ($LASTEXITCODE -ne 0) { throw 'Signed package dependency installation failed.' }
+          npm.cmd run build --prefix "$packageRoot"
+          if ($LASTEXITCODE -ne 0) { throw 'Signed package dashboard build failed.' }
+          node --import tsx tests/update-smoke.mjs "$packageRoot"
+          if ($LASTEXITCODE -ne 0) { throw 'Signed package account-preserving update failed.' }
+
+      - name: Scan the release ZIP with Microsoft Defender
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\scripts\windows-scan-package.ps1 -PackagePath artifacts\Connector-Windows.zip -ReportPath reports\windows-defender-scan.json
+
+      - name: Save verification reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: Windows-signed-release-reports
+          path: reports/*.json
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Save verified release assets
+        uses: actions/upload-artifact@v6
+        with:
+          name: Connector-Windows-signed
+          path: |
+            artifacts/Connector-Windows.zip
+            artifacts/Connector-Windows.zip.sha256
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish a new release without overwriting existing files
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Creating the ref fails if another publisher has already reserved this version.
+          $tagRequest = @{ ref = "refs/tags/v$env:RELEASE_VERSION"; sha = $env:GITHUB_SHA } | ConvertTo-Json -Compress
+          $tagRequest | gh api "repos/$env:GITHUB_REPOSITORY/git/refs" --method POST --input - --silent
+          if ($LASTEXITCODE -ne 0) { throw 'Could not create a new release tag. Existing tags will not be changed.' }
+          @"
+          Connector $env:RELEASE_VERSION for Windows.
+
+          The VBS launchers and PowerShell scripts carry verified, timestamped publisher signatures. The ZIP itself and JavaScript source do not have Authenticode signatures. The included SHA-256 checksum identifies the exact archive scanned with Microsoft Defender; signature and scan reports are attached.
+
+          Extract the ZIP and follow docs/windows.md. Use Update Connector with your original installation folder to preserve connected accounts. Initial setup still downloads the verified Node runtime and npm dependencies.
+
+          A trusted signature and a completed malware scan do not guarantee browser reputation approval. If your browser blocks this file, keep its protections enabled and report the release URL and warning to the maintainer.
+          "@ | Set-Content -LiteralPath "$env:RUNNER_TEMP\connector-release-notes.md" -Encoding utf8
+          gh release create "v$env:RELEASE_VERSION" --verify-tag --draft --title "Connector $env:RELEASE_VERSION" --notes-file "$env:RUNNER_TEMP\connector-release-notes.md" artifacts/Connector-Windows.zip artifacts/Connector-Windows.zip.sha256 reports/staged-signatures.json reports/extracted-signatures.json reports/windows-defender-scan.json
+          if ($LASTEXITCODE -ne 0) { throw 'Release asset upload failed. The reserved tag and any draft were preserved for inspection; no existing release was overwritten.' }
+          gh release edit "v$env:RELEASE_VERSION" --draft=false
+          if ($LASTEXITCODE -ne 0) { throw 'The verified release remains a draft because publication failed.' }
