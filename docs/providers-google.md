@@ -1,24 +1,26 @@
 # Google connections
 
-These four connectors use Google's official OAuth authorization-code flow with PKCE. Connecting verifies the signed-in account and lists a preview of resources. The action panel can upload YouTube videos, reply to comments, read reports, manage Google Ads campaign status and import click conversions. Write actions require confirmation in the app; scheduled video uploads run later through its persistent queue.
+These four connectors use Google's official OAuth authorization-code flow with PKCE. Connecting verifies the signed-in account and lists a preview of resources. The action panel can upload YouTube videos, reply to comments, read reports, manage Google Ads campaigns, import click conversions, manage GA4 key events, and submit or remove Search Console sitemap submissions. Write actions require confirmation in the app; scheduled video uploads run later through its persistent queue.
 
 ## One-time setup
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), choose a project and enable the APIs for the connectors you want: **YouTube Data API v3**, **YouTube Analytics API**, **Google Ads API**, **Google Analytics Admin API**, **Google Analytics Data API**, and **Google Search Console API**.
 2. Configure the OAuth consent screen (Google Auth Platform). For a personal external app in Testing, add your Google account as a test user. Add the scopes below under Data Access. Public/external use can require Google's app verification for sensitive scopes. A Google Workspace administrator can also restrict access.
 3. Create an OAuth client with application type **Web application**. Register each needed callback URL exactly as shown below, replacing `http://localhost:3000` with your `APP_ORIGIN` if different. HTTPS is required for deployed origins; Google permits localhost HTTP for development.
-4. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in the server's private `.env` or hosting secret store. Never paste client secrets into the browser or commit them.
-5. For Google Ads, also set `GOOGLE_ADS_DEVELOPER_TOKEN`, obtained through your Google Ads manager account's API Center. Its access level must allow the accounts you intend to use; a token limited to test accounts will not provide production access.
-6. Restart Connector and use the relevant **Connect** button. Google prompts you to choose an account and consent; allow the requested service scope. Each connector stores its own encrypted OAuth credential.
+4. In Connector, open the platform's setup form and save your Google client ID and secret. You can reopen this form from **Settings**. The app stores these settings encrypted; do not share them in chat or commit them to GitHub.
+5. For Google Ads, also save your developer token in that setup form, obtained through your Google Ads manager account's API Center. Its access level must allow the accounts you intend to use; a token limited to test accounts will not provide production access.
+6. Use the relevant **Connect account** button. Google prompts you to choose an account and consent; allow the requested service scopes. Each connector stores its own encrypted OAuth credential. No restart is required after saving setup in the dashboard.
 
 | Connector | Exact local callback | Service scope |
 | --- | --- | --- |
 | YouTube | `http://localhost:3000/api/oauth/youtube/callback` | `https://www.googleapis.com/auth/youtube.readonly`, `https://www.googleapis.com/auth/youtube.upload`, `https://www.googleapis.com/auth/youtube.force-ssl`, `https://www.googleapis.com/auth/yt-analytics.readonly` |
 | Google Ads | `http://localhost:3000/api/oauth/google-ads/callback` | `https://www.googleapis.com/auth/adwords` |
-| Google Analytics | `http://localhost:3000/api/oauth/google-analytics/callback` | `https://www.googleapis.com/auth/analytics.readonly` |
-| Search Console | `http://localhost:3000/api/oauth/search-console/callback` | `https://www.googleapis.com/auth/webmasters.readonly` |
+| Google Analytics | `http://localhost:3000/api/oauth/google-analytics/callback` | `https://www.googleapis.com/auth/analytics.readonly`, `https://www.googleapis.com/auth/analytics.edit` |
+| Search Console | `http://localhost:3000/api/oauth/search-console/callback` | `https://www.googleapis.com/auth/webmasters` |
 
 Each connector also requests `openid email` to label the connection and identify the Google account. Google Ads uses its broad `adwords` OAuth scope for reads and writes. The YouTube `youtube.force-ssl` scope supports comment replies and carries wider permissions than only reading comments. Use an account role with the minimum access you need. **Reconnect existing YouTube connections** to grant the new upload, comment and analytics permissions; saved credentials from the connection-only version do not acquire scopes automatically.
+
+**Upgrade existing Analytics and Search Console permissions:** add the new scopes above in your Google Cloud consent configuration. Then open **Connections → Google Analytics → View connection → Update permissions**, choose the same Google account, and approve the requested access. Repeat for **Google Search Console**. Old read-only tokens do not acquire write permission just by updating Connector. This flow keeps your developer settings and other connections; do not use the shared Google reset just to add permissions. If you decline consent, the previous connection remains saved.
 
 ## What verification checks
 
@@ -71,6 +73,12 @@ Reports accept real `YYYY-MM-DD` start and end dates, including both endpoints, 
 - **GA4 daily traffic:** `POST https://analyticsdata.googleapis.com/v1beta/properties/{id}:runReport`, daily `activeUsers`, `sessions` and `screenPageViews` in the property's reporting time zone. Requires the numeric GA4 property ID, property access, and the Google Analytics Data API enabled in the project. Empty or delayed data is returned as empty data, not fabricated activity.
 - **Search Console performance:** `POST https://searchconsole.googleapis.com/webmasters/v3/sites/{encoded-property}/searchAnalytics/query`, final web-search data grouped by date, with clicks, impressions, CTR and average position. Dates use Pacific time; the property must match the exact domain or URL-prefix ID. The property is encoded as an API path parameter and is never fetched as an external URL.
 
+## Analytics and Search Console writes
+
+- **List GA4 key events** returns up to 100 configured events with the IDs needed for editing. **Create a GA4 key event** marks an event name for future key-event measurement; **Change a GA4 key event counting method** chooses once per event or once per session. These use the Analytics Admin API and require its `analytics.edit` scope plus Editor or Administrator access to the property. They do not emit measurement events or rewrite past reports.
+- **Submit a sitemap** sends a sitemap URL to a Search Console property you can manage. **Remove a sitemap submission** removes its entry from the Sitemaps report. It does not delete your sitemap file, stop Google's crawling, or remove indexed pages. Submission acceptance does not guarantee indexing. Both operations need the `webmasters` scope and a suitable property role.
+- Your AI agent can discover these actions with `list_actions` and perform an approved write with `run_action`. The same confirmation and request-ID safeguards used for other writes apply. No additional AI developer API key is needed for an existing MCP connection.
+
 ## Network access and validation
 
 Allow outbound HTTPS to `accounts.google.com`, `oauth2.googleapis.com`, `openidconnect.googleapis.com`, `youtube.googleapis.com`, `www.googleapis.com`, `youtubeanalytics.googleapis.com`, `googleads.googleapis.com`, `analyticsadmin.googleapis.com`, `analyticsdata.googleapis.com`, and `searchconsole.googleapis.com`. Google consent may load other Google login assets in the browser.
@@ -86,5 +94,6 @@ Automated tests mock Google responses and cover PKCE, code exchange, refresh, pe
 - [Analytics accountSummaries.list](https://developers.google.com/analytics/devguides/config/admin/v1/rest/v1beta/accountSummaries/list); [official discovery definition](https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/analyticsadmin.v1beta.json)
 - [GA4 runReport](https://developers.google.com/analytics/devguides/reporting/data/v1/rest/v1beta/properties/runReport); [Google Ads atomic mutations](https://github.com/googleapis/googleapis/blob/master/google/ads/googleads/v25/services/google_ads_service.proto); [click conversion schema](https://github.com/googleapis/googleapis/blob/master/google/ads/googleads/v25/services/conversion_upload_service.proto); [consent field applicability](https://github.com/googleapis/googleapis/blob/master/google/ads/googleads/v25/common/consent.proto)
 - [Search Console sites.list](https://developers.google.com/webmaster-tools/v1/sites/list); [official discovery definition](https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/searchconsole.v1.json)
+- [GA4 key events](https://developers.google.com/analytics/devguides/config/admin/v1/rest/v1beta/properties.keyEvents); [Search Console sitemap submission](https://developers.google.com/webmaster-tools/v1/sitemaps/submit) and [removal](https://developers.google.com/webmaster-tools/v1/sitemaps/delete)
 
 API routes and Google Ads v25 support were checked against Google's published discovery documents and SDK/protobuf sources on 2026-10-13. Ads API versions have a support lifecycle; upgrade the adapter when Google sunsets v25.

@@ -37,7 +37,7 @@ function mockResource(body: unknown, inspect?: (url: string, init?: RequestInit)
 test('Google uses per-service scopes, state, PKCE S256, and offline access', () => {
   const scopes: Record<string, string> = {
     youtube: 'youtube.readonly https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.force-ssl https://www.googleapis.com/auth/yt-analytics.readonly', 'google-ads': 'adwords',
-    'google-analytics': 'analytics.readonly', 'search-console': 'webmasters.readonly',
+    'google-analytics': 'analytics.readonly https://www.googleapis.com/auth/analytics.edit', 'search-console': 'webmasters',
   };
   for (const provider of googleAdapters) {
     const redirectUri = `http://localhost:3000/api/oauth/${provider.definition.id}/callback`;

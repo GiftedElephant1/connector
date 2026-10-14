@@ -5,7 +5,19 @@ import { isObject } from './provider-http';
 import { ProviderError, type Credential } from './provider-types';
 
 const ADS = 'https://googleads.googleapis.com/v25';
+const ANALYTICS_ADMIN = 'https://analyticsadmin.googleapis.com/v1beta';
 const MAX_VIDEO_BYTES = 20 * 1024 * 1024;
+const propertyFields: ActionField[] = [
+  { name: 'propertyId', label: 'GA4 property ID', type: 'text', required: true, help: 'Numeric property ID, or properties/123, from your connected account.' },
+];
+const countingMethodField: ActionField = {
+  name: 'countingMethod', label: 'Count key events', type: 'select', required: true,
+  options: [{ value: 'ONCE_PER_EVENT', label: 'Once per event' }, { value: 'ONCE_PER_SESSION', label: 'Once per session' }],
+};
+const sitemapFields: ActionField[] = [
+  { name: 'siteUrl', label: 'Search Console property', type: 'text', required: true, placeholder: 'sc-domain:example.com or https://example.com/' },
+  { name: 'sitemapUrl', label: 'Sitemap URL', type: 'text', required: true, placeholder: 'https://example.com/sitemap.xml', help: 'The full HTTP or HTTPS address of a sitemap for this property. Google checks your permission to manage it.' },
+];
 const accountFields: ActionField[] = [
   { name: 'customerId', label: 'Google Ads customer ID', type: 'text', required: true, help: 'The advertising account, with or without hyphens.' },
   { name: 'loginCustomerId', label: 'Manager customer ID (optional)', type: 'text', help: 'Set when accessing this account through a Google Ads manager.' },
@@ -66,6 +78,55 @@ async function googleJson(name: string, url: string, credential: Credential, bod
     headers: { ...bearer(credential), ...extraHeaders, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   }), name);
+}
+
+function property(values: ActionValues): string {
+  const value = required(values, 'propertyId', 'Property ID').replace(/^properties\//, '');
+  if (!/^\d{1,20}$/.test(value)) throw new ProviderError('Use a numeric GA4 property ID or properties/123.');
+  return `properties/${value}`;
+}
+
+function keyEventResult(body: Record<string, unknown>, parent: string): { keyEvent: string; eventName: string; countingMethod: string } {
+  const name = typeof body.name === 'string' ? body.name : '';
+  const eventName = typeof body.eventName === 'string' ? body.eventName : '';
+  const countingMethod = typeof body.countingMethod === 'string' ? body.countingMethod : '';
+  if (!name.startsWith(`${parent}/keyEvents/`) || !/^properties\/\d+\/keyEvents\/\d+$/.test(name)
+    || !/^[A-Za-z][A-Za-z0-9_]{0,39}$/.test(eventName) || !['ONCE_PER_EVENT', 'ONCE_PER_SESSION'].includes(countingMethod)) {
+    throw new ProviderError('Google Analytics did not return a valid key event. Check the property before retrying a write.', 502);
+  }
+  return { keyEvent: name, eventName, countingMethod };
+}
+
+function httpResource(value: string, label: string): string {
+  let url: URL;
+  try { url = new URL(value); } catch { throw new ProviderError(`Use a valid HTTP or HTTPS ${label}.`); }
+  if (value.length > 2000 || /\s/.test(value) || !['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash) {
+    throw new ProviderError(`Use an HTTP or HTTPS ${label} without credentials, spaces or a fragment.`);
+  }
+  // Preserve the exact property/feed identifier. Only Google's fixed API origin is fetched.
+  return value;
+}
+
+function searchProperty(values: ActionValues): string {
+  const value = required(values, 'siteUrl', 'Search Console property');
+  if (value.startsWith('sc-domain:')) {
+    const domain = value.slice('sc-domain:'.length);
+    if (domain.length > 253 || !domain.split('.').every((label) => /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(label))) {
+      throw new ProviderError('Use the exact sc-domain:example.com property ID shown in Search Console.');
+    }
+    return value;
+  }
+  return httpResource(value, 'Search Console property URL');
+}
+
+async function sitemapMutation(credential: Credential, values: ActionValues, method: 'PUT' | 'DELETE') {
+  const siteUrl = searchProperty(values);
+  const sitemapUrl = httpResource(required(values, 'sitemapUrl', 'Sitemap URL'), 'sitemap URL');
+  const body = checked(await apiJson('Google Search Console', `https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/sitemaps/${encodeURIComponent(sitemapUrl)}`, {
+    method, headers: bearer(credential),
+  }), 'Google Search Console');
+  if (Object.keys(body).length > 0) throw new ProviderError('Google Search Console returned an unexpected sitemap response. Check the property before retrying.', 502);
+  return { siteUrl, sitemapUrl };
 }
 
 function adsConfig(credential: Credential, values: ActionValues, env: NodeJS.ProcessEnv) {
@@ -315,6 +376,60 @@ export const googleActions: ActionAdapter[] = [
     },
   },
   {
+    provider: 'google-analytics',
+    definition: { id: 'list-key-events', label: 'List GA4 key events', group: 'analytics', kind: 'read', description: 'Read up to 100 key events and their resource IDs for a GA4 property using the Analytics Admin API.', fields: propertyFields },
+    execute: async (credential, values) => {
+      const parent = property(values);
+      const body = await googleJson('Google Analytics', `${ANALYTICS_ADMIN}/${parent}/keyEvents?pageSize=100`, credential);
+      if (body.keyEvents !== undefined && (!Array.isArray(body.keyEvents) || body.keyEvents.some((item) => !isObject(item)))) {
+        throw new ProviderError('Google Analytics returned an unexpected key event list.', 502);
+      }
+      const items = records(body.keyEvents).map((item) => keyEventResult(item, parent));
+      return { summary: `Returned ${items.length} GA4 key events.${body.nextPageToken ? ' More key events are available in Google Analytics.' : ''}`, items };
+    },
+  },
+  {
+    provider: 'google-analytics',
+    definition: {
+      id: 'create-key-event', label: 'Create a GA4 key event', group: 'analytics', kind: 'write',
+      description: 'Mark an event name as a key event for future GA4 measurement. Requires Analytics Admin API, edit permission and Editor or Administrator access to the property. This does not send events or change past reports.',
+      fields: [...propertyFields, { name: 'eventName', label: 'Event name', type: 'text', required: true, placeholder: 'generate_lead', help: 'The exact event name sent by your website or app; letters, digits and underscores, starting with a letter, up to 40 characters.' }, countingMethodField],
+    },
+    execute: async (credential, values) => {
+      const parent = property(values);
+      const eventName = required(values, 'eventName', 'Event name');
+      if (!/^[A-Za-z][A-Za-z0-9_]{0,39}$/.test(eventName)) throw new ProviderError('Event names must start with a letter and contain at most 40 letters, digits or underscores.');
+      const countingMethod = choice(values, 'countingMethod', ['ONCE_PER_EVENT', 'ONCE_PER_SESSION']);
+      const body = await googleJson('Google Analytics', `${ANALYTICS_ADMIN}/${parent}/keyEvents`, credential, { eventName, countingMethod });
+      const result = keyEventResult(body, parent);
+      if (result.eventName !== eventName || result.countingMethod !== countingMethod) throw new ProviderError('Google Analytics did not confirm the requested key event settings. Check the property before retrying.', 502);
+      return { summary: `Created GA4 key event ${eventName}. Future matching events use the selected counting method; historical reports are unchanged.`, items: [result] };
+    },
+  },
+  {
+    provider: 'google-analytics',
+    definition: {
+      id: 'update-key-event', label: 'Change a GA4 key event counting method', group: 'analytics', kind: 'write',
+      description: 'Update only the counting method for an existing GA4 key event. Requires Analytics Admin API, edit permission and Editor or Administrator access to the property.',
+      fields: [...propertyFields, { name: 'keyEventId', label: 'Key event ID', type: 'text', required: true, help: 'The numeric ID at the end of a resource returned by List GA4 key events, or its full matching properties/123/keyEvents/456 resource.' }, countingMethodField],
+    },
+    execute: async (credential, values) => {
+      const parent = property(values);
+      const keyEventId = required(values, 'keyEventId', 'Key event ID');
+      const name = /^\d{1,20}$/.test(keyEventId) ? `${parent}/keyEvents/${keyEventId}` : keyEventId;
+      if (!/^properties\/\d{1,20}\/keyEvents\/\d{1,20}$/.test(name) || !name.startsWith(`${parent}/keyEvents/`)) {
+        throw new ProviderError('Use a numeric key event ID or the full key event resource for the selected property.');
+      }
+      const countingMethod = choice(values, 'countingMethod', ['ONCE_PER_EVENT', 'ONCE_PER_SESSION']);
+      const body = checked(await apiJson('Google Analytics', `${ANALYTICS_ADMIN}/${name}?updateMask=counting_method`, {
+        method: 'PATCH', headers: { ...bearer(credential), 'content-type': 'application/json' }, body: JSON.stringify({ countingMethod }),
+      }), 'Google Analytics');
+      const result = keyEventResult(body, parent);
+      if (result.keyEvent !== name || result.countingMethod !== countingMethod) throw new ProviderError('Google Analytics did not confirm the requested key event change. Check the property before retrying.', 502);
+      return { summary: 'Updated the GA4 key event counting method.', items: [result] };
+    },
+  },
+  {
     provider: 'search-console',
     definition: { id: 'search-performance', label: 'Read search performance', group: 'analytics', kind: 'read', description: 'Read daily Google web search clicks, impressions, click-through rate and average position for a Search Console property.', fields: [{ name: 'siteUrl', label: 'Search Console property', type: 'text', required: true, placeholder: 'sc-domain:example.com or https://example.com/' }, ...dateFields] },
     execute: async (credential, values) => {
@@ -324,5 +439,15 @@ export const googleActions: ActionAdapter[] = [
       const items = records(body.rows).map((row) => ({ date: Array.isArray(row.keys) ? string(row.keys[0]) : '', clicks: string(row.clicks), impressions: string(row.impressions), ctr: string(row.ctr), averagePosition: string(row.position) }));
       return { summary: `Returned ${items.length} daily Search Console rows. Dates use Search Console’s Pacific time zone.`, items };
     },
+  },
+  {
+    provider: 'search-console',
+    definition: { id: 'submit-sitemap', label: 'Submit a sitemap', group: 'analytics', kind: 'write', description: 'Submit or resubmit a sitemap to a Search Console property you can manage. Requires full Search Console permission. Acceptance does not guarantee crawling or indexing.', fields: sitemapFields },
+    execute: async (credential, values) => ({ summary: 'Google Search Console accepted the sitemap submission. Crawling and indexing are not guaranteed.', items: [await sitemapMutation(credential, values, 'PUT')] }),
+  },
+  {
+    provider: 'search-console',
+    definition: { id: 'delete-sitemap', label: 'Remove a sitemap submission', group: 'analytics', kind: 'write', description: 'Remove a sitemap from the property’s Search Console Sitemaps report. This does not delete the file, stop crawling, or remove pages from Google Search.', fields: sitemapFields },
+    execute: async (credential, values) => ({ summary: 'Removed the sitemap from the Search Console Sitemaps report. Its file, crawled URLs and search listings remain unchanged.', items: [await sitemapMutation(credential, values, 'DELETE')] }),
   },
 ];

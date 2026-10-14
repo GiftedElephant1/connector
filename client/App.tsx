@@ -1627,6 +1627,13 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                           <p className="provider-description">
                             {provider.description}
                           </p>
+                          {!!provider.actions?.length && (
+                            <p className="provider-capabilities" title="Supported actions. Your platform account must grant the required permissions.">
+                              {provider.actions.some(action => action.kind === "write")
+                                ? provider.actions.some(action => action.kind === "read") ? "Read + write actions" : "Write actions"
+                                : "Read-only integration"}
+                            </p>
+                          )}
                           <div className="provider-state-row">
                             <span
                               className={`connection-status status-${status}`}
@@ -1889,6 +1896,14 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
             </>
           }
         >
+          {dialogProvider.authType === "oauth" && (
+            <div className="connection-permissions">
+              <p>Writing needs the platform’s approval and an account role that allows the action. If you connected before new actions were added, approve the updated permissions using the same platform account. Your saved developer settings stay in place.</p>
+              <button className="button button-secondary" disabled={!!busy} onClick={() => { setDialog(null); void connect(dialogProvider); }}>
+                Update permissions
+              </button>
+            </div>
+          )}
           <div className="dialog-provider">
             <ProviderMark provider={dialogProvider} />
             <div>

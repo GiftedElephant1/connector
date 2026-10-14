@@ -32,7 +32,7 @@ export async function removePlaidItem(credential: Credential, env: NodeJS.Proces
 export const plaidAdapters: ProviderAdapter[] = [{
   definition: {
     id: 'plaid', name: 'Plaid', category: 'finance', authType: 'link',
-    description: 'Connect a bank with Plaid Link to read accounts, balances, and transactions. Starts in Sandbox with test data; real banks require Production access.',
+    description: 'Read-only bank data: accounts, balances, and transactions through Plaid Link. Bank balances and transaction records cannot be edited. Starts in Sandbox; real banks require Production access.',
     docsUrl: 'https://plaid.com/docs/link/web/',
   },
   requiredEnv: ['PLAID_CLIENT_ID', 'PLAID_SECRET'], verify: verifyPlaid,

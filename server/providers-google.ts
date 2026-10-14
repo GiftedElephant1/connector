@@ -70,10 +70,10 @@ const configs: GoogleConfig[] = [
   {
     definition: {
       id: 'google-analytics', name: 'Google Analytics', category: 'analytics', authType: 'oauth',
-      description: 'Verify Google Analytics accounts and preview GA4 properties with read-only access.',
+      description: 'Read GA4 traffic and manage key event settings for properties you are allowed to edit.',
       docsUrl: 'https://developers.google.com/analytics/devguides/config/admin/v1/rest/v1beta/accountSummaries/list',
     },
-    scope: 'https://www.googleapis.com/auth/analytics.readonly',
+    scope: 'https://www.googleapis.com/auth/analytics.readonly https://www.googleapis.com/auth/analytics.edit',
     endpoint: 'https://analyticsadmin.googleapis.com/v1beta/accountSummaries?pageSize=100',
     emptyMessage: 'no Google Analytics accounts returned',
     resources: (body) => {
@@ -94,10 +94,10 @@ const configs: GoogleConfig[] = [
   {
     definition: {
       id: 'search-console', name: 'Google Search Console', category: 'analytics', authType: 'oauth',
-      description: 'Verify your accessible Search Console properties with read-only access.',
+      description: 'Read search performance and submit or remove sitemap submissions for properties you can manage.',
       docsUrl: 'https://developers.google.com/webmaster-tools/v1/sites/list',
     },
-    scope: 'https://www.googleapis.com/auth/webmasters.readonly',
+    scope: 'https://www.googleapis.com/auth/webmasters',
     endpoint: 'https://searchconsole.googleapis.com/webmasters/v3/sites',
     emptyMessage: 'no verified Search Console properties returned',
     resources: (body) => collection(body, 'siteEntry').filter(isObject).flatMap((site) => {

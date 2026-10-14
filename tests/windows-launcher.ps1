@@ -191,17 +191,28 @@ setInterval(() => {}, 1000);
             $script:backgroundStart = $true
             $null = $form.Handle
             Set-ConnectorReady
-            $onClosing = [System.Windows.Forms.Form].GetMethod('OnFormClosing', [Reflection.BindingFlags]'Instance,NonPublic')
+            # Reflection does not unwrap PowerShell 5.1 PSObject values inside
+            # object[] arguments. Use a typed adapter to raise the real event.
+            Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition @'
+using System.Reflection;
+using System.Windows.Forms;
+public static class ConnectorLauncherTestEvents {
+    public static FormClosingEventArgs RaiseClosing(Form form, CloseReason reason) {
+        var args = new FormClosingEventArgs(reason, false);
+        typeof(Form).GetMethod("OnFormClosing", BindingFlags.Instance | BindingFlags.NonPublic)
+            .Invoke(form, new object[] { args });
+        return args;
+    }
+}
+'@
             foreach ($reason in @('WindowsShutDown', 'TaskManagerClosing', 'ApplicationExitCall')) {
                 $script:cancelled = $false
-                $eventArgs = New-Object System.Windows.Forms.FormClosingEventArgs([System.Windows.Forms.CloseReason]::$reason, $false)
-                [void]$onClosing.Invoke($form, @($eventArgs))
+                $eventArgs = [ConnectorLauncherTestEvents]::RaiseClosing($form, [System.Windows.Forms.CloseReason]::$reason)
                 Assert-True (-not $eventArgs.Cancel -and $script:cancelled) ('The close-to-tray handler intercepted Windows termination: ' + $reason)
             }
             $script:phase = 'Starting'
             $script:cancelled = $false
-            $eventArgs = New-Object System.Windows.Forms.FormClosingEventArgs([System.Windows.Forms.CloseReason]::UserClosing, $false)
-            [void]$onClosing.Invoke($form, @($eventArgs))
+            $eventArgs = [ConnectorLauncherTestEvents]::RaiseClosing($form, [System.Windows.Forms.CloseReason]::UserClosing)
             Assert-True (-not $eventArgs.Cancel -and $script:cancelled) 'Closing during setup hid an unfinished launcher instead of cancelling it.'
         }
         'startup' {
@@ -211,12 +222,25 @@ setInterval(() => {}, 1000);
             Set-Content -LiteralPath (Join-Path $installation 'Start Connector.vbs') -Value "' isolated test launcher"
             Assert-True (-not (Get-ConnectorStartWithWindows $installation $startupDirectory)) 'Startup was enabled before the user selected it.'
             Set-ConnectorStartWithWindows $installation $true $startupDirectory
-            Assert-True (Get-ConnectorStartWithWindows $installation $startupDirectory) 'Startup registration did not round-trip through Windows shortcut storage.'
             $shortcutPath = Get-ConnectorStartupPath $startupDirectory
             $shell = New-Object -ComObject WScript.Shell
             try {
                 $shortcut = $shell.CreateShortcut($shortcutPath)
                 try {
+                    $expectedTarget = Join-Path $env:SystemRoot 'System32\wscript.exe'
+                    $expectedArguments = '"' + (Join-Path $installation 'Start Connector.vbs') + '" /background'
+                    $roundTrip = Get-ConnectorStartWithWindows $installation $startupDirectory
+                    $diagnostic = @{
+                        result = $roundTrip; resultType = $roundTrip.GetType().FullName;
+                        expectedTarget = $expectedTarget; actualTarget = $shortcut.TargetPath;
+                        targetType = $shortcut.TargetPath.GetType().FullName;
+                        expectedArguments = $expectedArguments; actualArguments = $shortcut.Arguments;
+                        argumentType = $shortcut.Arguments.GetType().FullName;
+                        expectedArgumentBytes = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($expectedArguments));
+                        actualArgumentBytes = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($shortcut.Arguments));
+                        expectedWorkingDirectory = $installation; actualWorkingDirectory = $shortcut.WorkingDirectory;
+                    } | ConvertTo-Json -Compress
+                    Assert-True $roundTrip ('Startup registration did not round-trip through Windows shortcut storage. ' + $diagnostic)
                     Assert-True ($shortcut.TargetPath -ieq (Join-Path $env:SystemRoot 'System32\wscript.exe')) 'Startup invokes an unexpected executable.'
                     Assert-Equal $shortcut.Arguments ('"' + (Join-Path $installation 'Start Connector.vbs') + '" /background') 'Startup lost quoting or the no-browser background argument.'
                     Assert-Equal $shortcut.WorkingDirectory $installation 'Startup changed the selected installation folder.'
