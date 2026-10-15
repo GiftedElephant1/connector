@@ -53,9 +53,14 @@ async function build() {
     await writeFile(join(staging, 'legal/style.css'), publicPageStyles);
     await mkdir(join(staging, 'assets'), { recursive: true });
     await copyFile(join(repository, 'client/public/assets/connector-icon.png'), join(staging, 'assets/connector-icon.png'));
-    // Publish only this owner-supplied public TikTok ownership-verification file.
-    const verificationFile = 'tiktokXduTpCHW4SKFGSCTM6kVlGMJwl7SwrjQ.txt';
-    await copyFile(join(repository, 'docs/verification', verificationFile), join(staging, verificationFile));
+    // Publish only these owner-supplied public TikTok ownership-verification files.
+    const verificationFiles = [
+      'tiktokXduTpCHW4SKFGSCTM6kVlGMJwl7SwrjQ.txt',
+      'tiktokJHIP9WLTJDuZ05sPisnZFOlegxUrQvC2.txt',
+    ];
+    for (const verificationFile of verificationFiles) {
+      await copyFile(join(repository, 'docs/verification', verificationFile), join(staging, verificationFile));
+    }
     await writeFile(join(staging, '.nojekyll'), '');
     if (customDomain) await writeFile(join(staging, 'CNAME'), `${customDomain}\n`);
     const home = escapeHtml(`${site.basePath}/`);
