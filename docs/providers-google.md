@@ -4,6 +4,8 @@ These four connectors use Google's official OAuth authorization-code flow with P
 
 ## One-time setup
 
+If Google rejects the app's homepage or policy domain, use the [Google verification guide](google-verification.md) and [public website publishing instructions](public-website.md). A public, owned-domain website explains Connector and hosts the policies independently of the private workspace. Keep the workspace's actual callback URLs below; the static information site does not handle OAuth sign-ins. Branding approval, External/Internal audience restrictions, and permission-scope verification are separate checks.
+
 1. In [Google Cloud Console](https://console.cloud.google.com/), choose a project and enable the APIs for the connectors you want: **YouTube Data API v3**, **YouTube Analytics API**, **Google Ads API**, **Google Analytics Admin API**, **Google Analytics Data API**, and **Google Search Console API**.
 2. Configure the OAuth consent screen (Google Auth Platform). For a personal external app in Testing, add your Google account as a test user. Add the scopes below under Data Access. Public/external use can require Google's app verification for sensitive scopes. A Google Workspace administrator can also restrict access.
 3. Create an OAuth client with application type **Web application**. Register each needed callback URL exactly as shown below, replacing `http://localhost:3000` with your `APP_ORIGIN` if different. HTTPS is required for deployed origins; Google permits localhost HTTP for development.

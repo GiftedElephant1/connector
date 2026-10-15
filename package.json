@@ -1,6 +1,6 @@
 {
   "name": "connector",
-  "version": "0.9.7",
+  "version": "0.9.8",
   "private": true,
   "type": "module",
   "description": "A guided account connector for AI assistants, social platforms, advertising, WhatsApp, and bank data.",
@@ -11,6 +11,7 @@
     "setup": "node scripts/setup.mjs",
     "dev": "tsx watch server/index.ts",
     "build": "tsc --noEmit && vite build",
+    "build:public-site": "node --import tsx scripts/build-public-site.mjs",
     "start": "tsx server/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts server/*.test.ts",

@@ -4,6 +4,7 @@ import { test, type TestContext } from 'node:test';
 import { createApp } from '../server/app.ts';
 import type { AppConfig } from '../server/config.ts';
 import { LegalPages } from '../server/legal.ts';
+import { publicPageStyles, renderPublicPage } from '../server/public-pages.ts';
 import { Store } from '../server/store.ts';
 
 const template: AppConfig = {
@@ -178,4 +179,49 @@ test('privacy notice explains retention, plaintext metadata and independent serv
     'results already sent to the AI provider', 'local vault folder', 'Bank tools do not transfer funds', 'necessary sign-in session cookie',
     'delete its database and relevant backups', 'ngrok', 'bounded registration limit',
   ]) assert.ok(html.includes(text), text);
+});
+
+test('public site homepage explains real Google features and links directly to policies without requiring sign-in', () => {
+  const profile = { operatorName: 'Public Operator', contactEmail: 'contact@example.com', configured: true, updatedAt: '2026-10-15T00:00:00.000Z' };
+  const home = renderPublicPage('home', profile, { basePath: '/connector', canonicalOrigin: 'https://public.example' });
+  assert.match(home, /href="https:\/\/public\.example\/connector\/"/);
+  assert.match(home, /href="\/connector\/privacy"/);
+  assert.match(home, /href="\/connector\/terms"/);
+  assert.match(home, /href="\/connector\/privacy#google-data"/);
+  assert.match(home, /href="\/connector\/legal\/style\.css"/);
+  assert.match(home, /src="\/connector\/assets\/connector-icon\.png"/);
+  assert.match(home, /mailto:contact%40example\.com/);
+  assert.match(home, /selected YouTube channel/);
+  assert.match(home, /each account/);
+  assert.match(home, /not a public service where visitors can create accounts/);
+  assert.doesNotMatch(home, />Owner sign-in<|<script|<style|style=|onclick=/i);
+  assert.ok(publicPageStyles.includes('.feature-grid'));
+  const privacy = renderPublicPage('privacy', profile, { basePath: '/connector', canonicalOrigin: 'https://public.example' });
+  assert.match(privacy, /href="https:\/\/public\.example\/connector\/privacy"/);
+  assert.match(privacy, /id="google-data"/);
+  const app = renderPublicPage('about', profile, { homePath: '/about', ownerUrl: '/' });
+  assert.match(app, /href="\/about" aria-current="page"/);
+  assert.match(app, /href="\/">Owner sign-in/);
+});
+
+test('public Google disclosure describes limited use, AI transfers and revocation without claiming provider guarantees', t => {
+  const { legal } = service(t);
+  const html = legal.page('privacy').html;
+  for (const text of [
+    'Google API Limited Use commitments', 'Google API Services User Data Policy', 'Google Workspace API User Data and Developer Policy',
+    'email or document text', 'train or improve generalized AI models', 'cannot independently inspect or enforce',
+    'not a claim that Google has verified or approved', 'Google Account third-party connections', 'without a saved read-history record',
+    'account settings and write receipts remain',
+  ]) assert.ok(html.includes(text), text);
+  assert.match(html, /href="https:\/\/myaccount\.google\.com\/connections"/);
+});
+
+test('public renderer rejects unsafe link configuration and escapes all supplied public profile data', () => {
+  const profile = { operatorName: '<script>operator</script>', contactEmail: 'contact@example.com', configured: true, updatedAt: null };
+  const html = renderPublicPage('home', profile);
+  assert.match(html, /&lt;script&gt;operator&lt;\/script&gt;/);
+  assert.doesNotMatch(html, /<script/i);
+  for (const basePath of ['//external.example', '/test?redirect=1', '/bad"name', '/bad\\path', '/../path']) assert.throws(() => renderPublicPage('home', profile, { basePath }));
+  for (const ownerUrl of ['javascript:alert(1)', 'data:text/html,test', '//external.example', 'https://user:password@example.com']) assert.throws(() => renderPublicPage('home', profile, { ownerUrl }));
+  for (const canonicalOrigin of ['http://example.com', 'https://example.com/path', 'https://example.com?query=1', 'https://user:password@example.com']) assert.throws(() => renderPublicPage('home', profile, { canonicalOrigin }));
 });

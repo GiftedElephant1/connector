@@ -7,6 +7,7 @@ import {
   type FormEvent,
 } from "react";
 import { CopyValue, type ApiRequest } from "./Setup";
+import { GoogleSetup } from "./GoogleSetup";
 import "./workspace.css";
 
 type WorkspaceApp = {
@@ -405,22 +406,16 @@ export function GoogleWorkspace({
                   </li>
                   <li>
                     <strong>Set up Google Auth Platform</strong>
-                    <p>
-                      Open Google Auth Platform → Branding and enter an app name
-                      and support email. Under Audience, choose the appropriate
-                      audience. While the app is in Testing, add every Google
-                      account you want to connect as a test user. Under Data
-                      Access, add the permissions for your selected apps. Google
-                      may require verification for broader use; testing grants
-                      can expire after seven days.
-                    </p>
+                    <GoogleSetup callbackUrl={data.google.callbackUrl} />
                   </li>
                   <li>
-                    <strong>Create a web application client</strong>
+                    <strong>Use your web application client</strong>
                     <p>
-                      Open Google Auth Platform → Clients → Create client.
-                      Choose Web application. Under Authorized redirect URIs,
-                      add this exact address and save. If you change Connector’s
+                      Open Google Auth Platform → Clients and select the web
+                      application client already saved in Connector. If you do
+                      not have one, choose Create client → Web application.
+                      Under Authorized redirect URIs, add this exact address
+                      alongside existing entries and save. If you change Connector’s
                       public address, update this address in Google too.
                     </p>
                     <CopyValue
@@ -429,12 +424,13 @@ export function GoogleWorkspace({
                     />
                   </li>
                   <li>
-                    <strong>Paste your client ID and client secret</strong>
+                    <strong>Keep or add your client ID and client secret</strong>
                     <p>
-                      Open the client you just created, copy each value, then
-                      paste it below. If Google only offers the secret when you
-                      create the client, save it at that point. Saved
-                      credentials stay encrypted.
+                      Leave saved credentials unchanged when correcting
+                      branding. For first-time setup, open your web application
+                      client, copy its client ID and secret, and paste them below.
+                      If Google only offers the secret when you create the client,
+                      save it at that point. Saved credentials stay encrypted.
                     </p>
                   </li>
                 </ol>
