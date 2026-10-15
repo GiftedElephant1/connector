@@ -56,7 +56,7 @@ async function assertPublicLinks(output: string, basePath: string) {
 test('public website contains crawlable branding and policy pages without private application files', async t => {
   const f = await fixture(t);
   f.build({ PUBLIC_SITE_CUSTOM_DOMAIN: publicProfile.customDomain });
-  assert.deepEqual(await generatedFiles(f.output), ['.nojekyll', '404.html', 'CNAME', 'about/index.html', 'assets/connector-icon.png', 'index.html', 'legal/style.css', 'privacy/index.html', 'terms/index.html'].sort());
+  assert.deepEqual(await generatedFiles(f.output), ['.nojekyll', '404.html', 'CNAME', 'about/index.html', 'assets/connector-icon.png', 'index.html', 'legal/style.css', 'privacy/index.html', 'terms/index.html', 'tiktokXduTpCHW4SKFGSCTM6kVlGMJwl7SwrjQ.txt'].sort());
   await assertPublicLinks(f.output, '');
   const home = await readFile(join(f.output, 'index.html'), 'utf8');
   assert.match(home, /Vectre Pay Inc/);
@@ -72,6 +72,7 @@ test('public website contains crawlable branding and policy pages without privat
   assert.match(privacy, /Limited Use/);
   assert.equal(await readFile(join(f.output, 'CNAME'), 'utf8'), `${publicProfile.customDomain}\n`);
   assert.deepEqual(await readFile(join(f.output, 'assets/connector-icon.png')), await readFile(join(repository, 'client/public/assets/connector-icon.png')));
+  assert.deepEqual(await readFile(join(f.output, 'tiktokXduTpCHW4SKFGSCTM6kVlGMJwl7SwrjQ.txt')), await readFile(join(repository, 'docs/verification/tiktokXduTpCHW4SKFGSCTM6kVlGMJwl7SwrjQ.txt')));
   assert.equal(await readFile(join(f.directory, '.env'), 'utf8'), 'APP_PASSWORD=PRIVATE_PASSWORD_MUST_NOT_BE_PUBLISHED\n');
 });
 
