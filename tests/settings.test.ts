@@ -221,6 +221,123 @@ test('Threads uses corrected saved credentials and safely reports a failed excha
   assert.equal(providerRequests, 4);
 });
 
+for (const failure of ['exchange', 'verification'] as const) {
+  test(`Microsoft Advertising OAuth ${failure} failure is safely diagnosed and corrected settings work on a fresh attempt`, async t => {
+    const origin = 'https://connector.example';
+    const initialSettings = {
+      MICROSOFT_CLIENT_ID: '11111111-1111-4111-8111-111111111111',
+      MICROSOFT_CLIENT_SECRET: 'initial-microsoft-client-secret',
+      MICROSOFT_ADS_DEVELOPER_TOKEN: 'initial-advertising-developer-token',
+    };
+    const correctedSettings = {
+      MICROSOFT_CLIENT_ID: '22222222-2222-4222-8222-222222222222',
+      MICROSOFT_CLIENT_SECRET: 'corrected-microsoft-client-secret',
+      MICROSOFT_ADS_DEVELOPER_TOKEN: 'corrected-advertising-developer-token',
+    };
+    const f = await fixture(t, {}, initialSettings, {}, { origin });
+    const headers = { host: new URL(origin).host, origin };
+    const cookie = await f.login(undefined, headers);
+    if (failure === 'verification') {
+      f.store.save('microsoft-ads', { accessToken: 'previously-verified-access-token', refreshToken: 'previous-refresh-token' }, {
+        accountId: 'previous-user', accountName: 'Previously verified account', resources: [],
+      });
+    }
+    const previousCredential = f.store.credential('microsoft-ads');
+    const previousConnection = f.store.connection('microsoft-ads');
+    let corrected = false;
+    let challenge = '';
+    let providerRequests = 0;
+    const privateDescription = 'private-provider-description https://private.example/?secret=private-url-value';
+    const start = async () => {
+      const response = await f.mutate('/api/oauth/microsoft-ads/start', {}, cookie, headers);
+      assert.equal(response.status, 200);
+      const authorization = new URL((await response.json() as { url: string }).url);
+      assert.equal(authorization.origin + authorization.pathname, 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize');
+      assert.equal(authorization.searchParams.get('client_id'), (corrected ? correctedSettings : initialSettings).MICROSOFT_CLIENT_ID);
+      assert.equal(authorization.searchParams.get('redirect_uri'), `${origin}/api/oauth/microsoft-ads/callback`);
+      assert.equal(authorization.searchParams.has('client_secret'), false);
+      challenge = authorization.searchParams.get('code_challenge')!;
+      assert.ok(challenge);
+      const state = authorization.searchParams.get('state');
+      assert.ok(state);
+      return state;
+    };
+    t.mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      providerRequests++;
+      const settings = corrected ? correctedSettings : initialSettings;
+      assert.equal(init?.method, 'POST');
+      if (String(input) === 'https://login.microsoftonline.com/common/oauth2/v2.0/token') {
+        const form = new URLSearchParams(String(init?.body));
+        assert.equal(form.get('client_id'), settings.MICROSOFT_CLIENT_ID);
+        assert.equal(form.get('client_secret'), settings.MICROSOFT_CLIENT_SECRET);
+        assert.equal(form.get('redirect_uri'), `${origin}/api/oauth/microsoft-ads/callback`);
+        assert.equal(form.get('code'), corrected ? 'fresh-private-code' : 'failed-private-code');
+        assert.equal(createHash('sha256').update(form.get('code_verifier')!).digest('base64url'), challenge);
+        if (!corrected && failure === 'exchange') return Response.json({
+          error: 'invalid_client', error_codes: [7000215],
+          error_description: `${privateDescription} ${settings.MICROSOFT_CLIENT_SECRET} failed-private-code`,
+        }, { status: 401 });
+        return Response.json({
+          access_token: corrected ? 'corrected-access-token' : 'unverified-access-token',
+          refresh_token: corrected ? 'corrected-refresh-token' : 'unverified-refresh-token', expires_in: 3600,
+        });
+      }
+      assert.equal(String(input), 'https://clientcenter.api.bingads.microsoft.com/CustomerManagement/v13/User/Query');
+      assert.equal(new Headers(init?.headers).get('developertoken'), settings.MICROSOFT_ADS_DEVELOPER_TOKEN);
+      assert.equal(new Headers(init?.headers).get('authorization'), `Bearer ${corrected ? 'corrected-access-token' : 'unverified-access-token'}`);
+      assert.deepEqual(JSON.parse(String(init?.body)), { UserId: null });
+      if (!corrected) return Response.json({ Errors: [{
+        Code: 105, ErrorCode: 'InvalidCredentials',
+        Message: `${privateDescription} ${settings.MICROSOFT_ADS_DEVELOPER_TOKEN} unverified-access-token`,
+      }] }, { status: 401 });
+      return Response.json({
+        User: { Id: 'verified-user', Name: { FirstName: 'Test', LastName: 'Advertiser' } },
+        CustomerRoles: [{ CustomerId: 'verified-customer', AccountIds: ['verified-ad-account'] }],
+      });
+    });
+
+    const firstState = await start();
+    const failedPath = `/api/oauth/microsoft-ads/callback?state=${firstState}&code=failed-private-code`;
+    const failed = await f.request(failedPath, { headers: { cookie, ...headers } });
+    assert.equal(failed.status, 302);
+    const error = new URL(failed.headers.get('location')!, origin).searchParams.get('error')!;
+    assert.match(error, failure === 'exchange'
+      ? /Microsoft Advertising authorization code exchange failed \(HTTP 401; AADSTS 7000215; OAuth invalid_client\)/
+      : /Microsoft Advertising account verification failed \(HTTP 401; provider code 105\)/);
+    for (const privateValue of [
+      initialSettings.MICROSOFT_CLIENT_SECRET, initialSettings.MICROSOFT_ADS_DEVELOPER_TOKEN,
+      privateDescription, 'https://private.example/', 'private-url-value', 'private-provider-description',
+      'failed-private-code', 'unverified-access-token', 'unverified-refresh-token', firstState,
+    ]) assert.equal(error.includes(privateValue), false, `callback must not expose ${privateValue}`);
+    const failedRequestCount = failure === 'exchange' ? 1 : 2;
+    assert.equal(providerRequests, failedRequestCount, 'a failed exchange must not proceed to account verification');
+    assert.deepEqual(f.store.credential('microsoft-ads'), previousCredential, 'failed credentials must not replace a previously verified connection');
+    assert.deepEqual(f.store.connection('microsoft-ads'), previousConnection);
+
+    const replay = await f.request(failedPath, { headers: { cookie, ...headers } });
+    assert.equal(replay.status, 302);
+    assert.match(new URL(replay.headers.get('location')!, origin).searchParams.get('error')!, /authorization expired|does not belong to your session/i);
+    assert.equal(providerRequests, failedRequestCount, 'failed callbacks consume their OAuth state');
+
+    const saved = await f.mutate('/api/settings', { values: correctedSettings }, cookie, headers, 'PUT');
+    assert.equal(saved.status, 200);
+    const metadata = await saved.text();
+    assert.equal(metadata.includes(correctedSettings.MICROSOFT_CLIENT_SECRET), false);
+    assert.equal(metadata.includes(correctedSettings.MICROSOFT_ADS_DEVELOPER_TOKEN), false);
+    corrected = true;
+    const secondState = await start();
+    assert.notEqual(secondState, firstState);
+    const succeeded = await f.request(`/api/oauth/microsoft-ads/callback?state=${secondState}&code=fresh-private-code`, { headers: { cookie, ...headers } });
+    assert.equal(succeeded.status, 302);
+    assert.equal(succeeded.headers.get('location'), '/?connected=microsoft-ads');
+    assert.equal(providerRequests, failedRequestCount + 2);
+    assert.equal(f.store.credential('microsoft-ads')?.accessToken, 'corrected-access-token');
+    assert.equal(f.store.credential('microsoft-ads')?.refreshToken, 'corrected-refresh-token');
+    assert.equal(f.store.connection('microsoft-ads')?.accountName, 'Test Advertiser');
+    assert.deepEqual(f.store.connection('microsoft-ads')?.resources.map(resource => resource.id), ['verified-customer', 'verified-ad-account']);
+  });
+}
+
 test('settings reject runtime controls, invalid values, and partial changes', async t => {
   const f = await fixture(t);
   const cookie = await f.login();

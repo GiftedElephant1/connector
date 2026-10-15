@@ -18,18 +18,22 @@ export type ProviderHttpFailure = {
   status?: number;
   code?: number;
   subcode?: number;
+  oauthError?: 'invalid_client' | 'invalid_grant' | 'invalid_scope' | 'unauthorized_client' | 'interaction_required' | 'consent_required' | 'access_denied' | 'invalid_request' | 'temporarily_unavailable' | 'server_error';
 };
 export type ProviderHttpOptions = {
-  /** Receives only bounded numeric diagnostics, never upstream messages, URLs or credentials. */
+  /** Receives only bounded numeric diagnostics and allowlisted codes, never upstream text or credentials. */
   failure?: (failure: ProviderHttpFailure) => ProviderError;
+  diagnosticFormat?: 'microsoft-identity' | 'microsoft-ads';
 };
 
 function diagnosticNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 2_147_483_647 ? value : undefined;
 }
 
-/** Error payloads are untrusted. Read at most 16 KiB and allowlist only Graph's numeric codes. */
-async function errorCodes(response: Response): Promise<Pick<ProviderHttpFailure, 'code' | 'subcode'>> {
+const oauthErrors: NonNullable<ProviderHttpFailure['oauthError']>[] = ['invalid_client', 'invalid_grant', 'invalid_scope', 'unauthorized_client', 'interaction_required', 'consent_required', 'access_denied', 'invalid_request', 'temporarily_unavailable', 'server_error'];
+
+/** Error payloads are untrusted. Bound the body and extract only codes for the selected protocol. */
+async function errorCodes(response: Response, format?: ProviderHttpOptions['diagnosticFormat']): Promise<Pick<ProviderHttpFailure, 'code' | 'subcode' | 'oauthError'>> {
   try {
     const reader = response.body?.getReader();
     if (!reader) return {};
@@ -54,6 +58,22 @@ async function errorCodes(response: Response): Promise<Pick<ProviderHttpFailure,
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
     const body: unknown = JSON.parse(new TextDecoder().decode(bytes));
     if (!isObject(body)) return {};
+    if (format === 'microsoft-identity') {
+      const code = Array.isArray(body.error_codes) ? diagnosticNumber(body.error_codes[0]) : undefined;
+      const oauthError = oauthErrors.find(value => value === body.error);
+      return { ...(code !== undefined ? { code } : {}), ...(oauthError ? { oauthError } : {}) };
+    }
+    if (format === 'microsoft-ads') {
+      // Advertising REST faults use PascalCase, unlike Entra's OAuth response.
+      for (const errors of [body.Errors, body.OperationErrors]) {
+        if (!Array.isArray(errors)) continue;
+        for (const entry of errors.slice(0, 5)) {
+          const code = isObject(entry) ? diagnosticNumber(entry.Code) : undefined;
+          if (code !== undefined) return { code };
+        }
+      }
+      return {};
+    }
     const nested = isObject(body.error) ? body.error : {};
     const code = diagnosticNumber(nested.code) ?? diagnosticNumber(body.error_code) ?? diagnosticNumber(body.code);
     const subcode = diagnosticNumber(nested.error_subcode) ?? diagnosticNumber(body.error_subcode);
@@ -75,7 +95,7 @@ async function fetchJsonBody(providerName: string, url: string, init: RequestIni
     throw new ProviderError(`${providerName} could not be reached. Check connectivity and try again.`, 502);
   }
   if (!response.ok) {
-    if (options.failure) throw options.failure({ kind: 'http', status: response.status, ...await errorCodes(response) });
+    if (options.failure) throw options.failure({ kind: 'http', status: response.status, ...await errorCodes(response, options.diagnosticFormat) });
     if (response.status === 401) throw new ProviderError(`${providerName} rejected this credential. Reconnect with a valid credential.`, 401);
     if (response.status === 403) throw new ProviderError(`${providerName} denied access. Check the account's permissions and app approval.`, 403);
     if (response.status === 429) throw new ProviderError(`${providerName} is rate limiting requests. Try again later.`, 429);

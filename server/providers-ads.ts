@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto';
-import { fetchJson, isObject, safeCredential, tokenResponse } from './provider-http.ts';
+import { fetchJson, isObject, safeCredential, tokenResponse, type ProviderHttpOptions } from './provider-http.ts';
+import { microsoftAdsHttpOptions } from './microsoft-ads-errors.ts';
 import { ProviderError, type Credential, type OAuthExchange, type ProviderAdapter, type Resource } from './provider-types.ts';
 
 function configured(env: NodeJS.ProcessEnv, key: string): string {
@@ -31,11 +32,11 @@ function resourceId(value: unknown, provider: string): string {
   return result;
 }
 
-async function formToken(provider: string, url: string, params: Record<string, string>, previous?: Credential, headers?: Record<string, string>) {
+async function formToken(provider: string, url: string, params: Record<string, string>, previous?: Credential, headers?: Record<string, string>, options?: ProviderHttpOptions) {
   const body = await fetchJson(provider, url, {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers },
     body: new URLSearchParams(params),
-  });
+  }, options);
   return tokenResponse(body, previous);
 }
 
@@ -105,14 +106,14 @@ const microsoft: ProviderAdapter = {
     return formToken('Microsoft Advertising', microsoftTokenUrl, {
       grant_type: 'authorization_code', code, redirect_uri: redirectUri, code_verifier: codeVerifier, scope: microsoftScope,
       client_id: configured(env, 'MICROSOFT_CLIENT_ID'), client_secret: configured(env, 'MICROSOFT_CLIENT_SECRET'),
-    });
+    }, undefined, undefined, microsoftAdsHttpOptions('code-exchange'));
   },
   async refresh(credential, env) {
     if (!credential.refreshToken) return withoutRefreshToken(credential, 'Microsoft Advertising');
     return formToken('Microsoft Advertising', microsoftTokenUrl, {
       grant_type: 'refresh_token', refresh_token: credential.refreshToken, scope: microsoftScope,
       client_id: configured(env, 'MICROSOFT_CLIENT_ID'), client_secret: configured(env, 'MICROSOFT_CLIENT_SECRET'),
-    }, credential);
+    }, credential, undefined, microsoftAdsHttpOptions('token-refresh'));
   },
   async verify(credential, env) {
     // Microsoft's REST GetUser is a read operation despite using POST.
@@ -120,7 +121,7 @@ const microsoft: ProviderAdapter = {
       method: 'POST', headers: {
         authorization: `Bearer ${safeCredential(credential)}`, DeveloperToken: configured(env, 'MICROSOFT_ADS_DEVELOPER_TOKEN'), 'content-type': 'application/json',
       }, body: JSON.stringify({ UserId: null }),
-    });
+    }, microsoftAdsHttpOptions('account-verification'));
     if (!isObject(body.User)) throw new ProviderError('Microsoft Advertising returned an unexpected user response.', 502);
     const accountId = resourceId(body.User.Id, 'Microsoft Advertising');
     const fullName = isObject(body.User.Name) ? [body.User.Name.FirstName, body.User.Name.LastName].filter((part) => typeof part === 'string').join(' ') : '';
