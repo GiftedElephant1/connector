@@ -17,6 +17,7 @@ type WorkspaceApp = {
   available: boolean;
   auth: "oauth" | "api_key" | "unsupported";
   scopes: string[];
+  additionalScopes?: string[];
   docsUrl: string;
 };
 type GoogleAccount = {
@@ -28,6 +29,7 @@ type GoogleAccount = {
   missingApps: string[];
   connectedAt: string;
   mapsConfigured: boolean;
+  driveDownloads?: boolean;
   status: string;
 };
 type Binding = { accountId: string; apps: string[] };
@@ -542,6 +544,14 @@ export function GoogleWorkspace({
                       Select Change connected apps to approve access.
                     </p>
                   )}
+                  {account.apps.includes("drive") && !account.driveDownloads && (
+                    <p className="workspace-limited">
+                      Drive file downloads need permission to read existing
+                      files. Select Change connected apps, keep Google Drive
+                      selected, then Continue to Google and approve file-reading
+                      access. Your current connections and agent access stay saved.
+                    </p>
+                  )}
                   <div className="setup-button-row">
                     <button
                       type="button"
@@ -761,7 +771,7 @@ export function GoogleWorkspace({
                       ...new Set(
                         data.apps
                           .filter((app) => connection.apps.includes(app.id))
-                          .flatMap((app) => app.scopes),
+                          .flatMap((app) => [...app.scopes, ...(app.additionalScopes || [])]),
                       ),
                     ].map((scope) => (
                       <li key={scope}>

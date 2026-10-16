@@ -31,5 +31,7 @@ export interface ActionResult {
 export interface ActionAdapter {
   provider: string;
   definition: ActionDefinition;
+  /** Additional Google permissions for this action, checked by the Workspace pipeline. */
+  requiredScopes?: readonly string[];
   execute: (credential: Credential, values: ActionValues, env: NodeJS.ProcessEnv) => Promise<ActionResult>;
 }

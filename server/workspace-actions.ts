@@ -3,6 +3,7 @@ import { apiJson, bearer, records, required, string } from './action-http';
 import type { ActionAdapter, ActionDefinition, ActionField, ActionResult, ActionValues } from './action-types';
 import { isObject } from './provider-http';
 import { ProviderError, type Credential } from './provider-types';
+import { downloadDriveFile } from './workspace-drive-download';
 
 export type WorkspaceApp = {
   id: string;
@@ -11,6 +12,8 @@ export type WorkspaceApp = {
   available: boolean;
   auth: 'oauth' | 'api_key' | 'unsupported';
   scopes: string[];
+  /** Request on consent without disabling legacy actions on older grants. */
+  additionalScopes?: string[];
   docsUrl: string;
 };
 const scope = (name: string) => `https://www.googleapis.com/auth/${name}`;
@@ -20,7 +23,7 @@ export const workspaceApps: WorkspaceApp[] = [
   { id: 'docs', name: 'Google Docs', description: 'Read and create documents, and append text.', available: true, auth: 'oauth', scopes: [scope('documents')], docsUrl: 'https://developers.google.com/workspace/docs/api/reference/rest' },
   { id: 'slides', name: 'Google Slides', description: 'Read and create presentations, and add text slides.', available: true, auth: 'oauth', scopes: [scope('presentations')], docsUrl: 'https://developers.google.com/workspace/slides/api/reference/rest' },
   { id: 'gmail', name: 'Gmail', description: 'Search and read messages, create drafts, and send plain-text email.', available: true, auth: 'oauth', scopes: [scope('gmail.readonly'), scope('gmail.compose')], docsUrl: 'https://developers.google.com/workspace/gmail/api/reference/rest' },
-  { id: 'drive', name: 'Google Drive', description: 'Search file metadata and create folders or text files. File content access is limited to files created or opened with this app.', available: true, auth: 'oauth', scopes: [scope('drive.metadata.readonly'), scope('drive.file')], docsUrl: 'https://developers.google.com/workspace/drive/api/reference/rest/v3' },
+  { id: 'drive', name: 'Google Drive', description: 'Search files, download logos and other stored files up to 20 MiB, and create folders or text files. Downloads require permission to read existing Drive files.', available: true, auth: 'oauth', scopes: [scope('drive.metadata.readonly'), scope('drive.file')], additionalScopes: [scope('drive.readonly')], docsUrl: 'https://developers.google.com/workspace/drive/api/reference/rest/v3' },
   { id: 'maps', name: 'Google Maps', description: 'Read-only Places integration: search public places and read their details using a billing-enabled Google Cloud project key. Personal saved places and Timeline are not available. The Places API does not offer writes to these account features.', available: true, auth: 'api_key', scopes: [], docsUrl: 'https://developers.google.com/maps/documentation/places/web-service/overview' },
   { id: 'meet', name: 'Google Meet', description: 'Create meeting links, read meeting spaces, and list accessible conference records. Requires an eligible Google Workspace account.', available: true, auth: 'oauth', scopes: [scope('meetings.space.created'), scope('meetings.space.readonly')], docsUrl: 'https://developers.google.com/workspace/meet/api/reference/rest' },
   { id: 'voice', name: 'Google Voice', description: 'Read-only administrator audit reports. Personal calls, SMS, and voicemail are not available through the official API. The audit API cannot place calls or send messages.', available: true, auth: 'oauth', scopes: [scope('admin.reports.audit.readonly')], docsUrl: 'https://developers.google.com/workspace/admin/reports/v1/appendix/activity/voice' },
@@ -220,6 +223,10 @@ export const workspaceActions: ActionAdapter[] = [
     const body = await request('drive', `/files/${id(values, 'fileId')}?${new URLSearchParams({ fields: driveFields })}`, credential);
     return { summary: 'Read Drive file metadata.', items: [driveFile(body)] };
   }),
+  {
+    ...adapter('drive', 'download-file', 'Download Drive file', 'read', 'Download a regular Drive file such as a logo, image, PDF, or ZIP (up to 20 MiB). Returns base64 bytes and SHA-256. For large files, call the Workspace REST action from code and decode contentBase64 directly to disk without printing it into chat. Requires renewed Drive read permission for existing files.', [fileField], async (credential, values) => downloadDriveFile(credential, required(values, 'fileId'))),
+    requiredScopes: [scope('drive.readonly')],
+  },
   adapter('drive', 'create-folder', 'Create Drive folder', 'write', 'Create a folder, optionally inside another folder accessible to this app.', [titleField, field('parentId', 'Parent folder ID (optional)', false)], async (credential, values) => {
     const body = await request('drive', '/files?fields=id,name', credential, 'POST', { name: bounded(values, 'title', 200), mimeType: 'application/vnd.google-apps.folder', ...(values.parentId?.trim() ? { parents: [decodeURIComponent(id(values, 'parentId'))] } : {}) });
     return { summary: 'Created Drive folder.', items: [{ folderId: confirmed(body, 'id'), name: string(body.name) }] };

@@ -31,6 +31,20 @@ Google may require app verification for sensitive or restricted scopes, particul
 
 Connector records the permissions Google actually granted. If you deselect a permission on Google's consent page, the affected app appears as needing authorization and cannot be assigned to an agent. To add permissions later, use that account's authorization control and select the additional apps. Existing permissions are included in that request. Selecting a different Google account during reauthorization produces an error and preserves the original connection; use the add-account flow for a new account.
 
+## Download existing Drive files
+
+Drive can download stored files such as logos, images, PDFs, and ZIP archives, up to 20 MiB each. The `download-file` action returns the original bytes as base64, with their filename, MIME type, byte count, and SHA-256 digest. Have your agent decode and save the bytes on its computer rather than paste the base64 into chat. Native Google Docs, Sheets, Slides, and folders are not downloadable through this action; use the corresponding document actions for their supported content. Google sharing and download restrictions still apply.
+
+Older Drive connections can keep listing file metadata and creating app-owned files. To download existing files, approve the additional read permission:
+
+1. In the Google Cloud project for Connector, open **Google Auth Platform → Data Access → Add or remove scopes** and add `https://www.googleapis.com/auth/drive.readonly`. Save the scope configuration; any Google verification or administrator requirements still apply.
+2. In Connector, open **Google Workspace** and find the account that can access your brand kit.
+3. Select **Change connected apps**, keep **Google Drive** and your other apps selected, then choose **Continue to Google**.
+4. Choose the same Google account and approve the file-reading permission. Connector preserves its account identity, other connections, and existing agent access. No reset or replacement profile key is needed.
+5. Confirm the agent profile permits **Google Drive** on that account. Ask the agent to refresh `list_workspace_accounts` and `list_workspace_actions`; `driveDownloads: true` confirms the account and profile can use downloads. A false value means the read permission or profile's Drive access is missing.
+
+See the [HTTPS download example](pipeline.md#download-a-drive-file) for saving a returned file and checking its digest. This read action does not require write confirmation or a request ID.
+
 ## Give an AI agent access
 
 1. In **Google Workspace**, create an AI agent profile and name it, such as **Grok Bot — work**.
@@ -72,7 +86,7 @@ Rotate a profile key if you need a replacement; the previous key stops working i
 | Docs | Read and create documents; append text. |
 | Slides | Read and create presentations; add text slides. |
 | Gmail | Search and read messages; create drafts; send plain-text email. |
-| Drive | Search file metadata; create folders and text files. Content access uses `drive.file`, so it is limited to files created or opened with this app. |
+| Drive | Search file metadata; download stored files up to 20 MiB with `drive.readonly`; create folders and text files using `drive.file`. Existing connections need to approve the additional read scope before downloading existing files. |
 | Maps | Search public places and read place details using a separately configured Google Cloud project key. Personal saved places and Timeline are unavailable. |
 | Meet | Create meeting links; read spaces; list accessible conference records. Requires an eligible Google Workspace account. |
 | Voice | Read Google Voice audit events as an authorized Workspace administrator. Personal calls, SMS, and voicemail are unavailable through the official API. |
@@ -106,7 +120,7 @@ New connectors can be added without changing your existing account credentials. 
 - Google callback: `/api/workspace/google/callback`. Authorization state is encrypted, expires after ten minutes, is bound to one browser session, and is consumed once. Authorization uses PKCE and offline access.
 - Account IDs are stable opaque values derived from the verified Google subject, not user-supplied email addresses. Reauthorizing an account cannot replace it with another Google identity.
 - Credential rows use `google-workspace:<accountId>`; metadata and agent profiles use encrypted settings. Existing provider rows and scheduled jobs keep their existing identifiers.
-- Apps are enabled only when all their required scopes are present in Google's returned grant. A scope reduction during refresh disables access through existing bindings.
+- Apps are enabled only when all their required scopes are present in Google's returned grant. A scope reduction during refresh disables access through existing bindings. Drive's additional `drive.readonly` grant enables downloads independently, so existing metadata and file-creation access remains available while awaiting that permission.
 - OAuth AI grants refer to the selected profile; account/app permissions are read again for each call. An OAuth grant does not reveal the profile API key to the AI client.
 - Advanced agent API keys contain 32 random bytes and are returned only once. Fresh profile and key checks enforce permission changes, rotation, and revocation on subsequent requests.
 - Token refresh is serialized separately for each account. Rotated refresh tokens are saved, and disconnecting an account during refresh cannot recreate its connection.

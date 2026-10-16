@@ -46,7 +46,7 @@ Each Google account authorizes its selected apps independently. Each AI profile 
 | Docs | Create documents and append text. | Uses `documents`; existing document replacement/formatting is not implemented. |
 | Slides | Create presentations and add text slides. | Uses `presentations`; arbitrary layout/media editing is not implemented. |
 | Gmail | Create drafts and send plain-text email. | Uses `gmail.compose`, alongside `gmail.readonly` for reading messages. |
-| Drive | Create folders and upload text files. | Uses `drive.file`, alongside metadata lookup access. File-content access is limited to files created or opened with this app. |
+| Drive | Create folders and upload text files. | Writes use `drive.file`. Metadata lookup remains available to older connections; approve the additional `drive.readonly` scope to download existing stored files up to 20 MiB. Downloads return base64 bytes and a SHA-256 digest; native Google document export is not supported. |
 | Meet | Create meeting spaces and links. | Uses `meetings.space.created`; this does not create Calendar invitations. Account eligibility applies. |
 | Chat | Send text messages as the selected user. | Uses `chat.messages.create`, alongside space/message lookup scopes. Requires Chat API configuration and account access. |
 | Tasks | Create/update tasks and mark them complete. | Uses `tasks`; due dates have no time of day. |

@@ -23,6 +23,7 @@ export interface WorkspaceAccount {
   apps: string[];
   requestedApps: string[];
   missingApps: string[];
+  driveDownloads: boolean;
   connectedAt: string;
   mapsConfigured: boolean;
   status: 'connected' | 'error';
@@ -94,6 +95,7 @@ export class WorkspaceAccounts {
     const mapsConfigured = !!credential?.fields?.mapsApiKey;
     if (mapsConfigured) apps.push('maps');
     return { id: account.id, email: account.email, name: account.name, apps, requestedApps: account.requestedApps,
+      driveDownloads: apps.includes('drive') && account.scopes.includes('https://www.googleapis.com/auth/drive.readonly'),
       missingApps: account.requestedApps.filter(id => !apps.includes(id)), connectedAt: account.connectedAt, mapsConfigured,
       status: this.store.connection(connectionId(account.id))?.status || 'error' };
   }
@@ -126,7 +128,10 @@ export class WorkspaceAccounts {
     const state = randomBytes(32).toString('base64url');
     const verifier = randomBytes(48).toString('base64url');
     const redirectUri = `${this.config.origin}${callbackPath}`;
-    const scopes = [...new Set(['openid', 'email', ...apps.flatMap(id => workspaceApps.find(app => app.id === id)!.scopes)])];
+    const scopes = [...new Set(['openid', 'email', ...apps.flatMap(id => {
+      const app = workspaceApps.find(app => app.id === id)!;
+      return [...app.scopes, ...(app.additionalScopes || [])];
+    })])];
     const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
     url.search = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: 'code', scope: scopes.join(' '),
       state, code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256', access_type: 'offline', prompt: 'consent select_account',
@@ -350,6 +355,13 @@ export class WorkspaceAccounts {
     const account = this.publicAccount(this.account(accountId));
     if (!account.apps.includes(appId)) throw new ProviderError('This Google account has not granted access to that app. Reconnect it with the required permissions.', 403);
     return account;
+  }
+  /** An expanded grant may enable a new action without disrupting older ones. */
+  assertActionScopes(accountId: string, appId: string, requiredScopes: readonly string[] = []): void {
+    const account = this.account(accountId);
+    if (requiredScopes.every(scope => account.scopes.includes(scope))) return;
+    if (appId === 'drive') throw new ProviderError('Google Drive file downloads need permission to read existing files. In Connector → Google Workspace, choose Change connected apps for this account, keep Google Drive selected, and Continue to Google to approve file-reading access. Your existing account and AI agent access stay saved.', 403);
+    throw new ProviderError('This Google action needs additional permissions. In Connector → Google Workspace, use Change connected apps to approve access for this account.', 403);
   }
 }
 

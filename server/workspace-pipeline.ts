@@ -37,7 +37,7 @@ export class WorkspacePipeline {
       if (!binding) return [];
       const permitted = binding.apps.filter(app => account.apps.includes(app));
       if (!permitted.length) return [];
-      return [{ id: account.id, name: account.name, email: account.email, apps: permitted, status: account.status, isDefault: account.id === profile.defaultAccountId }];
+      return [{ id: account.id, name: account.name, email: account.email, apps: permitted, driveDownloads: permitted.includes('drive') && account.driveDownloads, status: account.status, isDefault: account.id === profile.defaultAccountId }];
     });
   }
 
@@ -57,6 +57,7 @@ export class WorkspacePipeline {
     const account = this.service.authorize(profileId, app, accountId);
     const assertConnection = this.service.captureConnection(account.id, app);
     const { adapter, values } = this.action(app, id, input);
+    this.service.assertActionScopes(account.id, app, adapter.requiredScopes);
     // Refresh can wait on a network request. Re-read grants and the caller key
     // afterward so a dashboard revocation cannot race an outgoing action.
     const execute = async (action: ActionAdapter) => {
@@ -64,12 +65,14 @@ export class WorkspacePipeline {
       assertCurrent();
       assertConnection();
       this.service.authorize(profileId, app, account.id);
+      this.service.assertActionScopes(account.id, app, action.requiredScopes);
       return action.execute(credential, values, this.env);
     };
     const mayReturn = () => {
       assertCurrent();
       assertConnection();
       this.service.authorize(profileId, app, account.id);
+      this.service.assertActionScopes(account.id, app, adapter.requiredScopes);
     };
     if (adapter.definition.kind === 'read') {
       const result = await execute(adapter);

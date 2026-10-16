@@ -57,6 +57,7 @@ async function mockWorkspace(page: Page) {
         missingApps: ["docs"],
         connectedAt: timestamp,
         mapsConfigured: false,
+        driveDownloads: false,
         status: "connected",
       },
       {
@@ -68,6 +69,7 @@ async function mockWorkspace(page: Page) {
         missingApps: [],
         connectedAt: timestamp,
         mapsConfigured: false,
+        driveDownloads: false,
         status: "connected",
       },
     ],
@@ -390,6 +392,46 @@ test("Google authorization selects apps, reports public-address problems, and Ma
       .getByRole("group", { name: "personal@example.com", exact: true })
       .getByLabel("Google Maps", { exact: false }),
   ).toBeDisabled();
+});
+
+test("existing Drive accounts can approve downloads without replacing their account or agent access", async ({ page }) => {
+  const { snapshot, writes } = await mockWorkspace(page);
+  snapshot.profiles.push({
+    id: "existing-agent",
+    name: "Brand kit reader",
+    bindings: [{ accountId: "work-account", apps: ["drive", "gmail"] }],
+    defaultAccountId: "work-account",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  });
+  const originalAccounts = structuredClone(snapshot.accounts);
+  const originalProfiles = structuredClone(snapshot.profiles);
+  await openWorkspace(page);
+  const account = page.getByRole("article", { name: "work@example.com", exact: true });
+  await expect(account).toContainText("Drive file downloads need permission to read existing files");
+  await expect(page.getByRole("article", { name: "personal@example.com", exact: true })).not.toContainText("Drive file downloads need permission");
+  await account.getByRole("button", { name: "Change connected apps" }).click();
+  const form = page.getByRole("form", { name: "Choose Google apps" });
+  for (const name of ["Google Drive", "Gmail", "Google Sheets", "Google Docs"]) {
+    await expect(form.getByLabel(name, { exact: false })).toBeChecked();
+  }
+  await form.getByText("View requested Google permissions", { exact: true }).click();
+  await expect(form.getByText("https://www.googleapis.com/auth/drive.readonly", { exact: true })).toBeVisible();
+  await form.getByRole("button", { name: "Continue to Google" }).click();
+  await expect(page.getByRole("alert")).toContainText("Open Connector at its public address");
+  expect(writes).toEqual([{
+    method: "POST",
+    path: "/api/workspace/google/start",
+    body: { accountId: "work-account", apps: ["gmail", "drive", "sheets", "docs"] },
+  }]);
+  expect(snapshot.accounts).toEqual(originalAccounts);
+  expect(snapshot.profiles).toEqual(originalProfiles);
+  snapshot.accounts[0].driveDownloads = true;
+  await page.reload();
+  await page.getByRole("button", { name: "Google Workspace", exact: true }).click();
+  await expect(account).toContainText("Google Drive");
+  await expect(account).not.toContainText("Drive file downloads need permission");
+  await expect(page.getByRole("article", { name: "Brand kit reader access", exact: true })).toBeVisible();
 });
 
 test("Workspace account selection and agent permissions fit a narrow screen", async ({
