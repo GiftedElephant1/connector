@@ -176,9 +176,10 @@ test('privacy notice explains retention, plaintext metadata and independent serv
   const html = legal.page('privacy').html;
   for (const text of [
     'no automatic job-history deletion schedule', 'not encrypted by the app', 'does not erase previous job records',
-    'results already sent to the AI provider', 'local vault folder', 'Bank tools do not transfer funds', 'necessary sign-in session cookie',
+    'results already sent to the AI provider', 'local vault folder', 'necessary sign-in session cookie',
     'delete its database and relevant backups', 'ngrok', 'bounded registration limit',
   ]) assert.ok(html.includes(text), text);
+  assert.doesNotMatch(html, /Plaid|bank linking|bank account and transaction information|Bank tools/);
 });
 
 test('public site homepage explains real Google features and links directly to policies without requiring sign-in', () => {

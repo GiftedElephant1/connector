@@ -11,9 +11,9 @@ export type VerifiedAccount = { accountName: string; accountId?: string; resourc
 export type ProviderDefinition = {
   id: string;
   name: string;
-  category: 'ai' | 'social' | 'communications' | 'advertising' | 'analytics' | 'websites' | 'finance';
+  category: 'ai' | 'social' | 'communications' | 'advertising' | 'analytics' | 'websites';
   description: string;
-  authType: 'api_key' | 'oauth' | 'link' | 'local';
+  authType: 'api_key' | 'oauth' | 'local';
   docsUrl: string;
   credentialFields?: { name: string; label: string; secret?: boolean }[];
 };

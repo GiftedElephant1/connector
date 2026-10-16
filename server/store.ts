@@ -91,7 +91,6 @@ export class Store {
   disconnect(provider: string) {
     this.connectionGenerations.set(provider, this.connectionGeneration(provider) + 1);
     this.invalidateOAuth(provider);
-    if (provider === 'plaid') this.invalidateOAuth('plaid-link');
     this.db.prepare("UPDATE jobs SET status='cancelled',finished=? WHERE provider=? AND status='pending'").run(Date.now(), provider);
     this.db.prepare('DELETE FROM connections WHERE provider=?').run(provider);
   }

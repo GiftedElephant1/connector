@@ -345,7 +345,6 @@ test('settings reject runtime controls, invalid values, and partial changes', as
     { DISCORD_CLIENT_ID: 'must-not-save', ENCRYPTION_KEY: 'replacement' },
     { APP_PASSWORD: 'replacement-password' }, { PIPELINE_API_KEY: 'replacement' },
     { NODE_OPTIONS: '--inspect=0.0.0.0' }, { HOST: '0.0.0.0' },
-    { PLAID_ENV: 'development' }, { PLAID_COUNTRY_CODES: 'US,invalid' },
     { DISCORD_BOT_TOKEN: 'secret\nsecond-line' }, { APP_ORIGIN: 'http://public.example' },
     { APP_ORIGIN: 'https://public.example/path' }, { APP_ORIGIN: 'https://user:password@public.example' },
     { APP_ORIGIN: 'http://localhost:6666' },
@@ -401,7 +400,6 @@ test('changing the origin keeps local dashboard access and sets secure cookies o
   assert.equal((await f.mutate('/api/login', { password: f.config.password }, '', { origin: 'https://connector.example.attacker.test' })).status, 403);
   await f.mutate('/api/settings', { values: { DISCORD_CLIENT_ID: 'id', DISCORD_CLIENT_SECRET: 'secret' } }, cookie, localHeaders, 'PUT');
   assert.equal((await f.mutate('/api/oauth/discord/start', {}, cookie, localHeaders)).status, 409);
-  assert.equal((await f.mutate('/api/plaid/link-token', {}, cookie, localHeaders)).status, 409);
 });
 
 test('desktop unlock is a one-use local capability and does not expose the capability', async t => {
@@ -448,53 +446,6 @@ test('owner password setup rotates sessions and replaces the generated password'
   const cookie = await f.login(password);
   const after = await (await f.request('/api/settings', { headers: { cookie } })).json() as { passwordConfigured: boolean };
   assert.equal(after.passwordConfigured, true);
-});
-
-test('connected Plaid credentials cannot be accidentally switched to another environment or client', async t => {
-  const f = await fixture(t, {}, { PLAID_CLIENT_ID: 'client-1', PLAID_SECRET: 'old-secret' });
-  f.store.save('plaid', { accessToken: 'bank-access-token' }, { accountName: 'Test bank', resources: [] });
-  const cookie = await f.login();
-  for (const values of [{ PLAID_ENV: 'production' }, { PLAID_CLIENT_ID: 'client-2' }]) {
-    assert.equal((await f.mutate('/api/settings', { values }, cookie, {}, 'PUT')).status, 409);
-  }
-  assert.equal((await f.mutate('/api/settings', { values: { PLAID_SECRET: 'rotated-secret' } }, cookie, {}, 'PUT')).status, 200);
-  assert.equal(f.env.PLAID_SECRET, 'rotated-secret');
-});
-
-test('Plaid settings cannot change while an exchange is saving an Item and bound settings can be restored', async t => {
-  const f = await fixture(t, {}, { PLAID_CLIENT_ID: 'client-1', PLAID_SECRET: 'old-secret' });
-  const cookie = await f.login();
-  let beginExchange!: () => void;
-  let finishExchange!: () => void;
-  const started = new Promise<void>(resolve => { beginExchange = resolve; });
-  const finish = new Promise<void>(resolve => { finishExchange = resolve; });
-  t.mock.method(globalThis, 'fetch', async (url: string | URL | Request) => {
-    const path = new URL(String(url)).pathname;
-    let body: unknown;
-    if (path === '/link/token/create') body = { link_token: 'link-sandbox-test', expiration: new Date(Date.now() + 3600_000).toISOString() };
-    else if (path === '/item/public_token/exchange') {
-      beginExchange();
-      await finish;
-      body = { access_token: 'access-sandbox-test', item_id: 'item-1' };
-    } else if (path === '/accounts/get') body = { item: { item_id: 'item-1' }, accounts: [{ account_id: 'bank-1', name: 'Checking', mask: '1234' }] };
-    else throw new Error('Unexpected Plaid request.');
-    return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
-  });
-  const start = await f.mutate('/api/plaid/link-token', {}, cookie);
-  assert.equal(start.status, 200);
-  const { flowId } = await start.json() as { flowId: string };
-  const exchange = f.mutate('/api/plaid/exchange', { flowId, publicToken: 'public-sandbox-test' }, cookie);
-  await started;
-  try {
-    for (const values of [{ PLAID_ENV: 'production' }, { PLAID_SECRET: 'new-secret' }, { PLAID_COUNTRY_CODES: 'CA' }]) {
-      assert.equal((await f.mutate('/api/settings', { values }, cookie, {}, 'PUT')).status, 409);
-    }
-  } finally { finishExchange(); }
-  assert.equal((await exchange).status, 200);
-  assert.equal(f.store.credential('plaid')?.fields?.plaidEnvironment, 'sandbox');
-  f.env.PLAID_ENV = 'production'; // Simulate an old .env change before a GUI restart.
-  assert.equal((await f.mutate('/api/settings', { values: { PLAID_ENV: 'sandbox' } }, cookie, {}, 'PUT')).status, 200);
-  assert.equal(f.env.PLAID_ENV, 'sandbox');
 });
 
 test('desktop launch canonicalizes the default localhost origin without replacing a public HTTPS origin', async t => {

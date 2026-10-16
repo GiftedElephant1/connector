@@ -12,7 +12,6 @@ import { Pipeline } from './pipeline';
 import { mountPipeline } from './pipeline-http';
 import { hydrateSettings, passwordMatches, providerSettings, savePassword, saveSettings, settingsSnapshot, updatePublicOrigin } from './settings';
 import { mountTunnel, type PublicTunnel } from './tunnel';
-import { mountPlaid, removePlaidItem } from './providers-plaid';
 import { installation } from './installation';
 import { WorkspaceAccounts, mountWorkspace } from './workspace-accounts';
 import { McpOAuth, mountOAuthPublic, mountOAuthOwner } from './mcp-oauth';
@@ -73,7 +72,7 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
   app.disable('x-powered-by');
   app.use((req, res, next) => helmet({
     contentSecurityPolicy: {
-      directives: { defaultSrc: ["'self'"], scriptSrc: ["'self'", 'https://cdn.plaid.com'], styleSrc: ["'self'"], imgSrc: ["'self'", 'data:'], mediaSrc: ["'self'", 'https:', 'blob:'], connectSrc: ["'self'", 'https://*.plaid.com'], frameSrc: ['https://cdn.plaid.com'], formAction: ["'self'"], frameAncestors: ["'none'"], upgradeInsecureRequests: isSecureRequest(req) ? [] : null },
+      directives: { defaultSrc: ["'self'"], scriptSrc: ["'self'"], styleSrc: ["'self'"], imgSrc: ["'self'", 'data:'], mediaSrc: ["'self'", 'https:', 'blob:'], connectSrc: ["'self'"], frameSrc: ["'none'"], formAction: ["'self'"], frameAncestors: ["'none'"], upgradeInsecureRequests: isSecureRequest(req) ? [] : null },
     },
     strictTransportSecurity: isSecureRequest(req) ? undefined : false,
     referrerPolicy: { policy: 'no-referrer' },
@@ -139,11 +138,6 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
   });
   if (options.tunnel) mountTunnel(app, options.tunnel);
   else app.get('/api/tunnel', (_req, res) => res.json({ status: 'stopped', available: false, configured: false }));
-  app.use('/api/plaid', (req, res, next) => {
-    if (isLocalDashboard(req) && localOrigin !== config.origin) return void res.status(409).json({ error: 'Open the public dashboard and sign in before connecting your bank so authorization returns to the same browser session.', publicOrigin: config.origin });
-    next();
-  });
-  mountPlaid(app, store, env, sessionToken, () => config.origin, config.encryptionKey);
   app.post('/api/logout', (req, res) => {
     store.deleteSession(sessionToken(req));
     res.clearCookie('connector_session', cookieOptions(req)).json({ ok: true });
@@ -192,12 +186,6 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
   app.delete('/api/connections/:provider', async (req, res) => {
     const id = String(req.params.provider);
     service.getProvider(id);
-    const credential = store.credential(id);
-    const generation = store.connectionGeneration(id);
-    if (id === 'plaid' && credential) {
-      await removePlaidItem(credential, env);
-      store.assertConnectionGeneration(id, generation);
-    }
     store.disconnect(id);
     res.json({ ok: true });
   });

@@ -2,7 +2,7 @@
 
 Use **Disable and reset** when you entered the wrong application details, connected the wrong account, or want to remove a connector’s access and begin again. You do not need to reinstall Connector.
 
-## Social, advertising, bank, website, notes, and API connections
+## Social, advertising, website, notes, and API connections
 
 1. Open **Connections** and find the platform. The **Disable and reset** button is available even if connecting has never succeeded. It is also available from the platform’s setup screen and the provider list in **Settings**.
 2. Click **Disable and reset** to open a preview. Nothing is changed by opening this dialog.
@@ -13,8 +13,6 @@ Use **Disable and reset** when you entered the wrong application details, connec
 Published posts, advertising campaigns, platform-side content, local Obsidian notes, and activity history remain in place. Requests already sent to a platform may still finish. This is not a request to pause existing advertising campaigns or delete published content.
 
 For most platforms, local reset does not revoke the developer app’s authorization on the provider’s website. Use that provider’s connected-app or API-token settings if you also want to revoke access there. Your provider’s browser session may remain signed in; switch accounts on its authorization screen when reconnecting if needed.
-
-Plaid reset attempts to revoke the bank Item as well as clearing it locally. If Plaid cannot confirm revocation, the app shows a warning with the additional step needed; a stale or invalid credential does not prevent local reset. Follow the warning to remove remaining access or charges in the provider’s dashboard. Bank accounts themselves are not closed.
 
 Resetting TikTok also removes its uploaded domain-verification file. If required for your replacement TikTok application, upload its new verification file during setup. The shared app icon and public Terms and Privacy pages remain available.
 

@@ -2,7 +2,6 @@ import type { Express } from 'express';
 import type { ProviderDefinition } from './provider-types';
 import { ProviderError } from './provider-types';
 import { clearProviderSettings, providerSettingKeys } from './settings';
-import { isPlaidExchangeActive, removePlaidItem } from './providers-plaid';
 import { Store } from './store';
 
 export interface ConnectorResetPlan {
@@ -46,20 +45,11 @@ export function mountConnectorReset(app: Express, store: Store, env: NodeJS.Proc
     if (req.body?.confirmed !== true) throw new ProviderError('Confirm the affected connectors before resetting their saved setup.', 409);
     const plan = connectorResetPlan(store, catalog, String(req.params.provider));
     const ids = plan.affectedProviders.map(provider => provider.id);
-    const plaid = ids.includes('plaid') ? store.credential('plaid') : null;
-    const plaidExchangeActive = ids.includes('plaid') && isPlaidExchangeActive(store);
-    const priorEnv = { ...env };
-    // Clear local access synchronously, before awaiting a remote revocation.
+    // Clear only the connectors included in the confirmed reset group.
     for (const id of ids) store.disconnect(id);
     if (plan.clearsGoogleWorkspace) resetGoogleWorkspace();
     if (ids.includes('tiktok')) store.deleteSetting('tiktok-domain-verification-v1');
     clearProviderSettings(store, env, [...new Set(ids.flatMap(providerSettingKeys))]);
-    const warnings: string[] = [];
-    if (plaidExchangeActive) warnings.push('Plaid was disabled locally while a bank authorization was still finishing. Connector will attempt to revoke any resulting connection. Check your Plaid dashboard or bank settings for remaining access or charges before starting again.');
-    if (plaid) {
-      try { await removePlaidItem(plaid, priorEnv); }
-      catch { warnings.push('Plaid was disabled locally, but Plaid could not confirm revocation. Remove the connection in your Plaid dashboard or bank settings to stop any remaining access or charges.'); }
-    }
-    res.json({ ok: true, affectedProviders: plan.affectedProviders, ...(warnings.length ? { warnings } : {}) });
+    res.json({ ok: true, affectedProviders: plan.affectedProviders });
   });
 }

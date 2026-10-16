@@ -5,14 +5,13 @@ import { metaActions } from './actions-meta';
 import { discordActions } from './actions-discord';
 import { socialActions } from './actions-social';
 import { adsActions } from './actions-ads';
-import { plaidActions } from './actions-plaid';
 import { whatsappActions } from './actions-whatsapp';
 import { wordpressActions } from './actions-wordpress';
 import { mailchimpActions } from './actions-mailchimp';
 import { obsidianActions } from './actions-obsidian';
 import { pinterestAdsActions } from './actions-pinterest-ads';
 
-const actions: ActionAdapter[] = [...googleActions, ...metaActions, ...discordActions, ...socialActions, ...adsActions, ...pinterestAdsActions, ...plaidActions, ...whatsappActions, ...wordpressActions, ...mailchimpActions, ...obsidianActions];
+const actions: ActionAdapter[] = [...googleActions, ...metaActions, ...discordActions, ...socialActions, ...adsActions, ...pinterestAdsActions, ...whatsappActions, ...wordpressActions, ...mailchimpActions, ...obsidianActions];
 const registry = new Map(actions.map(action => [`${action.provider}:${action.definition.id}`, action]));
 if (registry.size !== actions.length) throw new Error('Action identifiers must be unique per provider.');
 export function listActions(provider: string) { return actions.filter(action => action.provider === provider).map(action => action.definition); }

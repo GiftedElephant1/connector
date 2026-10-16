@@ -3,7 +3,6 @@ import type { AppConfig } from './config';
 import { parseAppOrigin } from './config';
 import { ProviderError, providerSetupRequirements, type ProviderDefinition } from './providers';
 import { Store } from './store';
-import { isPlaidExchangeActive } from './providers-plaid';
 import { hydratePipelineKey } from './pipeline-key';
 
 export interface SettingField {
@@ -50,9 +49,6 @@ const definitions: Record<string, FieldDefinition> = {
   X_ADS_API_VERSION: { label: 'X Ads API version', defaultValue: '12' },
   DISCORD_CLIENT_ID: { label: 'Discord client ID' }, DISCORD_CLIENT_SECRET: { label: 'Discord client secret', secret: true },
   DISCORD_BOT_TOKEN: { label: 'Discord bot token', secret: true, help: 'Optional for account verification; required to send messages as your installed Discord bot.' },
-  PLAID_CLIENT_ID: { label: 'Plaid client ID' }, PLAID_SECRET: { label: 'Plaid secret', secret: true },
-  PLAID_ENV: { label: 'Plaid environment', options: ['sandbox', 'production'], defaultValue: 'sandbox', help: 'Sandbox uses test bank accounts. Live bank accounts require approved Plaid production access.' },
-  PLAID_COUNTRY_CODES: { label: 'Plaid country codes', defaultValue: 'US', help: 'Comma-separated country codes supported by your Plaid account, for example US,CA.' },
   XAI_MODEL: { label: 'xAI API bot model', defaultValue: 'grok-4' },
 };
 const optionalFields: Record<string, string[]> = {
@@ -65,10 +61,10 @@ const optionalFields: Record<string, string[]> = {
   'reddit-ads': ['REDDIT_USER_AGENT', 'REDDIT_CONVERSIONS_TOKEN'],
   'tiktok-business': ['TIKTOK_EVENTS_ACCESS_TOKEN'],
   'x-ads': ['X_ADS_API_VERSION'],
-  plaid: ['PLAID_CLIENT_ID', 'PLAID_SECRET', 'PLAID_ENV', 'PLAID_COUNTRY_CODES'],
   xai: ['XAI_MODEL'],
 };
 const setupUrls: Record<string, string> = {
+  'microsoft-ads': 'https://entra.microsoft.com/', discord: 'https://discord.com/developers/applications',
   openai: 'https://platform.openai.com/api-keys', anthropic: 'https://console.anthropic.com/settings/keys', xai: 'https://console.x.ai/',
   facebook: 'https://developers.facebook.com/apps/', instagram: 'https://developers.facebook.com/apps/', 'meta-business': 'https://developers.facebook.com/apps/', threads: 'https://developers.facebook.com/apps/', whatsapp: 'https://developers.facebook.com/apps/',
   youtube: 'https://console.cloud.google.com/apis/credentials', 'google-ads': 'https://console.cloud.google.com/apis/credentials', 'google-analytics': 'https://console.cloud.google.com/apis/credentials', 'search-console': 'https://console.cloud.google.com/apis/credentials',
@@ -76,7 +72,6 @@ const setupUrls: Record<string, string> = {
   linkedin: 'https://www.linkedin.com/developers/apps', 'linkedin-ads': 'https://www.linkedin.com/developers/apps',
   reddit: 'https://www.reddit.com/prefs/apps', 'reddit-ads': 'https://www.reddit.com/prefs/apps',
   pinterest: 'https://developers.pinterest.com/', 'pinterest-ads': 'https://developers.pinterest.com/', wordpress: 'https://developer.wordpress.com/apps/',
-  'microsoft-ads': 'https://entra.microsoft.com/', discord: 'https://discord.com/developers/applications', plaid: 'https://dashboard.plaid.com/team/keys',
   'wordpress-self-hosted': 'https://make.wordpress.org/core/2020/11/05/application-passwords-integration-guide/',
   mailchimp: 'https://mailchimp.com/help/about-api-keys/',
 };
@@ -142,7 +137,6 @@ export function providerSettings(provider: ProviderDefinition, config: AppConfig
     id: provider.id, name: provider.name, docsUrl: provider.docsUrl, setupUrl: setupUrls[provider.id] || provider.docsUrl,
     fields: providerKeys(provider.id).filter(key => Object.hasOwn(definitions, key)).map(key => ({ ...field(key, env), required: required.includes(key) })),
     ...(provider.authType === 'oauth' ? { callbackUrl: `${config.origin}/api/oauth/${provider.id}/callback` } : {}),
-    ...(provider.id === 'plaid' ? { callbackUrl: `${config.origin}/plaid/callback` } : {}),
   };
 }
 export function saveSettings(config: AppConfig, store: Store, env: NodeJS.ProcessEnv, body: unknown, localOrigin?: string): void {
@@ -151,7 +145,6 @@ export function saveSettings(config: AppConfig, store: Store, env: NodeJS.Proces
   if (!values || typeof values !== 'object' || Array.isArray(values)) throw new ProviderError('Provide settings as named values.');
   if (!Array.isArray(reset) || reset.some(key => typeof key !== 'string' || !Object.hasOwn(definitions, key) || key === 'APP_ORIGIN')) throw new ProviderError('Choose valid settings to clear.');
   const next = { ...(store.readSetting<Record<string, string>>(overrideName) || {}) };
-  if (isPlaidExchangeActive(store) && [...Object.keys(values), ...reset as string[]].some(key => key.startsWith('PLAID_'))) throw new ProviderError('Wait for the bank connection to finish before changing Plaid settings.', 409);
   for (const [key, rawValue] of Object.entries(values)) {
     if (!Object.hasOwn(definitions, key)) throw new ProviderError('That setting cannot be changed in the dashboard.');
     if (typeof rawValue !== 'string' || rawValue.length > 8192 || /[\r\n\0]/.test(rawValue)) throw new ProviderError('Setting values must be a single line of text.');
@@ -163,17 +156,12 @@ export function saveSettings(config: AppConfig, store: Store, env: NodeJS.Proces
       value = originValue(value);
       if (!value.startsWith('https:') && value !== localOrigin && value !== config.origin) throw new ProviderError('Use your configured local address or a public HTTPS address.');
     }
-    if (key === 'PLAID_COUNTRY_CODES' && !/^[A-Z]{2}(,[A-Z]{2}){0,19}$/.test(value)) throw new ProviderError('Use comma-separated uppercase country codes, such as US,CA.');
     if (key === 'LINKEDIN_API_VERSION' && value && !/^\d{6}$/.test(value)) throw new ProviderError('LinkedIn API versions use six digits, such as 202601.');
     if (['META_API_VERSION', 'THREADS_API_VERSION'].includes(key) && value && !/^v\d+\.\d+$/.test(value)) throw new ProviderError('Meta and Threads API versions use a version such as v26.0 or v1.0.');
     if (key === 'X_ADS_API_VERSION' && value && !/^\d{1,3}$/.test(value)) throw new ProviderError('X Ads API versions use a numeric version.');
     next[key] = value;
   }
   for (const key of reset as string[]) next[key] = '';
-  const plaidConnected = store.connection('plaid');
-  const plaidCredential = store.credential('plaid');
-  const plaidBinding: Record<string, string | undefined> = { PLAID_CLIENT_ID: plaidCredential?.fields?.plaidClientId, PLAID_ENV: plaidCredential?.fields?.plaidEnvironment };
-  if (plaidConnected && ['PLAID_CLIENT_ID', 'PLAID_ENV'].some(key => Object.hasOwn(next, key) && (next[key] || definitions[key].defaultValue || '') !== (plaidBinding[key] || env[key] || definitions[key].defaultValue || ''))) throw new ProviderError('Disconnect Plaid before changing its client ID or environment.', 409);
   store.writeSetting(overrideName, next);
   hydrateSettings(config, store, env);
 }

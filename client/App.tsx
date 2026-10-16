@@ -16,7 +16,6 @@ import {
   WorkspaceSetup,
   type WorkspaceSettings,
 } from "./Setup";
-import { connectPlaid, returningFromPlaid } from "./plaid-link";
 import { GoogleWorkspace } from "./Workspace";
 import { AiAuthorization } from "./AiConnections";
 import { TikTokPublish } from "./TikTokPublish";
@@ -28,8 +27,7 @@ type Category =
   | "communications"
   | "advertising"
   | "analytics"
-  | "websites"
-  | "finance";
+  | "websites";
 type Resource = { id: string; name: string; type: string };
 type Connection = {
   provider: string;
@@ -45,7 +43,7 @@ export type Provider = {
   name: string;
   category: Category;
   description: string;
-  authType: "api_key" | "oauth" | "link" | "local";
+  authType: "api_key" | "oauth" | "local";
   docsUrl: string;
   callbackUrl?: string;
   configured: boolean;
@@ -87,7 +85,6 @@ const categories: { id: "all" | Category; label: string }[] = [
   { id: "advertising", label: "Advertising" },
   { id: "analytics", label: "Analytics" },
   { id: "websites", label: "Websites" },
-  { id: "finance", label: "Banking" },
 ];
 
 const categoryNames: Record<Category, string> = {
@@ -97,7 +94,6 @@ const categoryNames: Record<Category, string> = {
   advertising: "Advertising",
   analytics: "Analytics",
   websites: "Websites",
-  finance: "Banking",
 };
 
 function Icon({
@@ -445,9 +441,6 @@ function ProviderMark({ provider }: { provider: Provider }) {
   } else if (id === "whatsapp") {
     style = "whatsapp";
     content = "W";
-  } else if (id === "plaid") {
-    style = "plaid";
-    content = <Icon name="layers" size={25} />;
   } else if (name.includes("discord")) {
     style = "discord";
     content = "D";
@@ -891,7 +884,6 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
   const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
   const [settingsError, setSettingsError] = useState("");
   const [configureOnly, setConfigureOnly] = useState(false);
-  const plaidResumed = useRef(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [feedback, setFeedback] = useState<Feedback | null>(null);
@@ -995,19 +987,6 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
     setBusy(provider.id);
     setFeedback(null);
     try {
-      if (provider.authType === "link") {
-        const linked = await connectPlaid(api);
-        if (linked) {
-          await refresh();
-          setFeedback({
-            kind: "success",
-            message:
-              "Bank connected. Your available accounts are ready to view.",
-          });
-        }
-        setBusy(null);
-        return;
-      }
       const result = await api<{ url: string }>(
         `/api/oauth/${encodeURIComponent(provider.id)}/start`,
         { method: "POST" },
@@ -1019,43 +998,10 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
         );
       window.location.assign(destination.href);
     } catch (error) {
-      if (provider.authType === "link") {
-        try {
-          await refresh();
-        } catch {
-          /* Preserve the bank connection error. */
-        }
-      }
       fail(error);
       setBusy(null);
     }
   };
-
-  useEffect(() => {
-    if (!returningFromPlaid() || plaidResumed.current) return;
-    plaidResumed.current = true;
-    setBusy("plaid");
-    void connectPlaid(api, true)
-      .then(async (linked) => {
-        if (linked) {
-          await refresh();
-          setFeedback({
-            kind: "success",
-            message:
-              "Bank connected. Your available accounts are ready to view.",
-          });
-        }
-      })
-      .catch(async (error) => {
-        try {
-          await refresh();
-        } catch {
-          /* Preserve the bank connection error. */
-        }
-        fail(error);
-      })
-      .finally(() => setBusy(null));
-  }, [refresh, fail]);
 
   const connectKey = async (
     provider: Provider,
@@ -1642,13 +1588,11 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                               {statusLabel}
                             </span>
                             <span className="auth-label">
-                              {provider.authType === "link"
-                                ? "Secure bank sign-in"
-                                : provider.authType === "oauth"
-                                  ? "Official sign-in"
-                                  : provider.category === "ai"
-                                    ? "API key"
-                                    : "Access token"}
+                              {provider.authType === "oauth"
+                                ? "Official sign-in"
+                                : provider.category === "ai"
+                                  ? "API key"
+                                  : "Access token"}
                             </span>
                           </div>
                           {connection && (
@@ -1939,8 +1883,6 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                   ? "Local synced vault"
                   : dialogProvider.id === "wordpress-self-hosted"
                     ? "WordPress Application Password"
-                  : dialogProvider.authType === "link"
-                  ? "Plaid secure bank sign-in"
                   : dialogProvider.authType === "oauth"
                     ? "OAuth authorization"
                     : dialogProvider.category === "ai" || dialogProvider.id === "mailchimp"
@@ -2037,21 +1979,14 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
           }
         >
           <p className="dialog-copy">
-            {dialogProvider.id === "plaid"
-              ? "This revokes this bank connection through Plaid and removes its saved credentials from Connector. Your bank accounts are not closed. You can link the bank again later."
-              : "This removes the saved credentials and account information from Connector. You can connect the account again at any time."}
+            This removes the saved credentials and account information from
+            Connector. You can connect the account again at any time.
           </p>
           <div className="info-note">
             <Icon name="help" size={18} />
             <p>
-              {dialogProvider.id === "plaid" ? (
-                "If Plaid cannot revoke the connection, Connector keeps it saved so you can retry."
-              ) : (
-                <>
-                  To revoke the app’s authorization completely, also remove
-                  Connector from your {dialogProvider.name} account settings.
-                </>
-              )}
+              To revoke the app’s authorization completely, also remove
+              Connector from your {dialogProvider.name} account settings.
             </p>
           </div>
         </Modal>

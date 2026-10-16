@@ -1,9 +1,9 @@
 {
   "name": "connector",
-  "version": "0.9.15",
+  "version": "0.9.16",
   "private": true,
   "type": "module",
-  "description": "A guided account connector for AI assistants, social platforms, advertising, WhatsApp, and bank data.",
+  "description": "A guided account connector for AI assistants, social platforms, advertising, Google Workspace, and WhatsApp.",
   "engines": {
     "node": ">=24 <25"
   },

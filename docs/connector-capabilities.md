@@ -32,7 +32,6 @@ Account verification reads your account details without publishing anything. A s
 | WordPress (your hosting provider) | Create and update blog posts and pages, including publishing. | The Application Password inherits the chosen WordPress user's role. Choose a role that can edit the intended content. |
 | Mailchimp | Create email campaign drafts, replace draft content, send campaigns. | Requires a Marketing API key with the necessary account role and an eligible audience/sender. |
 | Obsidian | Create, append to, and update Markdown notes. | Writes to the selected local vault; Obsidian Sync handles cloud synchronization. The PC's filesystem must allow writes. |
-| Plaid | **Bank data is read-only.** | The connected Transactions product reads accounts, balances, and transactions. It cannot edit bank records or move money. |
 
 All advertising connectors can also read supported campaign/spend reports, and supported conversion uploads are separate actions. Campaign builders provide a subset of each advertising API, not every creative, targeting, budget, or campaign type. A returned creation ID does not mean a complete ad is serving.
 
@@ -55,7 +54,7 @@ Each Google account authorizes its selected apps independently. Each AI profile 
 
 The fixed API actions expand coverage of each supported API, not every Google website feature. They do not bypass Google scopes, sharing roles, API configuration, subscription limits, or administrator policies. See [Workspace upgrade steps](providers-workspace.md#update-an-existing-connection-for-expanded-actions) and [API request examples](pipeline.md#expanded-workspace-api-actions).
 
-Maps business listing management would require a separate Google Business Profile integration and approval. Plaid money movement would require separate payment/Transfer product access and implementation. Those are different products from the connected Places and bank-data APIs; they are not enabled by granting a broader permission here. No unsupported write behavior is simulated.
+Maps business listing management would require a separate Google Business Profile integration and approval. It is a different product from the connected Places API and is not enabled by granting a broader permission here. No unsupported write behavior is simulated.
 
 ## AI connections
 
@@ -77,4 +76,4 @@ For an existing Google Analytics or Search Console connection:
 
 Updating permissions does not require resetting your shared Google client ID/secret or reconnecting your other Google services. **Disable and reset** is for clearing a mistaken setup; it is unnecessary for approving an added permission. Google's OAuth publishing, verification, and organization policies can still restrict the requested access. See [Google setup](providers-google.md) and [Workspace setup](providers-workspace.md).
 
-Official references for the new writes and read-only boundaries: [GA4 key events](https://developers.google.com/analytics/devguides/config/admin/v1/rest/v1beta/properties.keyEvents), [Search Console sitemaps](https://developers.google.com/webmaster-tools/v1/sitemaps), [Plaid Transactions](https://plaid.com/docs/api/products/transactions/), [Maps Places](https://developers.google.com/maps/documentation/places/web-service/overview), and [Google Voice activity reports](https://developers.google.com/workspace/admin/reports/v1/appendix/activity/voice).
+Official references for the new writes and read-only boundaries: [GA4 key events](https://developers.google.com/analytics/devguides/config/admin/v1/rest/v1beta/properties.keyEvents), [Search Console sitemaps](https://developers.google.com/webmaster-tools/v1/sitemaps), [Maps Places](https://developers.google.com/maps/documentation/places/web-service/overview), and [Google Voice activity reports](https://developers.google.com/workspace/admin/reports/v1/appendix/activity/voice).

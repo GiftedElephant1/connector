@@ -77,7 +77,7 @@ Grok Bot can continue cloud work with its app closed, but this Connector install
 
 1. Check that the authorization page is at your own public Connector address. The page is headed **Authorize an AI connection** and shows the requesting client's name. A client-supplied name is not proof of its identity; start this flow from the AI app you intend to connect.
 2. Enter your **Connector workspace password** when asked. This is the password you chose when setting up Connector, not your AI account password.
-3. Check **Standard platform tools** if this AI should use your social, advertising, communications, website, bank-data, and Obsidian connections. This permits all standard platform connections, including ones you add later; it is not an individual-platform selector. Plaid remains read-only. Leave it unchecked for a Google-only agent.
+3. Check **Standard platform tools** if this AI should use your social, advertising, communications, website, and Obsidian connections. This permits all standard platform connections, including ones you add later; it is not an individual-platform selector. Leave it unchecked for a Google-only agent.
 4. Under **Google Workspace agent profile**, choose the profile you created for this AI, or leave **No Google Workspace access** selected. Review the account email addresses, apps, and default account shown. Selecting a profile does not give access to other Google accounts or apps.
 5. Select at least one access option, then click **Approve selected access**. To stop without granting access, click **Deny access**.
 6. The browser returns to the AI app. Finish any confirmation shown there. Connector's **Approved AI connections** list now records the grant.

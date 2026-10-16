@@ -141,7 +141,7 @@ test("desktop handoff clears its URL capability before exchange and retains an e
   expect(new URL(page.url()).hash).toBe("");
 });
 
-test("WhatsApp explains business setup and Plaid opens the secure picker then exchanges its token", async ({
+test("WhatsApp business setup remains available and removed Plaid setup is absent", async ({
   page,
 }) => {
   await login(page);
@@ -157,65 +157,12 @@ test("WhatsApp explains business setup and Plaid opens the secure picker then ex
   );
   await page.keyboard.press("Escape");
   await page.getByLabel("Search platforms").fill("Plaid");
-  await page
-    .getByRole("button", { name: "Connect account", exact: true })
-    .click();
-  await expect(page.getByRole("dialog")).toContainText(
-    "Sandbox connects test banks",
-  );
-  await expect(page.getByRole("dialog")).toContainText(
-    "AI assistants you authorize",
-  );
-  await page
-    .getByLabel("Plaid client ID", { exact: true })
-    .fill("browser-plaid-id");
-  await page
-    .getByLabel("Plaid secret", { exact: true })
-    .fill("browser-plaid-secret");
-  // The external Plaid UI and Plaid network responses are mocked; settings use the real server.
-  await page.evaluate(() => {
-    (window as unknown as { Plaid: unknown }).Plaid = {
-      create: (options: {
-        token: string;
-        onSuccess: (token: string) => void;
-      }) => ({
-        open: () => {
-          if (options.token !== "link-sandbox-browser")
-            throw new Error("Unexpected Link token");
-          options.onSuccess("public-sandbox-browser");
-        },
-        destroy: () => {},
-      }),
-    };
-  });
-  await page.route("**/api/plaid/link-token", (route) =>
-    route.fulfill({
-      json: {
-        linkToken: "link-sandbox-browser",
-        flowId: "browser-link-flow",
-        expiresAt: new Date(Date.now() + 600000).toISOString(),
-        environment: "sandbox",
-      },
-    }),
-  );
-  let exchanged = false;
-  await page.route("**/api/plaid/exchange", (route) => {
-    expect(route.request().postDataJSON()).toEqual({
-      publicToken: "public-sandbox-browser",
-      flowId: "browser-link-flow",
-    });
-    exchanged = true;
-    return route.fulfill({ json: { connection: {} } });
-  });
-  await page.getByRole("button", { name: "Save and continue" }).click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(
-    page.getByRole("status").filter({ hasText: "Bank connected." }),
-  ).toBeVisible();
-  expect(exchanged).toBe(true);
-  expect(
-    await page.evaluate(() => sessionStorage.getItem("connector-plaid-link")),
-  ).toBeNull();
+  await expect(page.locator(".provider-card")).toHaveCount(0);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.locator(".settings-providers");
+  await expect(settings).not.toContainText("Plaid");
+  await expect(settings).toContainText("Discord");
+  await expect(settings).toContainText("LinkedIn");
 });
 
 test("updates show the installed version and prepare a local connector request without changing saved settings", async ({

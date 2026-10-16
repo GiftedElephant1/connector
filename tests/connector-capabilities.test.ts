@@ -5,11 +5,11 @@ import { providerCatalog } from '../server/providers.ts';
 import { listWorkspaceActions, workspaceApps } from '../server/workspace-actions.ts';
 
 // These exceptions describe the actual connected products, not entire vendors:
-// Plaid Transactions cannot write bank records; Places cannot modify a personal
-// Maps account; the Voice administrator Reports API exposes audit reads only.
+// Places cannot modify a personal Maps account; the Voice administrator
+// Reports API exposes audit reads only.
 // See docs/connector-capabilities.md. Any new read-only connector needs an
 // explicit review of its official API limits instead of silently losing writes.
-const readOnlyPlatforms = new Set(['plaid']);
+const readOnlyPlatforms = new Set<string>();
 const readOnlyWorkspaceApps = new Set(['maps', 'voice']);
 
 test('every destination platform with a writable API exposes at least one write action', () => {

@@ -341,9 +341,8 @@ export function ProviderSetup({
   return (
     <div className="provider-setup">
       <p className="dialog-copy">
-        {provider.authType === "link"
-          ? "Connect a bank through Plaid’s secure account picker. First, add your Plaid application details below."
-          : `Give Connector permission to connect to ${provider.name}. Add these application details once; future connections use the platform’s sign-in screen.`}
+        Give Connector permission to connect to {provider.name}. Add these
+        application details once; future connections use the platform’s sign-in screen.
       </p>
       {provider.id === "tiktok" && <p className="setup-help">New to TikTok for Developers? Open Prepare TikTok submission below for the full account-registration, web-app creation, sandbox, and connection instructions, including every application field.</p>}
       {provider.id === "tiktok" && <TikTokReview request={request} />}
@@ -422,11 +421,7 @@ export function ProviderSetup({
                   >
                     {field.options.map((option) => (
                       <option key={option} value={option}>
-                        {option === "sandbox"
-                          ? "Sandbox — test bank data"
-                          : option === "production"
-                            ? "Production — real bank data"
-                            : option}
+                        {option}
                       </option>
                     ))}
                   </select>
@@ -460,17 +455,6 @@ export function ProviderSetup({
               </div>
             ))}
           </div>
-          {provider.id === "plaid" && (
-            <div className="info-note">
-              <p>
-                Sandbox connects test banks. Real bank data requires approved
-                Plaid production access. Your bank password is entered in Plaid
-                or your bank’s screen. Connected bank data is read-only and
-                becomes available to AI assistants you authorize with your
-                Connector API key.
-              </p>
-            </div>
-          )}
           {error && (
             <p className="inline-error" role="alert">
               {error}
@@ -846,7 +830,7 @@ export function WorkspaceSetup({
           {providers
             .filter(
               (provider) =>
-                provider.category !== "ai" && ((provider.authType === "oauth" || provider.authType === "link") ||
+                provider.category !== "ai" && (provider.authType === "oauth" ||
                 provider.missing.length > 0 ||
                 settings.fields.some((field) =>
                   field.providerIds.includes(provider.id),

@@ -17,7 +17,7 @@ function card(page: Page, name: string) {
   return page.locator(".provider-card").filter({ has: page.getByRole("heading", { name, exact: true }) });
 }
 
-test("actual connector catalog displays Analytics and Search Console writes and the Plaid bank-data limit", async ({ page }) => {
+test("actual connector catalog retains Google actions and removes Plaid and the Banking category", async ({ page }) => {
   // No catalog or action routes are mocked: these badges reflect the server's
   // real registry, including the newly implemented Google write actions.
   await login(page);
@@ -25,9 +25,10 @@ test("actual connector catalog displays Analytics and Search Console writes and 
     await expect(card(page, name).getByText("Read + write actions", { exact: true })).toBeVisible();
     await expect(card(page, name).getByText("Read-only integration", { exact: true })).toHaveCount(0);
   }
-  await expect(card(page, "Plaid").getByText("Read-only integration", { exact: true })).toBeVisible();
-  await expect(card(page, "Plaid").getByText("Read + write actions", { exact: true })).toHaveCount(0);
-  await expect(card(page, "Plaid")).toContainText(/read-only bank data/i);
+  await expect(card(page, "Plaid")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Banking", exact: true })).toHaveCount(0);
+  await expect(card(page, "Discord")).toBeVisible();
+  await expect(card(page, "LinkedIn")).toBeVisible();
 });
 
 test("Update permissions starts real Google consent without resetting settings and cancellation preserves the connection display", async ({ page }) => {
