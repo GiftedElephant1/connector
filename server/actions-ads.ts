@@ -5,6 +5,7 @@ import type { ActionAdapter, ActionField, ActionValues } from './action-types';
 import { isObject, safeCredential } from './provider-http';
 import { ProviderError, type Credential } from './provider-types';
 import { xAuthorization } from './providers-ads';
+import { linkedInAdsHttpOptions } from './linkedin-ads-errors';
 
 export const adsActions: ActionAdapter[] = [];
 const field = (name: string, label: string, type: ActionField['type'] = 'text', help?: string): ActionField => ({ name, label, type, required: true, ...(help ? { help } : {}) });
@@ -94,7 +95,7 @@ function micros(values: ActionValues): number {
 
 // LinkedIn Marketing APIs. Ad group, targeting, creative, and billing eligibility remain platform requirements.
 function liHeaders(credential: Credential, env: NodeJS.ProcessEnv) {
-  const version = env.LINKEDIN_API_VERSION || '202601';
+  const version = env.LINKEDIN_API_VERSION?.trim() || '202601';
   if (!/^20\d{2}(0[1-9]|1[0-2])$/.test(version)) throw new ProviderError('Configure a supported LINKEDIN_API_VERSION in YYYYMM format.');
   return { ...bearer(credential), 'LinkedIn-Version': version, 'X-Restli-Protocol-Version': '2.0.0' };
 }
@@ -102,14 +103,16 @@ async function liRequest(credential: Credential, env: NodeJS.ProcessEnv, path: s
   const result = await apiRequest('LinkedIn Ads', `https://api.linkedin.com/rest/${path}`, {
     method, headers: { ...liHeaders(credential, env), ...(body === undefined ? {} : { 'content-type': 'application/json' }), ...(partial ? { 'X-RestLi-Method': 'PARTIAL_UPDATE' } : {}) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+  }, linkedInAdsHttpOptions);
   if (!isObject(result.body)) throw new ProviderError('LinkedIn Ads returned an unexpected response.', 502);
   check(result.body, 'LinkedIn Ads');
   return { ...result, body: result.body };
 }
 const liCampaignPath = (v: ActionValues) => `adAccounts/${numericId(v, 'accountId')}/adCampaigns`;
 add('linkedin-ads', 'list-campaigns', 'List campaigns', 'read', [account], 'Read the first 100 campaigns in an approved LinkedIn ad account.', async (c, v, env) => {
-  const query = new URLSearchParams({ q: 'search', search: '(status:(values:List(ACTIVE,PAUSED,DRAFT)))', count: '100' });
+  // Rest.li 2.0 requires literal structural delimiters; URLSearchParams encodes them.
+  // Account-scoped campaign search uses cursor pagination (pageSize), not count.
+  const query = 'q=search&search=(status:(values:List(ACTIVE,PAUSED,DRAFT)))&pageSize=100';
   const { body } = await liRequest(c, env, `${liCampaignPath(v)}?${query}`);
   return { summary: 'LinkedIn campaigns (first page).', items: entries(body.elements, 'LinkedIn Ads').map(row => ({ id: string(row.id), name: string(row.name), status: string(row.status) })) };
 });
@@ -131,7 +134,10 @@ add('linkedin-ads', 'set-campaign-status', 'Launch or pause campaign', 'write', 
 add('linkedin-ads', 'read-spend', 'Read campaign spend', 'read', [account, ...dateFields], 'Read a daily campaign spend preview in local account currency. Requires r_ads_reporting; first 100 returned rows.', async (c, v, env) => {
   const range = dates(v);
   const dateTuple = (date: string) => { const [year, month, day] = date.split('-').map(Number); return `(year:${year},month:${month},day:${day})`; };
-  const query = new URLSearchParams({ q: 'analytics', pivot: 'CAMPAIGN', timeGranularity: 'DAILY', accounts: `List(urn:li:sponsoredAccount:${numericId(v, 'accountId')})`, dateRange: `(start:${dateTuple(range.start)},end:${dateTuple(range.end)})`, fields: 'dateRange,pivotValues,costInLocalCurrency,impressions,clicks' });
+  // Encode the URN value inside List(...), preserving the list/record syntax.
+  // Dates are validated above and each component is an integer, not arbitrary input.
+  const accountUrn = encodeURIComponent(`urn:li:sponsoredAccount:${numericId(v, 'accountId')}`);
+  const query = `q=analytics&pivot=CAMPAIGN&timeGranularity=DAILY&accounts=List(${accountUrn})&dateRange=(start:${dateTuple(range.start)},end:${dateTuple(range.end)})&fields=dateRange,pivotValues,costInLocalCurrency,impressions,clicks`;
   const { body } = await liRequest(c, env, `adAnalytics?${query}`);
   return { summary: 'LinkedIn campaign spend in account currency (first 100 rows).', items: entries(body.elements, 'LinkedIn Ads').map(row => ({ campaign: Array.isArray(row.pivotValues) ? string(row.pivotValues[0]) : '', date: isObject(row.dateRange) && isObject(row.dateRange.start) ? `${string(row.dateRange.start.year)}-${string(row.dateRange.start.month)}-${string(row.dateRange.start.day)}` : '', spend: string(row.costInLocalCurrency), impressions: string(row.impressions), clicks: string(row.clicks) })) };
 });

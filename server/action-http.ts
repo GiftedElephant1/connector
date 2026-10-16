@@ -2,8 +2,54 @@ import { ProviderError, type Credential } from './provider-types';
 import { safeCredential, isObject } from './provider-http';
 import type { ActionValues } from './action-types';
 
+const linkedInErrorCodes = ['ILLEGAL_ARGUMENT', 'INVALID_REQUEST', 'BAD_REQUEST', 'ACCESS_DENIED', 'VERSION_MISSING', 'NONEXISTENT_VERSION', 'EMPTY_ACCESS_TOKEN', 'INVALID_ACCESS_TOKEN', 'EXPIRED_ACCESS_TOKEN', 'REVOKED_ACCESS_TOKEN', 'NOT_FOUND', 'THROTTLED', 'INTERNAL_SERVER_ERROR'] as const;
+export type ActionHttpFailure = {
+  status: number;
+  code?: number;
+  errorCode?: typeof linkedInErrorCodes[number];
+};
+export type ActionHttpOptions = {
+  diagnosticFormat?: 'linkedin-ads';
+  /** Receives only HTTP status, a bounded numeric code and allowlisted error codes. */
+  failure?: (failure: ActionHttpFailure) => ProviderError;
+};
+
+/** Provider error text may contain credentials or URLs. Never return it to callers. */
+async function errorCodes(response: Response, format?: ActionHttpOptions['diagnosticFormat']): Promise<Pick<ActionHttpFailure, 'code' | 'errorCode'>> {
+  if (format !== 'linkedin-ads') return {};
+  try {
+    const reader = response.body?.getReader();
+    if (!reader) return {};
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    let finished = false;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) { finished = true; break; }
+        size += value.byteLength;
+        if (size > 16_384) return {};
+        chunks.push(value);
+      }
+    } finally {
+      if (!finished) await reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    const body: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    if (!isObject(body)) return {};
+    const code = typeof body.serviceErrorCode === 'number' && Number.isInteger(body.serviceErrorCode) && body.serviceErrorCode >= 0 && body.serviceErrorCode <= 2_147_483_647 ? body.serviceErrorCode : undefined;
+    const errorCode = linkedInErrorCodes.find(value => value === body.code);
+    return { ...(code !== undefined ? { code } : {}), ...(errorCode ? { errorCode } : {}) };
+  } catch {
+    return {};
+  }
+}
+
 /** Adapters must provide fixed official API origins. No user-provided fetch destinations. */
-export async function apiRequest(provider: string, url: string, init: RequestInit = {}): Promise<{ body: unknown; headers: Headers }> {
+export async function apiRequest(provider: string, url: string, init: RequestInit = {}, options: ActionHttpOptions = {}): Promise<{ body: unknown; headers: Headers }> {
   let response: Response;
   try {
     const headers = new Headers(init.headers);
@@ -13,6 +59,7 @@ export async function apiRequest(provider: string, url: string, init: RequestIni
     throw new ProviderError(`${provider} did not return a response. For a publishing or advertising action, check the platform before retrying: it may have accepted the request.`, 502);
   }
   if (!response.ok) {
+    if (options.failure) throw options.failure({ status: response.status, ...await errorCodes(response, options.diagnosticFormat) });
     if (response.status === 401 || response.status === 403) throw new ProviderError(`${provider} denied this action. Reconnect with the required permissions and check your app's access tier.`, 403);
     if (response.status === 429) throw new ProviderError(`${provider} is rate limiting requests. Check the platform before retrying a write.`, 429);
     throw new ProviderError(`${provider} could not complete this action (HTTP ${response.status}). Check the platform before retrying a write.`, 502);

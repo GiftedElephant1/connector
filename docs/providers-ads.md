@@ -24,6 +24,16 @@ LinkedIn can invalidate previous tokens when the same app and member authorize a
 
 LinkedIn versions have a support lifecycle. `LINKEDIN_API_VERSION` must be a currently supported `YYYYMM` release. The pinned January 2026 default is explicit so upgrades can be reviewed instead of silently following the calendar. A release header alone does not confer Advertising API approval. Programmatic refresh is attempted only when LinkedIn actually provides a refresh token; otherwise reconnect when the access token expires.
 
+### Account appears, but campaign or spend reads return HTTP 400
+
+Update to **0.9.13** or later. Earlier versions encoded the structural parentheses, commas and colons in LinkedIn's Rest.li search and reporting parameters, which can make LinkedIn reject the request even though account discovery succeeds. Campaign search also needs `pageSize=100`, rather than the old `count` parameter. The corrected requests retain the structure and encode only values such as the account URN.
+
+After updating and restarting, retry **List campaigns** and **Read campaign spend** on the existing Campaign Manager connection. This request-format fix does not change OAuth scopes or require reconnection. An HTTP 400 alone does not establish that billing, account roles or app approval are missing. Failures now include LinkedIn's numeric service error code and recognized error label when available, without exposing raw messages or credentials. A 401 points to rejected access; a 403 calls for checking the member's account access and approved permissions, including `r_ads_reporting` for reports.
+
+A successful empty campaign list is valid for a new account. An empty analytics response can mean no activity or lack of read access; it does not by itself prove zero spend. Reads never create or launch a campaign.
+
+Request contracts: [Rest.li 2.0 encoding](https://learn.microsoft.com/en-us/linkedin/shared/api-guide/concepts/protocol-version), [account-scoped campaign search](https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads/account-structure/create-and-manage-campaigns), and [Ads reporting](https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting).
+
 Official references: [account search and management](https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads/account-structure/create-and-manage-accounts), [versioning](https://learn.microsoft.com/en-us/linkedin/marketing/versioning), and the [LinkedIn-maintained Python client's `r_ads` finder example](https://github.com/linkedin-developers/linkedin-api-python-client#finder-request-example).
 
 ## Microsoft Advertising
