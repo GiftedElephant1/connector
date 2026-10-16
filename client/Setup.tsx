@@ -5,6 +5,7 @@ import { TikTokReview } from "./TikTokReview";
 import { XSetup } from "./XSetup";
 import { LinkedInSetup } from "./LinkedInSetup";
 import { GoogleSetup } from "./GoogleSetup";
+import { PinterestAdsSetup } from "./PinterestAdsSetup";
 import "./setup.css";
 
 export type ApiRequest = <T>(path: string, options?: RequestInit) => Promise<T>;
@@ -377,7 +378,7 @@ export function ProviderSetup({
                   organizations={(values.LINKEDIN_ENABLE_ORGANIZATIONS ?? settings.fields.find(field => field.key === "LINKEDIN_ENABLE_ORGANIZATIONS")?.value) === "true"}
                   conversions={(values.LINKEDIN_ENABLE_CONVERSIONS ?? settings.fields.find(field => field.key === "LINKEDIN_ENABLE_CONVERSIONS")?.value) === "true"}
                   combined={(values.LINKEDIN_COMBINE_SCOPES ?? settings.fields.find(field => field.key === "LINKEDIN_COMBINE_SCOPES")?.value) === "true"}
-                /> : ["youtube", "google-ads", "google-analytics", "search-console"].includes(provider.id) ? <GoogleSetup callbackUrl={settings.callbackUrl} /> : <>
+                /> : provider.id === "pinterest-ads" ? <PinterestAdsSetup callbackUrl={settings.callbackUrl} /> : ["youtube", "google-ads", "google-analytics", "search-console"].includes(provider.id) ? <GoogleSetup callbackUrl={settings.callbackUrl} /> : <>
                 <strong>Add this redirect address</strong>
                 <p>
                   In the developer portal’s OAuth or redirect settings, paste

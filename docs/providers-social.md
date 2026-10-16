@@ -70,7 +70,7 @@ Use a confidential **web app**, with a client ID, client secret and exact redire
 
 ## Pinterest
 
-Create a Pinterest developer app and request the appropriate access tier. Trial access is restricted to eligible accounts and collaborators; wider use requires Pinterest review and Standard access. Board and Pin permissions support creating a Pin on an existing board. Pinterest's official OpenAPI permission mapping for Pin creation includes both `boards:read` and `boards:write` along with `pins:read` and `pins:write`, although Connector does not create or edit boards. Advertising scopes are not requested by this adapter.
+Create a Pinterest developer app and request the appropriate access tier. Trial access is restricted to eligible accounts and collaborators; wider use requires Pinterest review and Standard access. Board and Pin permissions support creating a Pin on an existing board. Pinterest's official OpenAPI permission mapping for Pin creation includes both `boards:read` and `boards:write` along with `pins:read` and `pins:write`, although Connector does not create or edit boards. Advertising scopes are not requested by this adapter. For ad accounts, campaigns, budgets and spend, connect the separate [Pinterest Ads integration](providers-ads.md#pinterest-ads); the organic Pinterest connection and its credentials remain independent.
 
 - Authorize: `https://www.pinterest.com/oauth/`
 - Exchange and refresh: `POST https://api.pinterest.com/v5/oauth/token`, using HTTP Basic client authentication

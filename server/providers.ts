@@ -10,6 +10,7 @@ import { whatsappAdapters } from './providers-whatsapp.ts';
 import { wordpressAdapters } from './providers-wordpress.ts';
 import { mailchimpAdapters } from './providers-mailchimp.ts';
 import { obsidianAdapters } from './providers-obsidian.ts';
+import { pinterestAdsAdapter } from './providers-pinterest-ads.ts';
 
 export * from './provider-types.ts';
 
@@ -58,7 +59,7 @@ const aiAdapters: ProviderAdapter[] = aiDefinitions.map((definition) => ({
   },
 }));
 
-const adapters: ProviderAdapter[] = [...aiAdapters, ...socialAdapters, ...metaAdapters, ...googleAdapters, ...adsAdapters, ...discordAdapters, ...plaidAdapters, ...whatsappAdapters, ...wordpressAdapters, ...mailchimpAdapters, ...obsidianAdapters];
+const adapters: ProviderAdapter[] = [...aiAdapters, ...socialAdapters, ...metaAdapters, ...googleAdapters, ...adsAdapters, pinterestAdsAdapter, ...discordAdapters, ...plaidAdapters, ...whatsappAdapters, ...wordpressAdapters, ...mailchimpAdapters, ...obsidianAdapters];
 const byId = new Map(adapters.map((adapter) => [adapter.definition.id, adapter]));
 if (byId.size !== adapters.length) throw new Error('Provider IDs must be unique.');
 export const providerCatalog = adapters.map((adapter) => adapter.definition);

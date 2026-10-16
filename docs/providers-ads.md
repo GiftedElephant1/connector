@@ -4,7 +4,7 @@ These adapters connect accounts and execute explicit advertising actions from th
 
 Register the exact callback `APP_ORIGIN/api/oauth/PROVIDER_ID/callback` with each developer application. For example, LinkedIn Campaign Manager uses `https://your-connector.example/api/oauth/linkedin-ads/callback`. Keep client secrets in the server environment; account access tokens are stored by the app in its encrypted credential store.
 
-The resource list is a small verification preview: LinkedIn and X return at most 100 accounts, TikTok returns the first 50 Business Centers, Microsoft returns at most 100 customers/accounts. It is not a complete inventory or a reporting dashboard. A successful account-list request with an empty list means the API credential worked but returned no accessible resources.
+The resource list is a small verification preview: LinkedIn, X, and Pinterest return at most 100 accounts, TikTok returns the first 50 Business Centers, Microsoft returns at most 100 customers/accounts. It is not a complete inventory or a reporting dashboard. A successful account-list request with an empty list means the API credential worked but returned no accessible resources.
 
 | Connection | Server configuration | Actual verification |
 | --- | --- | --- |
@@ -13,6 +13,7 @@ The resource list is a small verification preview: LinkedIn and X return at most
 | TikTok Business Manager (`tiktok-business`) | `TIKTOK_BUSINESS_APP_ID`, `TIKTOK_BUSINESS_APP_SECRET` | `GET https://business-api.tiktok.com/open_api/v1.3/bc/get/`; reads Business Centers, not a consumer TikTok profile |
 | X Business / Ads (`x-ads`) | No client secrets in environment required; optional `X_ADS_API_VERSION` (default `12`) | OAuth 1.0a signed `GET https://ads-api.x.com/12/accounts`; reads advertising accounts |
 | Reddit Ads (`reddit-ads`) | `REDDIT_ADS_CLIENT_ID`, `REDDIT_ADS_CLIENT_SECRET`, `REDDIT_ADS_ACCOUNT_ID`; optional `REDDIT_USER_AGENT` | OAuth `adsread` token and `GET https://ads-api.reddit.com/api/v3/ad_accounts/{account_id}/campaigns`; verifies the selected account's read permission, including an account with no campaigns |
+| Pinterest Ads (`pinterest-ads`) | `PINTEREST_ADS_CLIENT_ID`, `PINTEREST_ADS_CLIENT_SECRET` | `GET https://api.pinterest.com/v5/ad_accounts` with `ads:read`; discovers the ad accounts the consenting user can access |
 
 ## LinkedIn Campaign Manager
 
@@ -72,15 +73,35 @@ The browser flow requests `adsread adsedit`, with `duration=permanent` for a ref
 
 Official references: [Reddit Ads API v3](https://ads-api.reddit.com/docs/v3/) and [Reddit OAuth2](https://github.com/reddit-archive/reddit/wiki/OAuth2). The Ads docs could not be retrieved from the build environment, so the v3 campaign-list route, `adsread` scope, Basic token authentication, and response envelope were additionally checked against [Airbyte's maintained Reddit Ads connector](https://github.com/airbytehq/airbyte/blob/master/airbyte-integrations/connectors/source-reddit-ads/manifest.yaml). Live approved-account verification remains required after configuring credentials.
 
+## Pinterest Ads
+
+Pinterest Ads is a separate **Advertising** connection from the organic Pinterest boards-and-Pins connection. Reauthorizing the organic Pinterest card does not grant the advertising connection access. Configure **Connections → Pinterest Ads → Connect account** with a Pinterest developer app approved for the intended advertising use and a business user with the appropriate ad account role. Trial access is limited to eligible accounts; wider use may require Pinterest review and Standard access. Application access and ad account permissions are separate requirements.
+
+1. Open [Pinterest for Developers](https://developers.pinterest.com/) and select the app with approved advertising access.
+2. Add the exact HTTPS callback shown in Connector to the app’s redirect URLs: `APP_ORIGIN/api/oauth/pinterest-ads/callback`. For an installation at `https://connector.example`, this is `https://connector.example/api/oauth/pinterest-ads/callback`.
+3. In Connector, save **Pinterest Ads app ID** and its matching **Pinterest Ads app secret**. These use dedicated `PINTEREST_ADS_CLIENT_ID` and `PINTEREST_ADS_CLIENT_SECRET` settings; organic Pinterest credentials and existing connections are preserved.
+4. Complete Pinterest consent for `ads:read,ads:write` using the Pinterest user who can access the intended ad account.
+5. Open **Pinterest Ads → View connection → Available resources** and check for the account. Give its ad account ID to the AI when asking it to list campaigns or read spend. Reads do not create or launch campaigns.
+
+If using the same approved developer app for both Pinterest connections, deliberately enter its credentials in both setup screens and register both callback paths. Connector does not infer advertising approval from organic access or automatically copy credentials or tokens between the cards.
+
+Authorization uses `https://www.pinterest.com/oauth/`; code exchange and refresh use `POST https://api.pinterest.com/v5/oauth/token` with HTTP Basic application authentication. Ad account discovery and all advertising actions use Pinterest API v5. Read and write requests require the chosen ad account ID and the appropriate granted scopes. A saved account name is a previous discovery result, so later requests can still fail if access or the user’s account role changes.
+
+Available actions are `list-campaigns`, `create-campaign`, `set-campaign-status`, `set-campaign-budget`, and `read-spend`. Campaigns are created with a daily budget, the `CONSIDERATION` objective and `PAUSED` status. Budget inputs are in the account’s currency; Connector checks that currency against the account and converts the amount into Pinterest’s microcurrency representation. Spend reports use a bounded date range of up to 31 days and daily account totals, optionally filtered by specified campaign IDs. Campaign and reporting responses are bounded; discover the action catalog for exact inputs and pagination information.
+
+Creating a campaign does not create ad groups, targeting or creative Pins. Complete those requirements in Pinterest before enabling a campaign. Enabling an existing configured campaign can start spending. All campaign writes require Connector’s explicit confirmation flag. This integration does not implement Pinterest conversion uploads.
+
+Official references: [Pinterest authentication and authorization](https://developers.pinterest.com/docs/getting-started/set-up-authentication-and-authorization/) and [Pinterest’s official API v5 definition](https://github.com/pinterest/api-description/blob/main/v5/openapi.yaml), including `/ad_accounts`, `/ad_accounts/{ad_account_id}/campaigns`, and `/ad_accounts/{ad_account_id}/analytics`.
+
 ## Validation and network access
 
 Tests use mocked contract responses to check authentication, Microsoft PKCE/refresh, GET/POST/PUT OAuth 1.0a signatures, paused creation defaults, report parameters, conversion schemas, partial failure handling, error redaction, and rejection of social-only responses. They cannot establish that your developer app has platform approval or a campaign has delivery eligibility. No live campaign launch, spend, or conversion upload was performed during implementation.
 
-Server outbound HTTPS destinations are `www.linkedin.com`, `api.linkedin.com`, `login.microsoftonline.com`, `clientcenter.api.bingads.microsoft.com`, `campaign.api.bingads.microsoft.com`, `reporting.api.bingads.microsoft.com`, `business-api.tiktok.com`, `ads-api.x.com`, `www.reddit.com`, and `ads-api.reddit.com`. Browser authorization uses the corresponding official consent hosts. Microsoft report links are returned to the caller for direct download; the connector never fetches arbitrary report download URLs. Provider errors report safe permission/configuration guidance; raw provider error bodies and credentials are not returned to the caller.
+Server outbound HTTPS destinations are `www.linkedin.com`, `api.linkedin.com`, `login.microsoftonline.com`, `clientcenter.api.bingads.microsoft.com`, `campaign.api.bingads.microsoft.com`, `reporting.api.bingads.microsoft.com`, `business-api.tiktok.com`, `ads-api.x.com`, `www.reddit.com`, `ads-api.reddit.com`, and `api.pinterest.com`. Browser authorization uses the corresponding official consent hosts, including `www.pinterest.com`. Microsoft report links are returned to the caller for direct download; the connector never fetches arbitrary report download URLs. Provider errors report safe permission/configuration guidance; raw provider error bodies and credentials are not returned to the caller.
 
 ## Available actions and delivery limits
 
-All five providers implement `list-campaigns`, `create-campaign`, `set-campaign-status`, and `send-conversion`. LinkedIn, TikTok, X, and Reddit implement `read-spend`. Microsoft uses the two-step `request-spend-report` and `read-spend-report` actions. The action catalog returned by REST/MCP contains the exact field names, required identifiers, and input descriptions; callers should discover that catalog before executing an action. Writes require the application's explicit confirmation flag. These adapters do not generate creative content.
+All six providers implement `list-campaigns`, `create-campaign`, and `set-campaign-status`. LinkedIn, Microsoft, TikTok, X, and Reddit also implement `send-conversion`; Pinterest adds `set-campaign-budget`. LinkedIn, TikTok, X, Reddit, and Pinterest implement `read-spend`. Microsoft uses the two-step `request-spend-report` and `read-spend-report` actions. The action catalog returned by REST/MCP contains the exact field names, required identifiers, and input descriptions; callers should discover that catalog before executing an action. Writes require the application's explicit confirmation flag. These adapters do not generate creative content.
 
 | Platform | Paused campaign creation | Launch/pause | Spend | Conversion upload |
 | --- | --- | --- | --- | --- |
@@ -89,6 +110,7 @@ All five providers implement `list-campaigns`, `create-campaign`, `set-campaign-
 | TikTok | `TRAFFIC` campaign, daily budget, `DISABLE`; supply advertiser ID, not Business Center ID | `ENABLE` or `DISABLE` | Daily auction-campaign account-currency report, first 100 rows, up to 31 days | Existing pixel code, standard web event, deduplication event ID, ttclid, time/value/currency via documented `pixel/track/`; optional `TIKTOK_EVENTS_ACCESS_TOKEN` overrides business OAuth for this request |
 | X | Daily budget converted to account-currency micros, existing funding instrument, `PAUSED` | `ACTIVE` or `PAUSED` | UTC date-range totals, at most 7 days / 20 campaigns; `ALL_ON_TWITTER` placement only; local micros converted to currency units | Existing pixel and conversion event IDs, original twclid, deduplication conversion ID, ISO event time, `price_currency`, value; one processed conversion must be confirmed |
 | Reddit | Traffic campaign, daily budget in micros, start time, `PAUSED` | `ACTIVE` or `PAUSED` | Daily GMT report, first 100 rows, up to 31 days; **SPEND is shown as the raw API reporting value because the current metric unit could not be authoritatively verified** | Website `PURCHASE`, original click ID, actual time within 7 days, value/currency; stable conversion ID is SHA-256 hashed; dedicated `REDDIT_CONVERSIONS_TOKEN` required |
+| Pinterest | `CONSIDERATION` campaign, daily budget in account-currency micros, `PAUSED`; budget amounts entered in major currency units | `ACTIVE` or `PAUSED`; separate daily-budget update | Daily ad account totals, optionally filtered by campaign IDs, up to 31 days | Not implemented |
 
 Creating a campaign does **not** create every entity needed for delivery. Existing or separately configured ad groups/line items, targeting, approved creatives, conversion rules, business permissions, billing, and platform policy review are required. The connector can launch a fully configured existing campaign by changing its status; successful API acceptance is not proof that an ad is serving. A newly created paused container needs its remaining configuration in the platform or a later integration before it can deliver. Provider minimum budgets and funding limits apply.
 
