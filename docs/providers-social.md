@@ -10,7 +10,7 @@ Create your own developer application for each service you want to use. Register
 | --- | --- | --- | --- |
 | X (Twitter) | `X_CLIENT_ID`, `X_CLIENT_SECRET` | `/api/oauth/x/callback` | `tweet.read tweet.write users.read dm.read dm.write offline.access` |
 | TikTok | `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` | `/api/oauth/tiktok/callback` | `user.info.basic`, `video.publish`, `video.list` |
-| LinkedIn | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` | `/api/oauth/linkedin/callback` | `openid profile w_member_social`; optional restricted `r_member_social` |
+| LinkedIn | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` | `/api/oauth/linkedin/callback` | `openid profile w_member_social`; optional restricted `r_member_social`; company opt-in adds `rw_organization_admin r_organization_social w_organization_social` |
 | Reddit | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT` | `/api/oauth/reddit/callback` | `identity read submit privatemessages` with `duration=permanent` |
 | Pinterest | `PINTEREST_CLIENT_ID`, `PINTEREST_CLIENT_SECRET` | `/api/oauth/pinterest/callback` | `user_accounts:read`, `boards:read`, `boards:write`, `pins:read`, `pins:write` |
 | WordPress | `WORDPRESS_CLIENT_ID`, `WORDPRESS_CLIENT_SECRET` | `/api/oauth/wordpress/callback` | Default grant for the site selected on WordPress.com; no `global` scope |
@@ -43,6 +43,8 @@ Configure Login Kit, Display API and Content Posting API for a web application, 
 - Sources: [Login Kit for web](https://developers.tiktok.com/doc/login-kit-web), [access token management](https://developers.tiktok.com/doc/oauth-user-access-token-management), [user information API](https://developers.tiktok.com/doc/tiktok-api-v2-get-user-info).
 
 ## LinkedIn
+
+For company Pages, follow [Connect a company Page](providers-linkedin.md#connect-a-company-page). Enable **Approved LinkedIn company pages** only after the three organization scopes are approved, then update permissions. Connector discovers approved super-admin/content-admin Pages with pagination, includes them alongside the member profile, and exposes `list-organizations`, `organization-posts`, and `publish-organization` to AI apps. Company actions require an explicit organization URN and recheck access; they do not fall back to the member profile.
 
 If LinkedIn says **“The redirect_uri does not match the registered value”**, follow the [LinkedIn redirect repair instructions](providers-linkedin.md). The LinkedIn card’s **Check LinkedIn setup** button shows both exact redirect URLs and the Client ID to match, even when credentials are already saved.
 
@@ -99,7 +101,7 @@ Tests exercise authorization parameters, code exchange authentication, PKCE, acc
 | --- | --- | --- | --- |
 | X | Text posts | Recent conversation replies, public replies, recent DM events, one-to-one DM send/reply | Public post metrics; eligible owned-post metrics |
 | TikTok | Direct Post from a provider-verified HTTPS video URL, creator options, publication status | No general Login Kit comment or DM API implemented | Owned-video counts exposed by Display API |
-| LinkedIn | Member text posts | Comment/reply writes when approved; comment reads require restricted approval | Member analytics not exposed by standard Sign In / Share products; omitted |
+| LinkedIn | Member text posts; company text posts and recent post reads with organization opt-in | Member comment/reply writes when approved; member comment reads require restricted approval. Company comments not exposed. | Member analytics not exposed by standard Sign In / Share products; omitted |
 | Reddit | Text and link posts | Post comments and replies; legacy private-message inbox/send/reply | Public score, comment count and upvote ratio |
 | Pinterest | Image Pins from HTTPS URLs, board discovery | No supported general comment or DM API implemented | Eligible Pin analytics |
 | WordPress | Posts, recent-post discovery | Post comments and replies | WordPress.com / eligible Jetpack Stats summary |

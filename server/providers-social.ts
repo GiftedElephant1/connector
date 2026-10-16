@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { fetchJson, isObject, safeCredential, tokenResponse, type JsonObject } from './provider-http.ts';
 import { ProviderError, type Credential, type OAuthRequest, type ProviderAdapter, type VerifiedAccount } from './provider-types.ts';
+import { linkedInOrganizationScopes, listLinkedInOrganizations } from './linkedin-organizations.ts';
 
 function setting(env: NodeJS.ProcessEnv, key: string): string {
   const value = env[key];
@@ -136,11 +137,11 @@ const tiktok: ProviderAdapter = {
 const linkedin: ProviderAdapter = {
   definition: {
     id: 'linkedin', name: 'LinkedIn', category: 'social', authType: 'oauth',
-    description: 'Verify your member profile with Sign In with LinkedIn using OpenID Connect.',
+    description: 'Connect your LinkedIn profile and, with approved organization access enabled, the company Pages you manage.',
     docsUrl: 'https://learn.microsoft.com/en-us/linkedin/consumer/integrations/self-serve/sign-in-with-linkedin-v2',
   },
   requiredEnv: ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET'],
-  authorize: (input) => authorization('https://www.linkedin.com/oauth/v2/authorization', input, setting(input.env, 'LINKEDIN_CLIENT_ID'), `openid profile w_member_social${input.env.LINKEDIN_ENABLE_MEMBER_READ === 'true' ? ' r_member_social' : ''}`),
+  authorize: (input) => authorization('https://www.linkedin.com/oauth/v2/authorization', input, setting(input.env, 'LINKEDIN_CLIENT_ID'), `openid profile w_member_social${input.env.LINKEDIN_ENABLE_MEMBER_READ === 'true' ? ' r_member_social' : ''}${input.env.LINKEDIN_ENABLE_ORGANIZATIONS === 'true' ? ` ${linkedInOrganizationScopes.join(' ')}` : ''}`),
   exchange: (input) => tokenRequest('LinkedIn', 'https://www.linkedin.com/oauth/v2/accessToken', {
     grant_type: 'authorization_code', code: input.code, redirect_uri: input.redirectUri,
     client_id: setting(input.env, 'LINKEDIN_CLIENT_ID'), client_secret: setting(input.env, 'LINKEDIN_CLIENT_SECRET'),
@@ -150,9 +151,13 @@ const linkedin: ProviderAdapter = {
     grant_type: 'refresh_token', refresh_token: refreshToken(credential),
     client_id: setting(env, 'LINKEDIN_CLIENT_ID'), client_secret: setting(env, 'LINKEDIN_CLIENT_SECRET'),
   }, {}, credential),
-  verify: async (credential) => {
+  verify: async (credential, env) => {
     const body = await fetchJson('LinkedIn', 'https://api.linkedin.com/v2/userinfo', { headers: bearer(credential) });
-    return profile('LinkedIn', body.sub, body.name ?? [text(body.given_name), text(body.family_name)].filter(Boolean).join(' '));
+    const account = profile('LinkedIn', body.sub, body.name ?? [text(body.given_name), text(body.family_name)].filter(Boolean).join(' '));
+    if (env.LINKEDIN_ENABLE_ORGANIZATIONS !== 'true') return account;
+    const organizations = await listLinkedInOrganizations(credential, env);
+    if (!organizations.length) throw new ProviderError('No manageable LinkedIn company Pages were found. Connect the LinkedIn member who has accepted super admin or content admin access to the company Page, then reconnect.');
+    return { ...account, resources: [...account.resources, ...organizations] };
   },
 };
 

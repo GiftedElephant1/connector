@@ -10,7 +10,7 @@ Account verification reads your account details without publishing anything. A s
 | --- | --- | --- |
 | X (Twitter) | Publish posts, reply publicly, send direct messages. | Requires the requested post/DM write permissions and eligible X API access. |
 | TikTok | Submit a video through Direct Post. | Requires `video.publish` approval and creator-selected publishing settings; processing and visibility restrictions apply. General comments and DMs are not provided by this integration. |
-| LinkedIn | Publish member posts and write comments/replies. | Requires `w_member_social`; Social Actions access and LinkedIn approval still apply. |
+| LinkedIn | Publish member posts and write member comments/replies. With company access enabled, list managed company Pages, read their recent posts, and publish company text posts. | Member publishing requires `w_member_social`; member Social Actions approval still applies. Company access requires approved `rw_organization_admin`, `r_organization_social`, `w_organization_social`, a fresh grant, and an eligible Page role. Company actions require an explicit organization URN. |
 | Reddit | Publish posts, reply to posts/comments, send/reply to legacy private messages. | Requires approved app access and `submit`/`privatemessages`. Reddit Chat is separate. |
 | Pinterest | Publish Pins. | Requires `pins:write`, board access, and any required app approval. |
 | WordPress.com | Publish posts and reply to comments. | Acts on the authorized site with the connected user's permissions. |

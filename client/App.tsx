@@ -1965,6 +1965,14 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
             <h3>Available resources</h3>
             <span>{dialogProvider.connection.resources.length}</span>
           </div>
+          {dialogProvider.id === "linkedin" && (
+            <p className="setup-help">
+              Your connected name identifies the member who authorized LinkedIn. Company Pages appear below as organization resources.
+              {dialogProvider.connection.resources.some(resource => resource.type === "organization")
+                ? " Ask your AI to list LinkedIn company Pages, then choose the company by name for company actions. Member actions post to your personal profile."
+                : " To add company Pages, open Check LinkedIn setup, enable Approved LinkedIn company pages after confirming the listed scopes in LinkedIn, save, and use Update permissions."}
+            </p>
+          )}
           {dialogProvider.connection.resources.length ? (
             <ul className="resource-list">
               {dialogProvider.connection.resources.map((resource, index) => (

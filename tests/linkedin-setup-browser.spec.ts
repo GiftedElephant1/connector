@@ -85,7 +85,7 @@ test("reopening LinkedIn setup refreshes changed public URLs and fits a narrow s
 test("LinkedIn setup shows the actual requested permissions and optional approval switches", async ({ page }) => {
   await login(page);
   const headers = { "x-connector-request": "1" };
-  const flags = { LINKEDIN_ENABLE_MEMBER_READ: "false", LINKEDIN_ENABLE_CONVERSIONS: "false" };
+  const flags = { LINKEDIN_ENABLE_MEMBER_READ: "false", LINKEDIN_ENABLE_ORGANIZATIONS: "false", LINKEDIN_ENABLE_CONVERSIONS: "false" };
   expect((await page.request.put("/api/settings", { headers, data: { values: { ...flags, LINKEDIN_CLIENT_ID: "browser-linkedin-app", LINKEDIN_CLIENT_SECRET: "browser-linkedin-secret" } } })).ok()).toBe(true);
   await page.reload();
   try {
@@ -100,7 +100,12 @@ test("LinkedIn setup shows the actual requested permissions and optional approva
         await expect(dialog.getByText(/r_basicprofile does not replace openid or profile/)).toBeVisible();
       }
       await dialog.getByLabel(label, { exact: false }).selectOption("true");
-      const expected = `${base} ${optional}`;
+      let expected = `${base} ${optional}`;
+      if (provider === "linkedin") {
+        await dialog.getByLabel("Approved LinkedIn company pages", { exact: false }).selectOption("true");
+        expected += " rw_organization_admin r_organization_social w_organization_social";
+        await expect(dialog.getByText(/LinkedIn may not show a Page picker/)).toBeVisible();
+      }
       await expect(dialog.getByLabel("Permissions Connector will request", { exact: true })).toHaveValue(expected);
       await dialog.getByRole("button", { name: "Save and continue", exact: true }).click();
       await expect(dialog).toHaveCount(0);

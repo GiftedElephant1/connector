@@ -2,6 +2,7 @@ import { apiJson, apiRequest, bearer, httpsUrl, jsonBody, records, required, str
 import { isObject } from './provider-http';
 import { ProviderError, type Credential } from './provider-types';
 import type { ActionAdapter, ActionDefinition, ActionField, ActionResult, ActionValues } from './action-types';
+import { listLinkedInOrganizations } from './linkedin-organizations';
 
 const field = (name: string, label: string, type: ActionField['type'] = 'text', help?: string, optional = false): ActionField => ({ name, label, type, required: !optional, ...(help ? { help } : {}) });
 const select = (name: string, label: string, options: string[], help?: string): ActionField => ({ ...field(name, label, 'select', help), options: options.map((value) => ({ value, label: value })) });
@@ -129,7 +130,36 @@ async function memberUrn(credential: Credential): Promise<string> {
   if (!/^[\w-]{1,200}$/.test(sub)) return failed('LinkedIn');
   return `urn:li:person:${sub}`;
 }
+const organizationField = field('organizationUrn', 'LinkedIn company Page URN', 'text', 'Use the exact urn:li:organization:… returned by List LinkedIn company Pages. The authorizing member’s name is not the publishing destination.');
+async function selectedOrganization(credential: Credential, values: ActionValues, env: NodeJS.ProcessEnv): Promise<string> {
+  const urn = required(values, 'organizationUrn', 'LinkedIn company Page URN');
+  if (!/^urn:li:organization:\d{1,30}$/.test(urn)) throw new ProviderError('Select a company Page using its full urn:li:organization:… identifier from List LinkedIn company Pages.');
+  const organizations = await listLinkedInOrganizations(credential, env);
+  if (!organizations.some(organization => organization.id === urn)) throw new ProviderError('This LinkedIn company Page is not available to the connected member. List company Pages again and select an authorized Page.', 403);
+  return urn;
+}
 const linkedinActions: ActionAdapter[] = [
+  action('linkedin', { id: 'list-organizations', label: 'List LinkedIn company Pages', group: 'publishing', kind: 'read', description: 'Fetch company Pages the connected member can manage and publish to. Requires approved company Page permissions in LinkedIn setup, then reconnect. Use an explicit organizationUrn from these results for company actions; personal profile and ad-account names are separate.', fields: [] }, async (credential, _values, env) => {
+    const organizations = await listLinkedInOrganizations(credential, env);
+    return { summary: `${organizations.length} accessible LinkedIn company Pages. Select the intended organizationUrn explicitly.`, items: organizations.map(organization => ({ organizationUrn: organization.id, name: organization.name, type: organization.type })) };
+  }),
+  action('linkedin', { id: 'publish-organization', label: 'Publish company Page text post', group: 'publishing', kind: 'write', schedulable: true, description: 'Publish a public text post as the explicitly selected company Page. Requires approved w_organization_social and company Page access. This never publishes to the connected member’s personal profile.', fields: [organizationField, content] }, async (credential, values, env) => {
+    const commentary = bounded(values, 'text', 3000);
+    const author = await selectedOrganization(credential, values, env);
+    const body = { author, commentary, visibility: 'PUBLIC', distribution: { feedDistribution: 'MAIN_FEED', targetEntities: [], thirdPartyDistributionChannels: [] }, lifecycleState: 'PUBLISHED', isReshareDisabledByAuthor: false };
+    const response = await apiRequest('LinkedIn', 'https://api.linkedin.com/rest/posts', { ...postJson(credential, body), headers: { ...linkedinHeaders(credential, env), 'content-type': 'application/json' } });
+    if (isObject(response.body)) checked('LinkedIn', response.body);
+    const id = resultId('LinkedIn', response.headers.get('x-restli-id') ?? (isObject(response.body) ? response.body.id : undefined));
+    return { summary: 'Company Page post published on LinkedIn.', items: [{ id, organizationUrn: author }] };
+  }),
+  action('linkedin', { id: 'organization-posts', label: 'Read company Page posts', group: 'inbox', kind: 'read', description: 'Read up to 25 recent posts authored by the selected company Page. Requires approved r_organization_social and company Page access.', fields: [organizationField] }, async (credential, values, env) => {
+    const author = await selectedOrganization(credential, values, env);
+    const query = new URLSearchParams({ q: 'author', author, count: '25', sortBy: 'LAST_MODIFIED' });
+    const body = checked('LinkedIn', await apiJson('LinkedIn', `https://api.linkedin.com/rest/posts?${query}`, { headers: { ...linkedinHeaders(credential, env), 'X-RestLi-Method': 'FINDER' } }));
+    const posts = mustList('LinkedIn', body.elements).slice(0, 25);
+    if (posts.some(post => post.author !== author)) throw new ProviderError('LinkedIn returned a post outside the selected company Page. No posts were returned by Connector.', 502);
+    return { summary: 'Recent LinkedIn company Page posts.', items: posts.map(post => ({ postUrn: string(post.id), organizationUrn: author, text: string(post.commentary), createdAt: string(post.createdAt), lastModifiedAt: string(post.lastModifiedAt), status: string(post.lifecycleState) })) };
+  }),
   action('linkedin', publication('Publish member text post', 'Publish a public text post on the connected member’s LinkedIn profile. Requires Share on LinkedIn (w_member_social).', [content]), async (credential, values, env) => {
     const commentary = bounded(values, 'text', 3000);
     const author = await memberUrn(credential);

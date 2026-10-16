@@ -1,5 +1,22 @@
 # Connect LinkedIn and fix authorization errors
 
+## Connect a company Page
+
+Connector can discover company Pages managed by the member who signs in and make those Pages available to Grok Bot and other connected AI apps. LinkedIn does not need to show a company picker during sign-in. The personal name under **Connected** identifies the authorizing member; company Pages appear under **View connection → Available resources**.
+
+1. Update Connector to version **0.9.10** or later.
+2. Open your LinkedIn developer app's **Auth → OAuth 2.0 scopes**. Confirm `rw_organization_admin`, `r_organization_social`, and `w_organization_social` are approved. If missing, request the relevant Community Management API access under **Products**. Advertising API approval alone does not supply these permissions.
+3. In Connector, open **Connections → LinkedIn → Check LinkedIn setup**. Set **Approved LinkedIn company pages** to **true**, then **Save and continue**. Leave **Approved LinkedIn member reading** false unless your app also has the separate restricted `r_member_social` permission.
+4. Open **View connection → Update permissions**. Sign in as the LinkedIn member with accepted **super admin** or **content admin** access to Vectre Pay, and approve the new permissions. Existing tokens do not gain scopes simply because a setting changed.
+5. Open **View connection** again and check for **Vectre Pay**, type **organization**. Use **Verify connection** to refresh Page discovery after role changes. A Page missing from a completed discovery is not accessible to this connection; check the signed-in member and their accepted Page role.
+6. Ask Grok Bot: “List my LinkedIn company Pages through Connector and confirm Vectre Pay is available. Read its recent posts; do not publish anything.” The bot can use `list-organizations` to get current Page names and identifiers, then `organization-posts` with the selected `organizationUrn`.
+
+Company posting uses the separate `publish-organization` action and requires an explicit `organizationUrn` from discovery. Connector checks access again before publishing and never substitutes a personal profile for a company destination. Existing `publish`, `comments`, and `reply` actions remain member actions. Company comments are not exposed by this integration; LinkedIn's Social Feed permissions are separate from the company post scopes requested here. LinkedIn Campaign Manager and its ad-account names are separate from company Page discovery.
+
+When company access is disabled, member-only connections continue to work without requesting restricted company permissions. Enabling it does not reset saved credentials, other platforms, or scheduled jobs. A failed authorization keeps the previous saved connection and reports the access problem.
+
+References: [organization access control](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-access-control-by-role), [organization lookup](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api), [Posts API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api).
+
 ## Check product permissions first
 
 If LinkedIn displays **“Bummer, something went wrong”** and then redirects back, check your approved scopes as well as the redirect addresses. That message alone does not identify the cause. Connector's member connection requests `openid profile w_member_social`; all three must appear under your developer app's **Auth → OAuth 2.0 scopes**.

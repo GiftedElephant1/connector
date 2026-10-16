@@ -1,11 +1,11 @@
 import { CopyValue } from "./Setup";
 
-export function LinkedInSetup({ callbackUrl, clientId, advertising = false, memberRead = false, conversions = false }: { callbackUrl: string; clientId: string; advertising?: boolean; memberRead?: boolean; conversions?: boolean }) {
+export function LinkedInSetup({ callbackUrl, clientId, advertising = false, memberRead = false, organizations = false, conversions = false }: { callbackUrl: string; clientId: string; advertising?: boolean; memberRead?: boolean; organizations?: boolean; conversions?: boolean }) {
   const origin = new URL(callbackUrl).origin;
   const publicReady = origin.startsWith("https://") && !["localhost", "127.0.0.1", "[::1]"].includes(new URL(origin).hostname);
   const scopes = advertising
     ? ["r_ads", "rw_ads", "r_ads_reporting", ...(conversions ? ["rw_conversions"] : [])]
-    : ["openid", "profile", "w_member_social", ...(memberRead ? ["r_member_social"] : [])];
+    : ["openid", "profile", "w_member_social", ...(memberRead ? ["r_member_social"] : []), ...(organizations ? ["rw_organization_admin", "r_organization_social", "w_organization_social"] : [])];
   return <div>
     <strong>Check LinkedIn products and permissions</strong>
     <p>Open your LinkedIn developer app’s <strong>Auth → OAuth 2.0 scopes</strong>. Every permission below must appear in that list before connecting. Correct credentials and redirect URLs alone do not grant these permissions.</p>
@@ -19,7 +19,10 @@ export function LinkedInSetup({ callbackUrl, clientId, advertising = false, memb
         <li>Wait until access is granted. Return to <strong>Auth → OAuth 2.0 scopes</strong> and confirm both <code>openid</code> and <code>profile</code> appear.</li>
         <li>Also confirm <code>w_member_social</code> appears for posting. If it is missing, request <strong>Share on LinkedIn</strong> under Products. If it is already listed, that posting permission is available.</li>
         <li>Keep <strong>Approved LinkedIn member reading</strong> below set to <strong>false</strong> unless Auth also lists the restricted <code>r_member_social</code> permission.</li>
+        <li>For company Pages, confirm <code>rw_organization_admin</code>, <code>r_organization_social</code>, and <code>w_organization_social</code> appear in Auth, then set <strong>Approved LinkedIn company pages</strong> to <strong>true</strong>. If these scopes are missing, request the relevant Community Management API access under Products first.</li>
       </ol>
+      <p>After saving company access, open <strong>LinkedIn → View connection → Update permissions</strong> and sign in as a Page super admin or content admin. LinkedIn may not show a Page picker; Connector discovers your eligible company Pages after authorization.</p>
+      <p>Check <strong>View connection → Available resources</strong> for the company name. Your personal name still identifies who authorized access. Ask your AI to list LinkedIn company Pages and use the chosen Page for company actions; member actions continue to use your personal profile.</p>
       <p className="setup-notice"><code>r_basicprofile</code> does not replace <code>openid</code> or <code>profile</code>. If LinkedIn shows “Bummer, something went wrong” and redirects you back, missing product permissions are one possible cause. Check this scope list and any error shown after returning.</p>
     </>}
     <p className="setup-help">The permission list above reflects your choices in this form. Save changed choices before connecting. Connector cannot inspect your app’s approved products; compare the list in LinkedIn yourself. Product approval and redirect registration are separate steps.</p>

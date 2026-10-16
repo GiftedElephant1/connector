@@ -374,6 +374,7 @@ export function ProviderSetup({
                   clientId={values.LINKEDIN_CLIENT_ID ?? settings.fields.find(field => field.key === "LINKEDIN_CLIENT_ID")?.value ?? ""}
                   advertising={provider.id === "linkedin-ads"}
                   memberRead={(values.LINKEDIN_ENABLE_MEMBER_READ ?? settings.fields.find(field => field.key === "LINKEDIN_ENABLE_MEMBER_READ")?.value) === "true"}
+                  organizations={(values.LINKEDIN_ENABLE_ORGANIZATIONS ?? settings.fields.find(field => field.key === "LINKEDIN_ENABLE_ORGANIZATIONS")?.value) === "true"}
                   conversions={(values.LINKEDIN_ENABLE_CONVERSIONS ?? settings.fields.find(field => field.key === "LINKEDIN_ENABLE_CONVERSIONS")?.value) === "true"}
                 /> : ["youtube", "google-ads", "google-analytics", "search-console"].includes(provider.id) ? <GoogleSetup callbackUrl={settings.callbackUrl} /> : <>
                 <strong>Add this redirect address</strong>

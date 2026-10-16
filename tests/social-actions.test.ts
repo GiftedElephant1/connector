@@ -16,7 +16,7 @@ function get(provider: string, id: string) {
 
 test('only publishing actions are schedulable; unsupported inbox and analytics endpoints are absent', () => {
   for (const current of socialActions) {
-    assert.equal(Boolean(current.definition.schedulable), current.definition.id === 'publish');
+    assert.equal(Boolean(current.definition.schedulable), ['publish', 'publish-organization'].includes(current.definition.id));
     if (current.definition.schedulable) assert.equal(current.definition.kind, 'write');
   }
   assert.equal(socialActions.some((item) => item.provider === 'tiktok' && item.definition.group === 'inbox'), false);
