@@ -209,7 +209,7 @@ test('public Google disclosure describes limited use, AI transfers and revocatio
   const html = legal.page('privacy').html;
   for (const text of [
     'Google API Limited Use commitments', 'Google API Services User Data Policy', 'Google Workspace API User Data and Developer Policy',
-    'email or document text', 'train or improve generalized AI models', 'cannot independently inspect or enforce',
+    'email, document text, or downloaded Drive file contents', 'train or improve generalized AI models', 'cannot independently inspect or enforce',
     'not a claim that Google has verified or approved', 'Google Account third-party connections', 'without a saved read-history record',
     'account settings and write receipts remain',
   ]) assert.ok(html.includes(text), text);
