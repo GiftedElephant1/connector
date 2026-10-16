@@ -55,6 +55,7 @@ async function mockWorkspace(page: Page) {
         apps: ["gmail", "drive", "sheets"],
         requestedApps: ["gmail", "drive", "sheets", "docs"],
         missingApps: ["docs"],
+        missingPermissions: [] as { app: string; scopes: string[] }[],
         connectedAt: timestamp,
         mapsConfigured: false,
         driveDownloads: false,
@@ -67,6 +68,7 @@ async function mockWorkspace(page: Page) {
         apps: ["tasks", "docs"],
         requestedApps: ["tasks", "docs"],
         missingApps: [],
+        missingPermissions: [] as { app: string; scopes: string[] }[],
         connectedAt: timestamp,
         mapsConfigured: false,
         driveDownloads: false,
@@ -432,6 +434,52 @@ test("existing Drive accounts can approve downloads without replacing their acco
   await expect(account).toContainText("Google Drive");
   await expect(account).not.toContainText("Drive file downloads need permission");
   await expect(page.getByRole("article", { name: "Brand kit reader access", exact: true })).toBeVisible();
+});
+
+test("expanded Google permissions explain reauthorization while preserving accounts and agent access", async ({ page }) => {
+  const { snapshot, writes } = await mockWorkspace(page);
+  snapshot.accounts[0].missingPermissions = [
+    { app: "drive", scopes: ["https://www.googleapis.com/auth/drive"] },
+    { app: "gmail", scopes: ["https://mail.google.com/"] },
+  ];
+  snapshot.profiles.push({
+    id: "existing-agent",
+    name: "Business access",
+    bindings: [{ accountId: "work-account", apps: ["drive", "gmail", "sheets"] }],
+    defaultAccountId: "work-account",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  });
+  const originalAccounts = structuredClone(snapshot.accounts);
+  const originalProfiles = structuredClone(snapshot.profiles);
+  await openWorkspace(page);
+  const account = page.getByRole("article", { name: "work@example.com", exact: true });
+  const banner = account.getByRole("status");
+  await expect(banner).toContainText("Additional Google permissions needed");
+  await expect(banner).toContainText("Google Drive, Gmail");
+  await expect(banner).toContainText("Your connected accounts and agent keys stay saved");
+  await expect(account).not.toContainText("Drive file downloads need permission");
+  await expect(page.getByRole("article", { name: "personal@example.com", exact: true })).not.toContainText("Additional Google permissions needed");
+  await account.getByRole("button", { name: "Change connected apps" }).click();
+  const form = page.getByRole("form", { name: "Choose Google apps" });
+  for (const name of ["Google Drive", "Gmail", "Google Sheets", "Google Docs"]) {
+    await expect(form.getByLabel(name, { exact: false })).toBeChecked();
+  }
+  await form.getByRole("button", { name: "Continue to Google" }).click();
+  await expect(page.getByRole("alert")).toContainText("Open Connector at its public address");
+  expect(writes).toEqual([{
+    method: "POST",
+    path: "/api/workspace/google/start",
+    body: { accountId: "work-account", apps: ["gmail", "drive", "sheets", "docs"] },
+  }]);
+  expect(snapshot.accounts).toEqual(originalAccounts);
+  expect(snapshot.profiles).toEqual(originalProfiles);
+  snapshot.accounts[0].missingPermissions = [];
+  snapshot.accounts[0].driveDownloads = true;
+  await page.reload();
+  await page.getByRole("button", { name: "Google Workspace", exact: true }).click();
+  await expect(account).not.toContainText("Additional Google permissions needed");
+  await expect(page.getByRole("article", { name: "Business access access", exact: true })).toBeVisible();
 });
 
 test("Workspace account selection and agent permissions fit a narrow screen", async ({

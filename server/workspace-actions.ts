@@ -4,6 +4,10 @@ import type { ActionAdapter, ActionDefinition, ActionField, ActionResult, Action
 import { isObject } from './provider-http';
 import { ProviderError, type Credential } from './provider-types';
 import { downloadDriveFile } from './workspace-drive-download';
+import { workspaceSheetsActions } from './workspace-sheets';
+import { workspaceDriveFileActions } from './workspace-drive-files';
+import { workspaceApiActions } from './workspace-api';
+import { expandedWorkspaceScopes } from './workspace-permissions';
 
 export type WorkspaceApp = {
   id: string;
@@ -19,16 +23,16 @@ export type WorkspaceApp = {
 const scope = (name: string) => `https://www.googleapis.com/auth/${name}`;
 /** App consent is independent for each connected Google identity. Maps keys belong to billing projects. */
 export const workspaceApps: WorkspaceApp[] = [
-  { id: 'sheets', name: 'Google Sheets', description: 'Read and update cells, and create spreadsheets.', available: true, auth: 'oauth', scopes: [scope('spreadsheets')], docsUrl: 'https://developers.google.com/workspace/sheets/api/reference/rest' },
-  { id: 'docs', name: 'Google Docs', description: 'Read and create documents, and append text.', available: true, auth: 'oauth', scopes: [scope('documents')], docsUrl: 'https://developers.google.com/workspace/docs/api/reference/rest' },
-  { id: 'slides', name: 'Google Slides', description: 'Read and create presentations, and add text slides.', available: true, auth: 'oauth', scopes: [scope('presentations')], docsUrl: 'https://developers.google.com/workspace/slides/api/reference/rest' },
-  { id: 'gmail', name: 'Gmail', description: 'Search and read messages, create drafts, and send plain-text email.', available: true, auth: 'oauth', scopes: [scope('gmail.readonly'), scope('gmail.compose')], docsUrl: 'https://developers.google.com/workspace/gmail/api/reference/rest' },
-  { id: 'drive', name: 'Google Drive', description: 'Search files, download logos and other stored files up to 20 MiB, and create folders or text files. Downloads require permission to read existing Drive files.', available: true, auth: 'oauth', scopes: [scope('drive.metadata.readonly'), scope('drive.file')], additionalScopes: [scope('drive.readonly')], docsUrl: 'https://developers.google.com/workspace/drive/api/reference/rest/v3' },
+  { id: 'sheets', name: 'Google Sheets', description: 'Create and edit spreadsheets, calculate formulas, manage tabs, and apply formatting, charts, pivots, and other supported API operations.', available: true, auth: 'oauth', scopes: [scope('spreadsheets')], docsUrl: 'https://developers.google.com/workspace/sheets/api/reference/rest' },
+  { id: 'docs', name: 'Google Docs', description: 'Read and edit document structure, text, formatting, tables, tabs, and images through the Google Docs API.', available: true, auth: 'oauth', scopes: [scope('documents')], docsUrl: 'https://developers.google.com/workspace/docs/api/reference/rest' },
+  { id: 'slides', name: 'Google Slides', description: 'Create and edit presentations, slides, formatting, shapes, tables, images, and layouts through the Google Slides API.', available: true, auth: 'oauth', scopes: [scope('presentations')], docsUrl: 'https://developers.google.com/workspace/slides/api/reference/rest' },
+  { id: 'gmail', name: 'Gmail', description: 'Read and manage mail, MIME messages and attachments, labels, drafts, and supported mailbox settings. Administrator delegation is not included.', available: true, auth: 'oauth', scopes: [scope('gmail.readonly'), scope('gmail.compose')], additionalScopes: expandedWorkspaceScopes.gmail, docsUrl: 'https://developers.google.com/workspace/gmail/api/reference/rest' },
+  { id: 'drive', name: 'Google Drive', description: 'Read, upload, download, convert, export, and manage Drive files and sharing. Uploads and downloads support files up to 20 MiB; Google document exports up to 10 MiB. Update permissions for existing-file changes.', available: true, auth: 'oauth', scopes: [scope('drive.metadata.readonly'), scope('drive.file')], additionalScopes: expandedWorkspaceScopes.drive, docsUrl: 'https://developers.google.com/workspace/drive/api/reference/rest/v3' },
   { id: 'maps', name: 'Google Maps', description: 'Read-only Places integration: search public places and read their details using a billing-enabled Google Cloud project key. Personal saved places and Timeline are not available. The Places API does not offer writes to these account features.', available: true, auth: 'api_key', scopes: [], docsUrl: 'https://developers.google.com/maps/documentation/places/web-service/overview' },
-  { id: 'meet', name: 'Google Meet', description: 'Create meeting links, read meeting spaces, and list accessible conference records. Requires an eligible Google Workspace account.', available: true, auth: 'oauth', scopes: [scope('meetings.space.created'), scope('meetings.space.readonly')], docsUrl: 'https://developers.google.com/workspace/meet/api/reference/rest' },
+  { id: 'meet', name: 'Google Meet', description: 'Create and configure meeting spaces, end conferences, and read accessible participants, recording metadata, and transcripts. Requires an eligible Google Workspace account; Calendar invitations are separate.', available: true, auth: 'oauth', scopes: [scope('meetings.space.created'), scope('meetings.space.readonly')], additionalScopes: expandedWorkspaceScopes.meet, docsUrl: 'https://developers.google.com/workspace/meet/api/reference/rest' },
   { id: 'voice', name: 'Google Voice', description: 'Read-only administrator audit reports. Personal calls, SMS, and voicemail are not available through the official API. The audit API cannot place calls or send messages.', available: true, auth: 'oauth', scopes: [scope('admin.reports.audit.readonly')], docsUrl: 'https://developers.google.com/workspace/admin/reports/v1/appendix/activity/voice' },
-  { id: 'chat', name: 'Google Chat', description: 'List spaces and messages, and send text messages as the selected user. Requires an eligible Chat account and Google Chat API configuration.', available: true, auth: 'oauth', scopes: [scope('chat.spaces.readonly'), scope('chat.messages.readonly'), scope('chat.messages.create')], docsUrl: 'https://developers.google.com/workspace/chat/api/reference/rest' },
-  { id: 'tasks', name: 'Google Tasks', description: 'List task lists and tasks, create tasks, and mark tasks complete.', available: true, auth: 'oauth', scopes: [scope('tasks')], docsUrl: 'https://developers.google.com/workspace/tasks/reference/rest' },
+  { id: 'chat', name: 'Google Chat', description: 'Manage supported spaces, messages, memberships, reactions, and user settings. Requires an eligible Chat account and configured Chat app; app-only and administrator-only operations are separate.', available: true, auth: 'oauth', scopes: [scope('chat.spaces.readonly'), scope('chat.messages.readonly'), scope('chat.messages.create')], additionalScopes: expandedWorkspaceScopes.chat, docsUrl: 'https://developers.google.com/workspace/chat/api/reference/rest' },
+  { id: 'tasks', name: 'Google Tasks', description: 'Create, read, edit, move, complete, and delete tasks and task lists through the Google Tasks API.', available: true, auth: 'oauth', scopes: [scope('tasks')], docsUrl: 'https://developers.google.com/workspace/tasks/reference/rest' },
 ];
 
 const origins = {
@@ -46,9 +50,7 @@ const textField: ActionField = { ...field('text', 'Plain text', true, 'textarea'
 const notesField: ActionField = { ...field('notes', 'Notes (optional)', false, 'textarea'), preserveWhitespace: true };
 const fileField = field('fileId', 'File ID');
 const documentField = field('documentId', 'Document ID');
-const spreadsheetField = field('spreadsheetId', 'Spreadsheet ID');
 const presentationField = field('presentationId', 'Presentation ID');
-const rangeField: ActionField = { ...field('range', 'A1 cell range'), placeholder: 'Sheet1!A1:C10' };
 const tasklistField = field('tasklistId', 'Task list ID');
 const spaceField = field('spaceId', 'Space ID (without spaces/ prefix)');
 
@@ -144,24 +146,7 @@ const mailFields = [field('to', 'Recipient email addresses'), field('subject', '
 const driveFields = 'id,name,mimeType,modifiedTime,webViewLink,parents';
 
 export const workspaceActions: ActionAdapter[] = [
-  adapter('sheets', 'read-values', 'Read cells', 'read', 'Read up to 100 rows from an A1 range. Cells are returned as displayed text.', [spreadsheetField, rangeField], async (credential, values) => {
-    const body = await request('sheets', `/spreadsheets/${id(values, 'spreadsheetId')}/values/${encodeURIComponent(bounded(values, 'range', 300))}?valueRenderOption=FORMATTED_VALUE`, credential);
-    const rows = Array.isArray(body.values) ? body.values.slice(0, 100).filter(Array.isArray) : [];
-    return { summary: `Read ${rows.length} rows from ${string(body.range)} (at most 100 rows and 100 cells per row).`, items: rows.map((row, index) => ({ rowOffset: index, values: JSON.stringify(row.slice(0, 100).map((cell: unknown) => typeof cell === 'boolean' ? String(cell) : string(cell))) })) };
-  }),
-  adapter('sheets', 'write-values', 'Write cells', 'write', 'Overwrite cells in an A1 range with a JSON array of rows. Values are stored literally; formulas are not evaluated.', [spreadsheetField, rangeField, field('values', 'Rows as JSON', true, 'textarea')], async (credential, values) => {
-    const spreadsheetId = id(values, 'spreadsheetId'); const range = bounded(values, 'range', 300);
-    let rows: unknown;
-    try { rows = JSON.parse(bounded(values, 'values', 100_000)); } catch { throw new ProviderError('values must be a JSON array of rows.'); }
-    if (!Array.isArray(rows) || rows.length < 1 || rows.length > 100 || rows.some((row) => !Array.isArray(row) || row.length < 1 || row.length > 100 || row.some((cell) => !['string', 'number', 'boolean'].includes(typeof cell) || typeof cell === 'number' && !Number.isFinite(cell)))) throw new ProviderError('Supply 1–100 rows of 1–100 string, number, or boolean cells.');
-    const body = await request('sheets', `/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, credential, 'PUT', { range, majorDimension: 'ROWS', values: rows });
-    return { summary: 'Updated spreadsheet cells.', items: [{ range: confirmed(body, 'updatedRange'), updatedCells: string(body.updatedCells) }] };
-  }),
-  adapter('sheets', 'create-spreadsheet', 'Create spreadsheet', 'write', 'Create an empty spreadsheet in the selected account.', [titleField], async (credential, values) => {
-    const body = await request('sheets', '/spreadsheets', credential, 'POST', { properties: { title: bounded(values, 'title', 200) } });
-    const spreadsheetId = confirmed(body, 'spreadsheetId');
-    return { summary: 'Created spreadsheet.', items: [{ spreadsheetId }], link: `https://docs.google.com/spreadsheets/d/${encodeURIComponent(spreadsheetId)}/edit` };
-  }),
+  ...workspaceSheetsActions,
   adapter('docs', 'read-document', 'Read document', 'read', 'Read document title and up to 60,000 characters of text, including tabs. Images and formatting are omitted.', [documentField], async (credential, values) => {
     const body = await request('docs', `/documents/${id(values, 'documentId')}?includeTabsContent=true`, credential);
     return { summary: 'Read document text (up to 60,000 characters).', items: [{ documentId: string(body.documentId), title: string(body.title), text: documentText(body) }] };
@@ -296,6 +281,8 @@ export const workspaceActions: ActionAdapter[] = [
     const body = await placesRequest(credential, `/${id(values, 'placeId')}`, 'id,displayName,formattedAddress,location,googleMapsUri');
     return { summary: 'Read public place details.', items: [place(body)] };
   }),
+  ...workspaceDriveFileActions,
+  ...workspaceApiActions,
 ];
 
 function driveFile(row: Record<string, unknown>) {

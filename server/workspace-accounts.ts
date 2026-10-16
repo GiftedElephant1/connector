@@ -6,6 +6,7 @@ import { Store, hash } from './store';
 import { fetchJson, isObject, safeCredential, tokenResponse } from './provider-http';
 import { ProviderError, type Credential } from './provider-types';
 import { workspaceApps } from './workspace-actions';
+import { hasGoogleScope, hasGoogleScopes } from './workspace-permissions';
 
 const ACCOUNTS = 'workspace.accounts.v1';
 const PROFILES = 'workspace.profiles.v1';
@@ -24,6 +25,7 @@ export interface WorkspaceAccount {
   requestedApps: string[];
   missingApps: string[];
   driveDownloads: boolean;
+  missingPermissions: { app: string; scopes: string[] }[];
   connectedAt: string;
   mapsConfigured: boolean;
   status: 'connected' | 'error';
@@ -90,12 +92,18 @@ export class WorkspaceAccounts {
     const credential = this.store.credential(connectionId(account.id));
     const apps = account.requestedApps.filter(id => {
       const app = workspaceApps.find(item => item.id === id);
-      return app?.available && app.auth === 'oauth' && app.scopes.every(scope => account.scopes.includes(scope));
+      return app?.available && app.auth === 'oauth' && hasGoogleScopes(account.scopes, app.scopes);
     });
     const mapsConfigured = !!credential?.fields?.mapsApiKey;
     if (mapsConfigured) apps.push('maps');
     return { id: account.id, email: account.email, name: account.name, apps, requestedApps: account.requestedApps,
-      driveDownloads: apps.includes('drive') && account.scopes.includes('https://www.googleapis.com/auth/drive.readonly'),
+      driveDownloads: apps.includes('drive') && hasGoogleScope(account.scopes, 'https://www.googleapis.com/auth/drive.readonly'),
+      missingPermissions: account.requestedApps.flatMap(id => {
+        const app = workspaceApps.find(item => item.id === id);
+        if (!app || app.auth !== 'oauth') return [];
+        const missing = [...app.scopes, ...(app.additionalScopes || [])].filter(scope => !hasGoogleScope(account.scopes, scope));
+        return missing.length ? [{ app: id, scopes: [...new Set(missing)] }] : [];
+      }),
       missingApps: account.requestedApps.filter(id => !apps.includes(id)), connectedAt: account.connectedAt, mapsConfigured,
       status: this.store.connection(connectionId(account.id))?.status || 'error' };
   }
@@ -357,11 +365,17 @@ export class WorkspaceAccounts {
     return account;
   }
   /** An expanded grant may enable a new action without disrupting older ones. */
-  assertActionScopes(accountId: string, appId: string, requiredScopes: readonly string[] = []): void {
+  actionPermissions(accountId: string, _appId: string, requiredScopes: readonly string[] = []): string[] {
     const account = this.account(accountId);
-    if (requiredScopes.every(scope => account.scopes.includes(scope))) return;
-    if (appId === 'drive') throw new ProviderError('Google Drive file downloads need permission to read existing files. In Connector → Google Workspace, choose Change connected apps for this account, keep Google Drive selected, and Continue to Google to approve file-reading access. Your existing account and AI agent access stay saved.', 403);
-    throw new ProviderError('This Google action needs additional permissions. In Connector → Google Workspace, use Change connected apps to approve access for this account.', 403);
+    return requiredScopes.filter(scope => !hasGoogleScope(account.scopes, scope));
+  }
+
+  assertActionScopes(accountId: string, appId: string, requiredScopes: readonly string[] = []): void {
+    const missing = this.actionPermissions(accountId, appId, requiredScopes);
+    if (!missing.length) return;
+    if (appId === 'drive' && missing.every(scope => scope === 'https://www.googleapis.com/auth/drive.readonly')) throw new ProviderError('Google Drive downloads and exports need permission to read existing files. In Connector → Google Workspace, choose Change connected apps for this account, keep Google Drive selected, and Continue to Google to approve file-reading access. Your existing account and AI agent access stay saved.', 403);
+    const name = workspaceApps.find(app => app.id === appId)?.name || 'This Google app';
+    throw new ProviderError(`${name} needs additional Google permissions for this action. In Connector → Google Workspace, choose Change connected apps for this account, keep the app selected, and Continue to Google. Approve the requested permissions; existing accounts and AI agent access stay saved.`, 403);
   }
 }
 

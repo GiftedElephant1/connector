@@ -64,7 +64,7 @@ export function workspaceTools(pipeline: WorkspacePipeline, profileId: string, a
       run: async () => { assertCurrent(); return { accounts: pipeline.accounts(profileId) }; },
     },
     list_workspace_actions: {
-      description: 'Inspect supported actions and exact fields for an allowed Google app and account before constructing an action. Supply accountId when more than one account is available and no default is configured.',
+      description: 'Refresh supported actions and exact fields for an allowed Google app/account before constructing a request or claiming a feature is missing. Check available and missingScopes for consent requirements. Sheets supports formulas, tabs and formatting; advanced read-api/write-api expose additional official API operations. Supply accountId when more than one account is available and no default is configured.',
       schema: z.object({ app: z.string(), accountId: z.string().optional() }).strict(),
       run: async (args: { app: string; accountId?: string }) => {
         assertCurrent();

@@ -27,6 +27,7 @@ type GoogleAccount = {
   apps: string[];
   requestedApps: string[];
   missingApps: string[];
+  missingPermissions?: { app: string; scopes: string[] }[];
   connectedAt: string;
   mapsConfigured: boolean;
   driveDownloads?: boolean;
@@ -544,7 +545,19 @@ export function GoogleWorkspace({
                       Select Change connected apps to approve access.
                     </p>
                   )}
-                  {account.apps.includes("drive") && !account.driveDownloads && (
+                  {Boolean(account.missingPermissions?.length) && (
+                    <div className="workspace-limited" role="status">
+                      <strong>Additional Google permissions needed</strong>
+                      <p>
+                        New actions for {appNames(account.missingPermissions!.map((permission) => permission.app))}
+                        {" "}need your approval. Select Change connected apps,
+                        keep these apps selected, then Continue to Google and
+                        approve the requested permissions. Your connected accounts
+                        and agent keys stay saved.
+                      </p>
+                    </div>
+                  )}
+                  {!account.missingPermissions?.length && account.apps.includes("drive") && !account.driveDownloads && (
                     <p className="workspace-limited">
                       Drive file downloads need permission to read existing
                       files. Select Change connected apps, keep Google Drive
@@ -721,6 +734,11 @@ export function GoogleWorkspace({
                   for each account. Removing an app from this selection does not
                   revoke existing Google permissions; use agent access below to
                   limit what each agent can use.
+                </p>
+                <p className="setup-help">
+                  Expanded actions use each app’s official API. Available features
+                  also depend on Google permissions, enabled APIs, your account’s
+                  access to the files or resources, and any administrator restrictions.
                 </p>
                 <div className="workspace-app-picker">
                   {data.apps.map((app) => (

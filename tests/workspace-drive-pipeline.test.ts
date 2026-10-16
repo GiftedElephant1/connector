@@ -231,7 +231,7 @@ test('Drive reconsent upgrades the same account without replacing its profile ke
   const consent = new URL(f.accounts.startOAuth(session, ['drive'], first.id).url);
   const requested = consent.searchParams.get('scope')!.split(' ');
   for (const scope of [...baselineScopes, readScope]) assert.ok(requested.includes(scope));
-  assert.equal(requested.includes('https://www.googleapis.com/auth/drive'), false, 'download consent must not grant full Drive write access');
+  assert.equal(requested.includes('https://www.googleapis.com/auth/drive'), true, 'expanded Drive consent includes existing-file management');
   assert.equal(consent.searchParams.get('login_hint'), first.email);
   subject = 'work';
   accessToken = 'private-new-access-work';

@@ -38,20 +38,22 @@ All advertising connectors can also read supported campaign/spend reports, and s
 
 ## Google Workspace
 
-Each Google account authorizes its selected apps independently. Each AI profile receives only the accounts and apps assigned to it. The writable apps below already request write permissions; a scope name containing `readonly` for an additional reporting or lookup operation does not make the entire connector read-only.
+Each Google account authorizes its selected apps independently. Each AI profile receives only the accounts and apps assigned to it. Sheets, Docs, Slides, Gmail, Drive, Meet, Chat, and Tasks expose `read-api`/`write-api` actions for supported official user API requests as well as the convenient actions below. All writes require confirmation and a request ID. Added scopes must be approved again for existing connections; an update does not silently grant more access.
 
 | App | Supported writes | Access notes |
 | --- | --- | --- |
-| Sheets | Create spreadsheets and overwrite cell ranges. | Uses `spreadsheets`; entered values are literal, so formulas are not evaluated. |
-| Docs | Create documents and append text. | Uses `documents`; existing document replacement/formatting is not implemented. |
-| Slides | Create presentations and add text slides. | Uses `presentations`; arbitrary layout/media editing is not implemented. |
-| Gmail | Create drafts and send plain-text email. | Uses `gmail.compose`, alongside `gmail.readonly` for reading messages. |
-| Drive | Create folders and upload text files. | Writes use `drive.file`. Metadata lookup remains available to older connections; approve the additional `drive.readonly` scope to download existing stored files up to 20 MiB. Downloads return base64 bytes and a SHA-256 digest; native Google document export is not supported. |
-| Meet | Create meeting spaces and links. | Uses `meetings.space.created`; this does not create Calendar invitations. Account eligibility applies. |
-| Chat | Send text messages as the selected user. | Uses `chat.messages.create`, alongside space/message lookup scopes. Requires Chat API configuration and account access. |
-| Tasks | Create/update tasks and mark them complete. | Uses `tasks`; due dates have no time of day. |
+| Sheets | Create spreadsheets; write cells or formulas; add/rename tabs; format cells; execute official Sheets batch updates. | Uses existing `spreadsheets` scope. `RAW` keeps text literal; `USER_ENTERED`/`write-formulas` evaluates formulas. |
+| Docs | Create documents, append text, and use official document batch updates for editing/formatting. | Uses existing `documents` scope; account must have edit access to the document. |
+| Slides | Create presentations/text slides and use official presentation batch updates for shapes, layouts, text, and supported media operations. | Uses existing `presentations` scope; Google file/media access limits apply. |
+| Gmail | Create drafts/send email; use official user API operations for labels, messages, mailbox changes, and supported settings. | Expanded scopes need renewed consent. Settings that require domain-wide delegation are not supported by this user OAuth flow. |
+| Drive | Create folders/text files; upload/replace binary files up to 20 MiB; convert Excel to Sheets; use official JSON operations for metadata, permissions, and supported Drive resources. | Expanded full `drive` scope needs renewed consent. Stored downloads up to 20 MiB and native document exports up to 10 MiB return base64 and SHA-256. File-sharing and download restrictions apply. |
+| Meet | Create meeting spaces/links; use supported official API operations for meeting settings and ending conferences. | Additional grants and account eligibility apply. This does not create Calendar invitations. |
+| Chat | Send/edit/delete messages and use supported user API operations for spaces and memberships. | Additional grants, Chat API configuration, and resource access apply. App-only or administrator methods are not granted by ordinary user consent. |
+| Tasks | Create/update/complete tasks; use official API operations for task lists, moving, deleting, and clearing tasks. | Uses existing `tasks` scope; due dates have no time of day. |
 | Maps | **Places data is read-only.** | Searches public places and reads details using a billing project key. Places API does not write personal saved places, Timeline, or public reviews. |
 | Voice | **Audit reports are read-only.** | Reads Voice activity through the administrator Reports API. It does not provide personal calls, SMS, voicemail management, or a messaging write scope. |
+
+The fixed API actions expand coverage of each supported API, not every Google website feature. They do not bypass Google scopes, sharing roles, API configuration, subscription limits, or administrator policies. See [Workspace upgrade steps](providers-workspace.md#update-an-existing-connection-for-expanded-actions) and [API request examples](pipeline.md#expanded-workspace-api-actions).
 
 Maps business listing management would require a separate Google Business Profile integration and approval. Plaid money movement would require separate payment/Transfer product access and implementation. Those are different products from the connected Places and bank-data APIs; they are not enabled by granting a broader permission here. No unsupported write behavior is simulated.
 

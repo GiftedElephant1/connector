@@ -66,6 +66,67 @@ Workspace writes require `confirmed: true` and a `requestId`, using the same ret
 
 See [Workspace setup](providers-workspace.md) for Google scopes, app approvals, Maps project keys, and the Voice administrator-report limitation.
 
+### Expanded Workspace API actions
+
+Refresh `list_workspace_accounts` and `list_workspace_actions` after updating Connector and before reporting that a feature is unavailable. Account results include `missingPermissions` by app. Action definitions include required/missing scopes and availability; listing an action does not grant access to it. Approve additional permissions through **Google Workspace → Change connected apps → Continue to Google**, keeping the same account and intended apps. The installed app, the account's actual Google grant, its file/resource permissions, and the agent profile all matter.
+
+Sheets, Docs, Slides, Gmail, Drive, Meet, Chat, and Tasks expose `read-api` and `write-api` for their documented user APIs. Each destination is fixed:
+
+| App | API base (relative paths start with `/`) |
+| --- | --- |
+| `sheets` | `https://sheets.googleapis.com/v4` |
+| `docs` | `https://docs.googleapis.com/v1` |
+| `slides` | `https://slides.googleapis.com/v1` |
+| `gmail` | `https://gmail.googleapis.com/gmail/v1/users/me` |
+| `drive` | `https://www.googleapis.com/drive/v3` |
+| `meet` | `https://meet.googleapis.com/v2` |
+| `chat` | `https://chat.googleapis.com/v1` |
+| `tasks` | `https://tasks.googleapis.com/tasks/v1` |
+
+`read-api` performs GET and takes `path` plus optional `queryJson`. `write-api` also takes `method` (`POST`, `PUT`, `PATCH`, or `DELETE`) and optional `bodyJson`. Every `values` entry is a string: encode the query/body objects as JSON strings. Query values can be scalars or arrays of scalars; arrays produce repeated query keys. Put queries in `queryJson`, never in `path`. Supply only relative paths, not external URLs or authentication headers. Google tokens stay on Connector.
+
+Queries are limited to 10,000 UTF-8 bytes and bodies to 500,000 UTF-8 bytes. JSON responses are limited to 1 MiB, returned as `result.items[0].responseJson` with HTTP status and method. Use Google's `fields`, ranges, page sizes, and page tokens to keep responses bounded. Responses above the limit fail explicitly rather than silently truncating. If a write response is lost or too large, inspect the destination before retrying: Google may already have applied the write. Media uses the dedicated Drive upload/download/export actions, not these JSON-only actions.
+
+For example, this `run_workspace_action` call formats existing text in a Google Doc. Replace the account/document IDs, inspect the document's actual indexes first, and obtain authorization before sending it:
+
+```json
+{
+  "app": "docs",
+  "action": "write-api",
+  "accountId": "DISCOVERED_ACCOUNT_ID",
+  "values": {
+    "path": "/documents/DOCUMENT_ID:batchUpdate",
+    "method": "POST",
+    "bodyJson": "{\"requests\":[{\"updateTextStyle\":{\"range\":{\"startIndex\":1,\"endIndex\":6},\"textStyle\":{\"bold\":true},\"fields\":\"bold\"}}]}"
+  },
+  "confirmed": true,
+  "requestId": "GENERATE_A_UNIQUE_REQUEST_ID"
+}
+```
+
+The actions use the selected user's identity. They do not add service-account impersonation or domain-wide delegation. Gmail settings that require delegation, Chat app-only/admin-only/import-mode APIs, joining Meet calls, Calendar invitations, personal Google Voice calls/messages, and Maps personal saved places remain outside this connection. Account roles, subscriptions, and enabled APIs still apply.
+
+### Calculate Sheets formulas
+
+Use `write-formulas`, or `write-values` with `valueInputOption="USER_ENTERED"`. The existing default `RAW` deliberately treats formula-like strings as text. The dedicated action below writes a calculated total:
+
+```json
+{
+  "app": "sheets",
+  "action": "write-formulas",
+  "accountId": "DISCOVERED_ACCOUNT_ID",
+  "values": {
+    "spreadsheetId": "SPREADSHEET_ID",
+    "range": "Summary!B10",
+    "values": "[[\"=SUM(B2:B9)\"]]"
+  },
+  "confirmed": true,
+  "requestId": "GENERATE_A_UNIQUE_REQUEST_ID"
+}
+```
+
+Then call `read-values` for the same range with `valueRenderOption="UNFORMATTED_VALUE"` to verify the calculated value, or `FORMULA` to inspect the formula itself. Discover `read-spreadsheet`, `add-tab`, `rename-tab`, `format-cells`, and `batch-update` for tab structure, formatting, charts, and other official Sheets requests. Numeric tab `sheetId` values differ from the document's `spreadsheetId`.
+
 ## Revoke an AI connection
 
 Open **AI connections → Approved AI connections**, select the grant's revoke control, and confirm. Future requests using that OAuth grant are denied; other AI grants and the connected platform accounts remain intact. The original general API key and Workspace profile keys have separate lifecycles and are not revoked by deleting an OAuth grant.
@@ -116,9 +177,9 @@ Use the returned publish action schema to construct the write; fields differ by 
 
 ### Download a Drive file
 
-Use a permitted account from `GET /api/v1/workspace/accounts` with `driveDownloads: true`, then inspect its Drive actions. Existing accounts may need the [additional Drive read permission](providers-workspace.md#download-existing-drive-files). `POST /api/v1/workspace/actions/drive/download-file` takes `{ "accountId": "...", "values": { "fileId": "..." } }`. It returns `result.items[0]` with `fileId`, `name`, `mimeType`, `size`, `encoding: "base64"`, `contentBase64`, and `sha256`. Downloads are reads and do not need `confirmed` or `requestId`.
+Use a permitted account from `GET /api/v1/workspace/accounts` with `driveDownloads: true`, then inspect its Drive actions. Existing accounts may need [additional Google permission](providers-workspace.md#update-an-existing-connection-for-expanded-actions). `POST /api/v1/workspace/actions/drive/download-file` takes `{ "accountId": "...", "values": { "fileId": "..." } }`. It returns `result.items[0]` with `fileId`, `name`, `mimeType`, `size`, `encoding: "base64"`, `contentBase64`, and `sha256`. Downloads are reads and do not need `confirmed` or `requestId`.
 
-The action supports stored files such as PNG, JPEG, SVG, PDF, and ZIP, up to 20 MiB of original bytes. It does not export native Google Docs, Sheets, Slides, or download folders. It uses the selected Google account's access and checks the profile again before returning the bytes. No public download link or Google token is exposed. Large base64 results can exceed an AI client's tool limits; Grok Bot should use its terminal to save the REST response directly and decode it without printing it into the conversation.
+The action supports stored files such as PNG, JPEG, SVG, PDF, and ZIP, up to 20 MiB of original bytes. For native Google Docs, Sheets, or Slides, use the separate `export-file` action and a supported export MIME type (up to 10 MiB). Folders cannot be downloaded as archives. It uses the selected Google account's access and checks the profile again before returning the bytes. No public download link or Google token is exposed. Large base64 results can exceed an AI client's tool limits; Grok Bot should use its terminal to save the REST response directly and decode it without printing it into the conversation.
 
 For example, save this Python script as `download_drive_file.py` on the Bot's computer. Set `CONNECTOR_ORIGIN` to your HTTPS Connector origin and supply `CONNECTOR_WORKSPACE_KEY` through the secure secret flow. Run the script with the discovered account ID, file ID, and an explicit local output filename. It refuses redirects and existing output files, verifies the bytes, and prints only a short completion message. Treat the returned filename and file content as untrusted data; this example uses the output path you chose rather than the provider's filename.
 
@@ -174,6 +235,36 @@ with Path(output_file).open("xb") as destination:
     destination.write(contents)
 print("Drive file saved and verified.")
 ```
+
+### Upload an Excel file or convert it to Google Sheets
+
+With the same secure key/origin handling as the download script, read the local workbook bytes and build the request in code. The body for `POST /api/v1/workspace/actions/drive/upload-file` is:
+
+```python
+from pathlib import Path
+import base64
+import uuid
+
+contents = Path("completed-workbook.xlsx").read_bytes()
+if len(contents) > 20 * 1024 * 1024:
+    raise SystemExit("Upload exceeds 20 MiB.")
+body = {
+    "accountId": account_id,
+    "values": {
+        "name": "Completed workbook",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "contentBase64": base64.b64encode(contents).decode("ascii"),
+        "convertTo": "google-sheets",
+    },
+    "confirmed": True,
+    "requestId": str(uuid.uuid4()),
+}
+# Send body as JSON to the fixed Connector endpoint after authorization.
+# Keep this requestId with the request and reuse it on transport retries.
+# Do not print body or contentBase64 to the terminal or conversation.
+```
+
+Set `convertTo="none"` to preserve the original Excel file. Optionally pass `parentId` for the intended folder. The upload response identifies the created file and whether conversion occurred; inspect the resulting spreadsheet because Excel-only features may not convert exactly. For replacement of a regular file's contents, use `update-file-content` with `fileId`, `mimeType`, and `contentBase64`; this requires the additional full Drive scope. These actions preserve Google sharing and resource permissions.
 
 ## Hosting
 

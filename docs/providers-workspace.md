@@ -31,19 +31,47 @@ Google may require app verification for sensitive or restricted scopes, particul
 
 Connector records the permissions Google actually granted. If you deselect a permission on Google's consent page, the affected app appears as needing authorization and cannot be assigned to an agent. To add permissions later, use that account's authorization control and select the additional apps. Existing permissions are included in that request. Selecting a different Google account during reauthorization produces an error and preserves the original connection; use the add-account flow for a new account.
 
-## Download existing Drive files
+## Update an existing connection for expanded actions
 
-Drive can download stored files such as logos, images, PDFs, and ZIP archives, up to 20 MiB each. The `download-file` action returns the original bytes as base64, with their filename, MIME type, byte count, and SHA-256 digest. Have your agent decode and save the bytes on its computer rather than paste the base64 into chat. Native Google Docs, Sheets, Slides, and folders are not downloadable through this action; use the corresponding document actions for their supported content. Google sharing and download restrictions still apply.
+Updating Connector adds tools; it does not silently expand a Google authorization. Existing accounts, agent profiles, and keys remain saved. Sheets formulas, tabs, formatting, and batch updates use the existing `spreadsheets` permission. Docs, Slides, and Tasks also use their existing write scopes.
 
-Older Drive connections can keep listing file metadata and creating app-owned files. To download existing files, approve the additional read permission:
+1. Update Connector using its normal update workflow, then restart it.
+2. Open **Google Workspace**. An account with **Additional Google permissions needed** lists the apps whose new actions need a fresh grant.
+3. In your existing Google Cloud project, open **Google Auth Platform → Data Access → Add or remove scopes**. Add the scopes shown under Connector's **Change connected apps → View requested Google permissions**, then save. Enable the corresponding APIs under **APIs & Services → Library**. Changing Google's scope list alone does not update a saved account token.
+4. In Connector, choose **Change connected apps** for the account, keep its intended apps selected, and select **Continue to Google**. Choose the same account and approve the requested access. Any Google verification or Workspace administrator requirements still apply.
+5. In **AI agent access**, confirm that the intended profile permits these apps for this account. No replacement profile key or reset is needed.
+6. Ask your agent to refresh `list_workspace_accounts` and `list_workspace_actions` for each app. Resolve any returned `missingPermissions` before using actions that need them. Older actions remain available where their original permissions are still granted.
 
-1. In the Google Cloud project for Connector, open **Google Auth Platform → Data Access → Add or remove scopes** and add `https://www.googleapis.com/auth/drive.readonly`. Save the scope configuration; any Google verification or administrator requirements still apply.
-2. In Connector, open **Google Workspace** and find the account that can access your brand kit.
-3. Select **Change connected apps**, keep **Google Drive** and your other apps selected, then choose **Continue to Google**.
-4. Choose the same Google account and approve the file-reading permission. Connector preserves its account identity, other connections, and existing agent access. No reset or replacement profile key is needed.
-5. Confirm the agent profile permits **Google Drive** on that account. Ask the agent to refresh `list_workspace_accounts` and `list_workspace_actions`; `driveDownloads: true` confirms the account and profile can use downloads. A false value means the read permission or profile's Drive access is missing.
+The expanded grants below supplement the baseline scopes. Names without a full URL use the prefix `https://www.googleapis.com/auth/`. The live **View requested Google permissions** list is authoritative for your installed version.
 
-See the [HTTPS download example](pipeline.md#download-a-drive-file) for saving a returned file and checking its digest. This read action does not require write confirmation or a request ID.
+| App | Additional grants |
+| --- | --- |
+| Sheets, Docs, Slides, Tasks | None; their existing write scopes cover the expanded tools. |
+| Drive | `drive.readonly`, `drive`, `drive.appdata`, `drive.apps.readonly`. Full `drive` covers the existing read/file access but not app-data or installed-app-list permissions. |
+| Gmail | `https://mail.google.com/`, `gmail.settings.basic`. These allow broader mailbox changes, including permanent deletion, and supported user settings; they do not enable domain-wide delegation. |
+| Meet | `meetings.space.settings`. |
+| Chat | `chat.spaces`, `chat.messages`, `chat.memberships`, `chat.delete`, `chat.users.readstate`, `chat.users.spacesettings`, `chat.spaces.pins`, `chat.customemojis`, `chat.users.sections`, `chat.users.availability`. Google may restrict individual scopes or methods by account, rollout, or administrator policy. |
+
+A useful message for Grok Bot:
+
+> Refresh your Connector Workspace accounts and actions. Use the intended Google account and profile. Sheets now supports formulas, tabs, formatting, and batch updates; Drive supports binary uploads and Excel conversion. Read each action's current schema before using it. Report missing Google permissions, and verify the result after any authorized write.
+
+## Sheets formulas, tabs, and formatting
+
+`write-values` preserves the previous `RAW` default so imported strings remain literal. To calculate formulas, choose `valueInputOption="USER_ENTERED"`, or use the dedicated `write-formulas` action. `USER_ENTERED` also parses numbers and dates according to the spreadsheet's locale. Read cells with `valueRenderOption="UNFORMATTED_VALUE"` to verify calculated values, or `FORMULA` to inspect stored formulas.
+
+The Sheets actions can inspect spreadsheet/tab metadata, add and rename tabs, apply cell formatting, and execute official Sheets batch requests for operations such as charts, conditional formatting, validation, dimensions, and frozen rows. Read the current schema for exact fields and supported limits. Use the tab's numeric `sheetId` where requested; it is distinct from the document's `spreadsheetId`.
+
+## Download, upload, and export Drive files
+
+- `download-file` returns stored files such as logos, images, PDFs, and ZIP archives, up to 20 MiB each. The response contains original bytes as base64, filename, MIME type, byte count, and SHA-256 digest. Google sharing and download restrictions still apply.
+- `upload-file` accepts exact binary bytes as `contentBase64`, a filename, and MIME type, up to 20 MiB. Set `convertTo="google-sheets"` with an XLSX/XLS MIME type to convert an Excel workbook into a native Google spreadsheet. Inspect the result because Excel-only features may not convert exactly.
+- `update-file-content` replaces a regular Drive file's bytes. It does not replace the structure of a native Google document; use its Docs, Sheets, or Slides API instead.
+- `export-file` exports supported native Google documents, spreadsheets, and presentations, up to 10 MiB. Choose a supported MIME type from the action schema. CSV/TSV exports include only a spreadsheet's first sheet; image exports include only a presentation's first slide. Folders are not downloadable archives.
+
+Have the agent read/encode uploads and decode downloads in a script on its computer, without pasting base64 into chat. Check size and SHA-256 on returned downloads/exports and use an explicit safe local filename. Uploads and content replacements require write confirmation and a unique request ID; downloads and exports do not.
+
+Existing `drive.readonly` or full `drive` grants allow stored-file downloads. Expanded Drive operations request full `drive` access; app-data and app-list operations have their own scopes shown in the consent list. Old metadata and app-created-file operations remain available without silently broadening their grant. See the [HTTPS file examples](pipeline.md#download-a-drive-file).
 
 ## Give an AI agent access
 
@@ -82,18 +110,20 @@ Rotate a profile key if you need a replacement; the previous key stops working i
 
 | App | Supported operations and limits |
 | --- | --- |
-| Sheets | Read and update spreadsheet cells; create spreadsheets. |
-| Docs | Read and create documents; append text. |
-| Slides | Read and create presentations; add text slides. |
-| Gmail | Search and read messages; create drafts; send plain-text email. |
-| Drive | Search file metadata; download stored files up to 20 MiB with `drive.readonly`; create folders and text files using `drive.file`. Existing connections need to approve the additional read scope before downloading existing files. |
+| Sheets | Create and inspect spreadsheets; read/write cells and formulas; add/rename tabs; format cells; run batch updates and official API requests. |
+| Docs | Read/create documents and append text; official API requests for document edits, formatting, tables, and supported document features. |
+| Slides | Read/create presentations and add text slides; official API requests for supported slide, shape, text, image, layout, and presentation operations. |
+| Gmail | Search/read messages; draft/send messages; official user API requests for supported mailbox, label, attachment, message, and settings operations. Some settings require domain-wide delegation, which this user OAuth connection does not provide. |
+| Drive | Search metadata; download/upload/replace regular files up to 20 MiB; convert Excel to Sheets; export native documents up to 10 MiB; official JSON API requests for files, folders, permissions, shared drives, and other supported resources. |
 | Maps | Search public places and read place details using a separately configured Google Cloud project key. Personal saved places and Timeline are unavailable. |
-| Meet | Create meeting links; read spaces; list accessible conference records. Requires an eligible Google Workspace account. |
+| Meet | Create meeting links; read spaces and conferences; official user API requests for supported meeting settings, conference participants, recordings, and transcripts. Availability depends on the account and Google subscription. |
 | Voice | Read Google Voice audit events as an authorized Workspace administrator. Personal calls, SMS, and voicemail are unavailable through the official API. |
-| Chat | List spaces and messages; send text messages as the selected user. Requires an eligible account and Google Chat API configuration. |
-| Tasks | List task lists and tasks; create tasks; mark tasks complete. |
+| Chat | List spaces/messages and send messages as the selected user; official user API requests for supported spaces, membership, messages, and related features. Requires an eligible account and configured Chat API; app-only/admin methods are not unlocked by user consent. |
+| Tasks | List/create/update task lists and tasks, complete tasks, and use official API requests for supported move/delete/clear operations. Due dates have no time of day. |
 
-Google permissions and subscription requirements still apply. An OAuth grant confirms the selected permissions, while individual API operations may require the relevant Google API to be enabled, organization approval, or an eligible subscription. Voice audit access requires administrator reporting privileges and does not provide control of a personal Voice account.
+Sheets, Docs, Slides, Gmail, Drive, Meet, Chat, and Tasks each expose `read-api` and `write-api` for documented operations under that app's fixed official API origin. These accept relative paths and JSON, not arbitrary external URLs or access to other Google services. All writes still require confirmation and a request ID. Large media uploads/exports use the dedicated Drive actions rather than the JSON API action. See [request examples and boundaries](pipeline.md#expanded-workspace-api-actions).
+
+Google permissions, account access, enabled APIs, quotas, and subscription requirements still apply. "Connected" confirms authorization, not every website feature or administrator capability. APIs that require a service account, domain-wide delegation, app-only authentication, or an administrator role remain subject to those requirements. Voice audit access requires administrator reporting privileges and does not control a personal Voice account. Calendar is not a separate Workspace app in this connector; creating a Meet space does not send Calendar invitations.
 
 ## Add a Maps project key
 
@@ -120,7 +150,7 @@ New connectors can be added without changing your existing account credentials. 
 - Google callback: `/api/workspace/google/callback`. Authorization state is encrypted, expires after ten minutes, is bound to one browser session, and is consumed once. Authorization uses PKCE and offline access.
 - Account IDs are stable opaque values derived from the verified Google subject, not user-supplied email addresses. Reauthorizing an account cannot replace it with another Google identity.
 - Credential rows use `google-workspace:<accountId>`; metadata and agent profiles use encrypted settings. Existing provider rows and scheduled jobs keep their existing identifiers.
-- Apps are enabled only when all their required scopes are present in Google's returned grant. A scope reduction during refresh disables access through existing bindings. Drive's additional `drive.readonly` grant enables downloads independently, so existing metadata and file-creation access remains available while awaiting that permission.
+- Apps are enabled only when all their required scopes are present in Google's returned grant. A scope reduction during refresh disables access through existing bindings. Additional scopes unlock expanded actions without removing existing app bindings. Account discovery reports per-app `missingPermissions`; an action checks its own required grants and rejects missing permissions before calling Google. Full Drive access also satisfies the narrower existing Drive permissions.
 - OAuth AI grants refer to the selected profile; account/app permissions are read again for each call. An OAuth grant does not reveal the profile API key to the AI client.
 - Advanced agent API keys contain 32 random bytes and are returned only once. Fresh profile and key checks enforce permission changes, rotation, and revocation on subsequent requests.
 - Token refresh is serialized separately for each account. Rotated refresh tokens are saved, and disconnecting an account during refresh cannot recreate its connection.

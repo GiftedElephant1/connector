@@ -12,6 +12,8 @@ export interface ActionField {
   default?: string;
   /** Preserve significant whitespace in note/document content. */
   preserveWhitespace?: boolean;
+  /** Explicit server-defined bound for structured requests or binary payloads. */
+  maxLength?: number;
 }
 export interface ActionDefinition {
   id: string;

@@ -37,13 +37,19 @@ export class WorkspacePipeline {
       if (!binding) return [];
       const permitted = binding.apps.filter(app => account.apps.includes(app));
       if (!permitted.length) return [];
-      return [{ id: account.id, name: account.name, email: account.email, apps: permitted, driveDownloads: permitted.includes('drive') && account.driveDownloads, status: account.status, isDefault: account.id === profile.defaultAccountId }];
+      return [{ id: account.id, name: account.name, email: account.email, apps: permitted, driveDownloads: permitted.includes('drive') && account.driveDownloads,
+        missingPermissions: account.missingPermissions.filter(item => permitted.includes(item.app)),
+        status: account.status, isDefault: account.id === profile.defaultAccountId }];
     });
   }
 
   definitions(profileId: string, app: string, accountId?: string) {
-    this.service.authorize(profileId, app, accountId);
-    return this.adapters.listWorkspaceActions(app);
+    const account = this.service.authorize(profileId, app, accountId);
+    return this.adapters.listWorkspaceActions(app).map(definition => {
+      const requiredScopes = this.adapters.getWorkspaceAction(app, definition.id)?.requiredScopes || [];
+      const missingScopes = this.service.actionPermissions(account.id, app, requiredScopes);
+      return { ...definition, requiredScopes: [...requiredScopes], available: !missingScopes.length, missingScopes };
+    });
   }
 
   private action(app: string, id: string, input: unknown) {

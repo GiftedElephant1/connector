@@ -31,7 +31,9 @@ export function validateValues(adapter: ActionAdapter, input: unknown): ActionVa
     if (typeof raw !== 'string') throw new ProviderError(`${field.label} must be a string.`);
     const value = field.preserveWhitespace ? raw : raw.trim();
     if (field.required && !value) throw new ProviderError(`${field.label} is required.`);
-    if (value.length > (field.type === 'file' ? 28_000_000 : 50_000)) throw new ProviderError(`${field.label} is too large.`);
+    const maximum = field.maxLength ?? (field.type === 'file' ? 28_000_000 : 50_000);
+    if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > 28_000_000) throw new ProviderError('This action has an invalid field size limit.', 500);
+    if (value.length > maximum) throw new ProviderError(`${field.label} is too large.`);
     if (value && field.type === 'select' && !field.options?.some(option => option.value === value)) throw new ProviderError(`Choose a valid ${field.label}.`);
     if (value && field.type === 'number' && !Number.isFinite(Number(value))) throw new ProviderError(`${field.label} must be a finite number.`);
     if (value && field.type === 'datetime' && (!Number.isFinite(Date.parse(value)) || !/(Z|[+-]\d\d:\d\d)$/.test(value))) throw new ProviderError(`${field.label} must include a timezone.`);
