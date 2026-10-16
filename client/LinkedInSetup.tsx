@@ -1,15 +1,25 @@
 import { CopyValue } from "./Setup";
+import { linkedInScopes } from "../server/linkedin-scopes";
 
-export function LinkedInSetup({ callbackUrl, clientId, advertising = false, memberRead = false, organizations = false, conversions = false }: { callbackUrl: string; clientId: string; advertising?: boolean; memberRead?: boolean; organizations?: boolean; conversions?: boolean }) {
+export function LinkedInSetup({ callbackUrl, clientId, advertising = false, memberRead = false, organizations = false, conversions = false, combined = false }: { callbackUrl: string; clientId: string; advertising?: boolean; memberRead?: boolean; organizations?: boolean; conversions?: boolean; combined?: boolean }) {
   const origin = new URL(callbackUrl).origin;
   const publicReady = origin.startsWith("https://") && !["localhost", "127.0.0.1", "[::1]"].includes(new URL(origin).hostname);
-  const scopes = advertising
-    ? ["r_ads", "rw_ads", "r_ads_reporting", ...(conversions ? ["rw_conversions"] : [])]
-    : ["openid", "profile", "w_member_social", ...(memberRead ? ["r_member_social"] : []), ...(organizations ? ["rw_organization_admin", "r_organization_social", "w_organization_social"] : [])];
+  const scopes = linkedInScopes(advertising, { memberRead, organizations, conversions, combined });
   return <div>
     <strong>Check LinkedIn products and permissions</strong>
     <p>Open your LinkedIn developer app’s <strong>Auth → OAuth 2.0 scopes</strong>. Every permission below must appear in that list before connecting. Correct credentials and redirect URLs alone do not grant these permissions.</p>
     <CopyValue label="Permissions Connector will request" value={scopes.join(" ")} />
+    <p>If you use both LinkedIn and LinkedIn Campaign Manager with the same developer app and LinkedIn member, choose <strong>true</strong> for <strong>Use LinkedIn Pages and Ads together</strong> below. Confirm every permission in the updated list is approved before saving. LinkedIn invalidates earlier tokens when the same app and member request different permissions; connecting ads can otherwise interrupt Page access.</p>
+    {combined && <div className="setup-notice">
+      <strong>Renew both LinkedIn connections with the same permissions</strong>
+      <p>Both setup screens now show the same permission list. Your app needs <strong>Sign In with LinkedIn using OpenID Connect</strong>, <strong>Share on LinkedIn</strong>, and <strong>Advertising API</strong> access. Company Pages also need the approved Community Management permissions listed above.</p>
+      <ol>
+        <li>For company Pages, set <strong>Approved LinkedIn company pages</strong> to <strong>true</strong>. Keep optional member reading and conversion uploads off unless those permissions are approved.</li>
+        <li>Save all your permission choices, then use <strong>View connection → Update permissions</strong> once on <strong>LinkedIn</strong> and once on <strong>LinkedIn Campaign Manager</strong>. If a card is disconnected, use <strong>Connect account</strong> instead.</li>
+        <li>Keep these choices unchanged between the two authorizations. If you change them later, renew both connections again.</li>
+      </ol>
+      <p>Your saved accounts and application credentials remain in place. Each connection still uses the member you choose for that sign-in.</p>
+    </div>}
     {advertising ? <>
       <p>Under <strong>Products</strong>, request <strong>Advertising API</strong> access and wait for approval. Confirm <code>r_ads</code>, <code>rw_ads</code>, and <code>r_ads_reporting</code> appear under Auth.</p>
       <p>Set <strong>Approved LinkedIn conversion uploads</strong> to <strong>true</strong> only when <code>rw_conversions</code> also appears in Auth. Otherwise keep it <strong>false</strong>; campaign management and spend reporting can still connect.</p>

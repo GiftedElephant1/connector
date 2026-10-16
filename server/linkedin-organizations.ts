@@ -1,12 +1,13 @@
 import { fetchJson, isObject, safeCredential, type JsonObject, type ProviderHttpFailure } from './provider-http.ts';
 import { ProviderError, type Credential, type Resource } from './provider-types.ts';
+import { linkedInOrganizationScopes } from './linkedin-scopes.ts';
 
-export const linkedInOrganizationScopes = ['rw_organization_admin', 'r_organization_social', 'w_organization_social'] as const;
+export { linkedInOrganizationScopes } from './linkedin-scopes.ts';
 
 function organizationFailure(failure: ProviderHttpFailure): ProviderError {
   if (failure.kind === 'network') return new ProviderError('LinkedIn company Pages could not be reached. Try again later.', 502);
   if (failure.kind === 'invalid-response') return new ProviderError('LinkedIn returned an invalid company Page response. Try again later.', 502);
-  if (failure.status === 401) return new ProviderError('LinkedIn company Page access expired or was rejected. Reconnect LinkedIn to renew access.', 401);
+  if (failure.status === 401) return new ProviderError('LinkedIn company Page access expired or was rejected. If you also use Campaign Manager with this developer app, enable Use LinkedIn Pages and Ads together in Check LinkedIn setup after confirming all listed permissions, then update permissions on both connections. Otherwise reconnect LinkedIn to renew access.', 401);
   if (failure.status === 403) return new ProviderError('LinkedIn denied company Page access. Confirm your developer app has approved organization permissions, reconnect LinkedIn, and use a member with Page super admin or content admin access.', 403);
   if (failure.status === 429) return new ProviderError('LinkedIn is rate limiting company Page requests. Try again later.', 429);
   return new ProviderError(`LinkedIn company Page discovery failed (HTTP ${failure.status}). Check the configured LinkedIn API version and app access.`, 502);

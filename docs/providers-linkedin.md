@@ -17,6 +17,23 @@ When company access is disabled, member-only connections continue to work withou
 
 References: [organization access control](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-access-control-by-role), [organization lookup](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api), [Posts API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api).
 
+## Keep company Pages and Campaign Manager connected together
+
+If a company Page still appears in saved resources but live reads report expired or rejected access after connecting LinkedIn Campaign Manager, the previous token may have been invalidated. LinkedIn's [access-token scope rules](https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow#access-token-scopes-and-lifetime) say requesting a different scope set for the same developer app and member invalidates earlier access tokens. Reconnecting one card with a different scope set can therefore break the other card again. A cached Page name does not confirm the current token still works.
+
+Connector has an optional **Use LinkedIn Pages and Ads together** setting (`LINKEDIN_COMBINE_SCOPES=true`) that makes both authorizations request the same ordered set of approved permissions. It is off by default so installations using only one LinkedIn product keep their existing requests.
+
+1. Open **Connections → LinkedIn → Check LinkedIn setup**. Set **Use LinkedIn Pages and Ads together** and **Approved LinkedIn company pages** to **true**. Keep **Approved LinkedIn member reading** and **Approved LinkedIn conversion uploads** false unless LinkedIn has approved their additional scopes.
+2. Compare **Permissions Connector will request** with the same developer app's **Auth → OAuth 2.0 scopes**. Every listed scope must be approved. The combined connection needs **Sign In with LinkedIn using OpenID Connect**, **Share on LinkedIn**, and **Advertising API** access, plus the Community Management permissions for company Pages. Do not enable a permission merely to work around a provider rejection.
+3. Click **Save and continue**. The same settings and permission list are shown in the LinkedIn Campaign Manager setup screen.
+4. On **LinkedIn**, open **View connection → Update permissions** and complete sign-in. Do the same once on **LinkedIn Campaign Manager**. For a disconnected card, use **Connect account** instead. Use the LinkedIn member with access to your intended Pages and ad accounts.
+5. Do not change the permission switches between those two authorizations. If you change them later, update permissions on both cards again.
+6. Verify both connections, then ask your AI to list company Pages and ad accounts and perform a read from each.
+
+Saving this setting preserves the existing accounts, credentials, resource selections and other connections. It does not restore an already invalidated token; the two authorizations are required. It also does not copy tokens or identities between cards, grant an app missing product approval, or give a member an account role they do not have.
+
+If fresh authorization succeeds but reads still fail, use the new provider error to distinguish expired credentials from missing endpoint permissions, company roles, or unsupported API versions.
+
 ## Check product permissions first
 
 If LinkedIn displays **“Bummer, something went wrong”** and then redirects back, check your approved scopes as well as the redirect addresses. That message alone does not identify the cause. Connector's member connection requests `openid profile w_member_social`; all three must appear under your developer app's **Auth → OAuth 2.0 scopes**.
@@ -75,6 +92,6 @@ Connector cannot inspect or modify the redirect list inside your LinkedIn develo
 
 The **LinkedIn** member connection requests **Sign In with LinkedIn using OpenID Connect** (`openid profile`) and **Share on LinkedIn** (`w_member_social`). Check their status under your app’s **Products**. Restricted member-read access is optional and should only be enabled in Connector after LinkedIn grants it.
 
-The **LinkedIn Campaign Manager** connection requires approved **Advertising API** access (`r_ads rw_ads r_ads_reporting`). Conversion uploads additionally require approved `rw_conversions` access before enabling **Approved LinkedIn conversion uploads** in Connector. An application for Conversions API alone does not grant member sign-in, member publishing, or every advertising permission.
+The **LinkedIn Campaign Manager** connection requires approved **Advertising API** access (`r_ads rw_ads r_ads_reporting`). Conversion uploads additionally require approved `rw_conversions` access before enabling **Approved LinkedIn conversion uploads** in Connector. An application for Conversions API alone does not grant member sign-in, member publishing, or every advertising permission. When using both connections with the same developer app and member, follow [Keep company Pages and Campaign Manager connected together](#keep-company-pages-and-campaign-manager-connected-together) so the two authorizations request matching permissions.
 
 If your ngrok domain changes, return to **Check LinkedIn setup**, copy the updated URLs, register them in LinkedIn, save, and start a fresh connection. A stable assigned ngrok domain helps keep these addresses consistent.

@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { fetchJson, isObject, safeCredential, tokenResponse, type JsonObject } from './provider-http.ts';
 import { ProviderError, type Credential, type OAuthRequest, type ProviderAdapter, type VerifiedAccount } from './provider-types.ts';
-import { linkedInOrganizationScopes, listLinkedInOrganizations } from './linkedin-organizations.ts';
+import { listLinkedInOrganizations } from './linkedin-organizations.ts';
+import { linkedInScopes, linkedInScopeOptions } from './linkedin-scopes.ts';
 
 function setting(env: NodeJS.ProcessEnv, key: string): string {
   const value = env[key];
@@ -141,7 +142,7 @@ const linkedin: ProviderAdapter = {
     docsUrl: 'https://learn.microsoft.com/en-us/linkedin/consumer/integrations/self-serve/sign-in-with-linkedin-v2',
   },
   requiredEnv: ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET'],
-  authorize: (input) => authorization('https://www.linkedin.com/oauth/v2/authorization', input, setting(input.env, 'LINKEDIN_CLIENT_ID'), `openid profile w_member_social${input.env.LINKEDIN_ENABLE_MEMBER_READ === 'true' ? ' r_member_social' : ''}${input.env.LINKEDIN_ENABLE_ORGANIZATIONS === 'true' ? ` ${linkedInOrganizationScopes.join(' ')}` : ''}`),
+  authorize: (input) => authorization('https://www.linkedin.com/oauth/v2/authorization', input, setting(input.env, 'LINKEDIN_CLIENT_ID'), linkedInScopes(false, linkedInScopeOptions(input.env)).join(' ')),
   exchange: (input) => tokenRequest('LinkedIn', 'https://www.linkedin.com/oauth/v2/accessToken', {
     grant_type: 'authorization_code', code: input.code, redirect_uri: input.redirectUri,
     client_id: setting(input.env, 'LINKEDIN_CLIENT_ID'), client_secret: setting(input.env, 'LINKEDIN_CLIENT_SECRET'),

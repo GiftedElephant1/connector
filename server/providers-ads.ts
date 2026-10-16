@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { fetchJson, isObject, safeCredential, tokenResponse, type ProviderHttpOptions } from './provider-http.ts';
 import { microsoftAdsHttpOptions } from './microsoft-ads-errors.ts';
+import { linkedInScopes, linkedInScopeOptions } from './linkedin-scopes.ts';
 import { ProviderError, type Credential, type OAuthExchange, type ProviderAdapter, type Resource } from './provider-types.ts';
 
 function configured(env: NodeJS.ProcessEnv, key: string): string {
@@ -55,7 +56,7 @@ const linkedin: ProviderAdapter = {
   },
   requiredEnv: ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET'],
   authorize({ redirectUri, state, env }) {
-    const scope = `r_ads rw_ads r_ads_reporting${env.LINKEDIN_ENABLE_CONVERSIONS === 'true' ? ' rw_conversions' : ''}`;
+    const scope = linkedInScopes(true, linkedInScopeOptions(env)).join(' ');
     const query = new URLSearchParams({ response_type: 'code', client_id: configured(env, 'LINKEDIN_CLIENT_ID'), redirect_uri: redirectUri, state, scope });
     return `https://www.linkedin.com/oauth/v2/authorization?${query}`;
   },

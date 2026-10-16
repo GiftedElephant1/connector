@@ -85,7 +85,7 @@ test("reopening LinkedIn setup refreshes changed public URLs and fits a narrow s
 test("LinkedIn setup shows the actual requested permissions and optional approval switches", async ({ page }) => {
   await login(page);
   const headers = { "x-connector-request": "1" };
-  const flags = { LINKEDIN_ENABLE_MEMBER_READ: "false", LINKEDIN_ENABLE_ORGANIZATIONS: "false", LINKEDIN_ENABLE_CONVERSIONS: "false" };
+  const flags = { LINKEDIN_ENABLE_MEMBER_READ: "false", LINKEDIN_ENABLE_ORGANIZATIONS: "false", LINKEDIN_ENABLE_CONVERSIONS: "false", LINKEDIN_COMBINE_SCOPES: "false" };
   expect((await page.request.put("/api/settings", { headers, data: { values: { ...flags, LINKEDIN_CLIENT_ID: "browser-linkedin-app", LINKEDIN_CLIENT_SECRET: "browser-linkedin-secret" } } })).ok()).toBe(true);
   await page.reload();
   try {
@@ -114,6 +114,43 @@ test("LinkedIn setup shows the actual requested permissions and optional approva
       const started = await page.request.post(`/api/oauth/${provider}/start`, { headers });
       expect(started.ok()).toBe(true);
       expect(new URL((await started.json()).url).searchParams.get("scope")).toBe(expected);
+    }
+  } finally {
+    await page.request.put("/api/settings", { headers, data: { values: flags } });
+  }
+});
+
+test("combined LinkedIn setup saves one scope set for both Page and Ads authorizations", async ({ page }) => {
+  await login(page);
+  const headers = { "x-connector-request": "1" };
+  const flags = { LINKEDIN_ENABLE_MEMBER_READ: "false", LINKEDIN_ENABLE_ORGANIZATIONS: "false", LINKEDIN_ENABLE_CONVERSIONS: "false", LINKEDIN_COMBINE_SCOPES: "false" };
+  expect((await page.request.put("/api/settings", { headers, data: { values: { ...flags, LINKEDIN_CLIENT_ID: "combined-browser-app", LINKEDIN_CLIENT_SECRET: "combined-browser-secret" } } })).ok()).toBe(true);
+  await page.reload();
+  try {
+    const dialog = await openGuide(page);
+    await dialog.getByLabel("Use LinkedIn Pages and Ads together", { exact: false }).selectOption("true");
+    await dialog.getByLabel("Approved LinkedIn company pages", { exact: false }).selectOption("true");
+    const expected = "openid profile w_member_social rw_organization_admin r_organization_social w_organization_social r_ads rw_ads r_ads_reporting";
+    await expect(dialog.getByLabel("Permissions Connector will request", { exact: true })).toHaveValue(expected);
+    await expect(dialog.getByText("Renew both LinkedIn connections with the same permissions", { exact: true })).toBeVisible();
+    await expect(dialog.getByText(/Keep these choices unchanged between the two authorizations/)).toBeVisible();
+    await dialog.getByRole("button", { name: "Save and continue", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+
+    for (const [name, provider] of [["LinkedIn", "linkedin"], ["LinkedIn Campaign Manager", "linkedin-ads"]]) {
+      const reopened = await openGuide(page, name);
+      await expect(reopened.getByLabel("Use LinkedIn Pages and Ads together", { exact: false })).toHaveValue("true");
+      await expect(reopened.getByLabel("Approved LinkedIn company pages", { exact: false })).toHaveValue("true");
+      await expect(reopened.getByLabel("Permissions Connector will request", { exact: true })).toHaveValue(expected);
+      await expect(reopened.getByLabel("LinkedIn client secret", { exact: false })).toHaveAttribute("placeholder", "Already saved — leave blank to keep");
+      await expect(reopened.getByLabel("LinkedIn Client ID to match in the Auth tab", { exact: true })).toHaveValue("combined-browser-app");
+      await reopened.getByRole("button", { name: "Cancel", exact: true }).click();
+      const started = await page.request.post(`/api/oauth/${provider}/start`, { headers });
+      expect(started.ok()).toBe(true);
+      const url = new URL((await started.json()).url);
+      expect(url.searchParams.get("scope")).toBe(expected);
+      expect(url.searchParams.get("client_id")).toBe("combined-browser-app");
+      expect(new URL(url.searchParams.get("redirect_uri")!).pathname).toBe(`/api/oauth/${provider}/callback`);
     }
   } finally {
     await page.request.put("/api/settings", { headers, data: { values: flags } });
