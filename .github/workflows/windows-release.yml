@@ -77,7 +77,7 @@ jobs:
           path: ${{ runner.temp }}\connector-clamav-databases
           key: clamav-official-1.5.4-${{ runner.os }}-${{ steps.antivirus-cache-day.outputs.day }}
           restore-keys: clamav-official-1.5.4-${{ runner.os }}-
-      - name: Scan development download before making it available
+      - name: Scan development package for verification reports
         id: antivirus
         shell: powershell
         run: |
@@ -86,7 +86,7 @@ jobs:
             & .\.github\scripts\scan-windows-package.ps1 -PackagePath artifacts\Connector-Windows.zip -ReportPath artifacts\Connector-Windows.scan.json -DatabasePath "$env:RUNNER_TEMP\connector-clamav-databases"
           } catch {
             $message = $_.Exception.Message.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
-            Write-Output "::warning title=Windows download withheld::$message"
+            Write-Output "::warning title=Windows package verification failed::$message"
             exit 1
           }
       - name: Record actual scan outcome
@@ -98,23 +98,16 @@ jobs:
           if ($env:SCAN_OUTCOME -eq 'success') {
             'ClamAV scanned the exact development ZIP and extracted contents using current official databases. This unsigned build is not a signed release or a Chrome acceptance test.' >> $env:GITHUB_STEP_SUMMARY
           } else {
-            'Windows download WITHHELD: antivirus verification failed. Inspect the scan report and step error. No clean verdict or browser acceptance is claimed.' >> $env:GITHUB_STEP_SUMMARY
+            'Antivirus verification failed. Inspect the scan report and step error. No clean verdict or browser acceptance is claimed.' >> $env:GITHUB_STEP_SUMMARY
           }
-      - uses: actions/upload-artifact@v6
-        if: steps.antivirus.outcome == 'success'
-        with:
-          name: Connector-Windows
-          path: |
-            artifacts/Connector-Windows.zip
-            artifacts/Connector-Windows.zip.sha256
-            artifacts/Connector-Windows.scan.json
-          if-no-files-found: error
-          retention-days: 30
-      - name: Save failed or unavailable scan report
-        if: always() && steps.antivirus.outcome == 'failure'
+          'This workflow publishes verification reports and the package checksum only. It never publishes the unsigned runnable ZIP. Windows installation and updates require a release from Publish signed Windows release; if none is available, keep the existing installation.' >> $env:GITHUB_STEP_SUMMARY
+      - name: Save verification report and package checksum only
+        if: always() && (steps.antivirus.outcome == 'success' || steps.antivirus.outcome == 'failure')
         uses: actions/upload-artifact@v6
         with:
-          name: Windows-download-withheld-scan-report
-          path: artifacts/Connector-Windows.scan.json
+          name: Windows-package-verification
+          path: |
+            artifacts/Connector-Windows.zip.sha256
+            artifacts/Connector-Windows.scan.json
           if-no-files-found: error
           retention-days: 30

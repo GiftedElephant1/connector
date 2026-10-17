@@ -10,7 +10,7 @@ The dashboard guides you through setup, account connections, and AI-agent access
 
 ## Start on your Windows PC — no terminal commands
 
-1. Open [Windows releases](https://github.com/GiftedElephant1/connector/releases) and choose **Connector-Windows.zip** from a signed release, then choose **Extract All**. If no signed release is published yet, keep your existing installation. Source archives and **Package Windows app** artifacts are unsigned development builds; they are not a replacement for a blocked download. See [Windows download protection and signing](docs/windows-signing.md).
+1. Open [Windows releases](https://github.com/GiftedElephant1/connector/releases) and choose **Connector-Windows.zip** from a signed release, then choose **Extract All**. If no signed release is published yet, keep your existing installation. The **Package Windows app** workflow publishes verification reports only. Source archives and older unsigned development downloads are not a replacement for a blocked download. See [Windows download protection and signing](docs/windows-signing.md).
 2. Double-click **Start Connector**. Its progress window downloads a verified private runtime, installs dependencies, prepares storage, and opens the dashboard. Once startup finishes, click **Hide to tray** or the window's **X** to leave Connector running in the Windows notification area beside the clock.
 3. Choose your workspace password in the welcome screen.
 4. Open **Settings**, follow the link to ngrok's **Your Authtoken** page, paste its token, and click **Start public access**. No separate ngrok installation or command is needed. Connector saves the token encrypted and reconnects on later launches until you stop public access.
