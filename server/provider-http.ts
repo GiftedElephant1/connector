@@ -23,7 +23,7 @@ export type ProviderHttpFailure = {
 export type ProviderHttpOptions = {
   /** Receives only bounded numeric diagnostics and allowlisted codes, never upstream text or credentials. */
   failure?: (failure: ProviderHttpFailure) => ProviderError;
-  diagnosticFormat?: 'microsoft-identity' | 'microsoft-ads';
+  diagnosticFormat?: 'oauth' | 'microsoft-identity' | 'microsoft-ads';
 };
 
 function diagnosticNumber(value: unknown): number | undefined {
@@ -58,6 +58,10 @@ async function errorCodes(response: Response, format?: ProviderHttpOptions['diag
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
     const body: unknown = JSON.parse(new TextDecoder().decode(bytes));
     if (!isObject(body)) return {};
+    if (format === 'oauth') {
+      const oauthError = oauthErrors.find(value => value === body.error);
+      return oauthError ? { oauthError } : {};
+    }
     if (format === 'microsoft-identity') {
       const code = Array.isArray(body.error_codes) ? diagnosticNumber(body.error_codes[0]) : undefined;
       const oauthError = oauthErrors.find(value => value === body.error);

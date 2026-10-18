@@ -182,12 +182,12 @@ test('a social profile response never passes advertising verification', async (t
   }
 });
 
-test('approved-access rejection is surfaced without leaking upstream response', async (t) => {
+test('Reddit Ads permission rejection is surfaced without leaking upstream response', async (t) => {
   t.mock.method(globalThis, 'fetch', async () => Response.json({ error: 'secret-credential' }, { status: 403 }));
   await assert.rejects(adapter('reddit-ads').verify({ accessToken: 'valid' }, env), (error: unknown) => {
     assert.ok(error instanceof ProviderError);
     assert.equal(error.status, 403);
-    assert.match(error.message, /permissions and app approval/);
+    assert.match(error.message, /account verification failed \(HTTP 403\).*adsread and adsedit/);
     assert.equal(error.message.includes('secret-credential'), false);
     return true;
   });

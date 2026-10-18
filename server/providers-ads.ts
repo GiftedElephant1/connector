@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { fetchJson, isObject, safeCredential, tokenResponse, type ProviderHttpOptions } from './provider-http.ts';
 import { microsoftAdsHttpOptions } from './microsoft-ads-errors.ts';
+import { redditAdsHttpOptions } from './reddit-ads-errors.ts';
 import { linkedInScopes, linkedInScopeOptions } from './linkedin-scopes.ts';
 import { ProviderError, type Credential, type OAuthExchange, type ProviderAdapter, type Resource } from './provider-types.ts';
 
@@ -38,7 +39,12 @@ async function formToken(provider: string, url: string, params: Record<string, s
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers },
     body: new URLSearchParams(params),
   }, options);
-  return tokenResponse(body, previous);
+  try {
+    return tokenResponse(body, previous);
+  } catch (error) {
+    if (options?.failure) throw options.failure({ kind: 'invalid-response' });
+    throw error;
+  }
 }
 
 function withoutRefreshToken(credential: Credential, provider: string): Credential {
@@ -258,22 +264,24 @@ const reddit: ProviderAdapter = {
   exchange({ code, redirectUri, env }) {
     return formToken('Reddit Ads', 'https://www.reddit.com/api/v1/access_token', {
       grant_type: 'authorization_code', code, redirect_uri: redirectUri,
-    }, undefined, redditHeaders(env));
+    }, undefined, redditHeaders(env), redditAdsHttpOptions('code-exchange'));
   },
   async refresh(credential, env) {
     if (!credential.refreshToken) return withoutRefreshToken(credential, 'Reddit Ads');
     return formToken('Reddit Ads', 'https://www.reddit.com/api/v1/access_token', {
       grant_type: 'refresh_token', refresh_token: credential.refreshToken,
-    }, credential, redditHeaders(env));
+    }, credential, redditHeaders(env), redditAdsHttpOptions('token-refresh'));
   },
   async verify(credential, env) {
     const accountId = configured(env, 'REDDIT_ADS_ACCOUNT_ID');
     if (!/^[a-zA-Z0-9_-]{1,150}$/.test(accountId)) throw new ProviderError('REDDIT_ADS_ACCOUNT_ID must be the ad account identifier from Reddit Ads.', 503);
     const body = await fetchJson('Reddit Ads', `https://ads-api.reddit.com/api/v3/ad_accounts/${encodeURIComponent(accountId)}/campaigns`, {
       headers: { authorization: `Bearer ${safeCredential(credential)}`, 'user-agent': redditHeaders(env)['user-agent'] },
-    });
+    }, redditAdsHttpOptions('account-verification'));
     // A successful, valid campaign-list response establishes adsread access even for an empty account.
-    list(body.data, 'Reddit Ads');
+    if (!Array.isArray(body.data) || !body.data.every(isObject)) {
+      throw redditAdsHttpOptions('account-verification').failure!({ kind: 'invalid-response' });
+    }
     return { accountName: `Reddit Ads account ${accountId}`, accountId, resources: [{ id: accountId, name: `Ad account ${accountId}`, type: 'ad_account' }] };
   },
 };
