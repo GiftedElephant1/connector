@@ -57,6 +57,23 @@ The callback contains `auth_code`, which is sent as JSON to `/open_api/v1.3/oaut
 
 Official references: [Business Center read API](https://business-api.tiktok.com/portal/docs?id=1737115687501826), [TikTok-maintained business SDK authentication contract](https://github.com/tiktok/tiktok-business-api-sdk/blob/main/js_sdk/docs/AuthenticationApi.md), and [Business Center SDK contract](https://github.com/tiktok/tiktok-business-api-sdk/blob/main/js_sdk/docs/BCApi.md#bcGet).
 
+#### Required TikTok account holder redirect
+
+Some Business developer applications require both redirect fields. Connector supports a companion **TikTok account holder** authorization within TikTok Business Manager → Manage setup:
+
+| TikTok Business application field | Exact callback |
+| --- | --- |
+| Advertiser redirect URL | `APP_ORIGIN/api/oauth/tiktok-business/callback` |
+| TikTok account holder redirect URL | `APP_ORIGIN/api/oauth/tiktok-business-account/callback/` |
+
+Use the running Connector public HTTPS origin, not a static marketing website. The account-holder redirect must end in `/` and have no port, query, or fragment. Register and activate that URL in the Business app's Basic Information page. Copy its generated **TikTok account holder authorization URL** into the corresponding Connector setup field (`TIKTOK_BUSINESS_ACCOUNT_AUTH_URL`). The portal supplies a `client_key` that must not be guessed from the numeric Business app ID. The optional field does not block advertiser sign-in. Account-holder authorization requires the app's approved **TikTok Accounts** permissions; registering a URL does not grant those permissions.
+
+Use **Connect TikTok account holder** in that setup screen. Connector adds fresh session-bound, single-use state to the official authorization URL, exchanges `auth_code` using `/tt_user/oauth2/token/`, and verifies the app and account identity using `/tt_user/token_info/get/`. It stores the holder's credential separately from both advertiser and ordinary TikTok Login Kit credentials. Verification renews expiring access through `/tt_user/oauth2/refresh_token/`. You can verify or disconnect the holder from the same setup screen; a confirmed Business setup reset also clears its companion token and pending consent.
+
+This companion verifies account authorization only. It adds no Accounts API posting, messaging, or analytics actions, and does not substitute its token for advertising or Login Kit actions. Ordinary TikTok for Developers Login Kit continues to use `/api/oauth/tiktok/callback` with its separate credentials.
+
+Official references: [Accounts authorization and redirect rules](https://business-api.tiktok.com/portal/docs?id=1738083939371009), [Accounts token exchange and refresh](https://business-api.tiktok.com/portal/docs?id=1738084387220481), [Account token inspection](https://business-api.tiktok.com/portal/docs?id=1765927978092545), and [Accounts API approval](https://business-api.tiktok.com/portal/docs?id=1737944384433218).
+
 ## X Business / Ads
 
 Obtain approved **X Ads API** access and generate user-context OAuth 1.0a credentials for the intended account. Enter the **user access token** in the main credential field, and the **app consumer key**, **app consumer secret**, and **user access token secret** in the additional fields. These are stored encrypted together. An OAuth 2 bearer token from the social X connection is not interchangeable with this credential set.

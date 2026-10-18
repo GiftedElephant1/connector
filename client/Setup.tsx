@@ -6,6 +6,7 @@ import { XSetup } from "./XSetup";
 import { LinkedInSetup } from "./LinkedInSetup";
 import { GoogleSetup } from "./GoogleSetup";
 import { PinterestAdsSetup } from "./PinterestAdsSetup";
+import { TikTokBusinessSetup } from "./TikTokBusinessSetup";
 import "./setup.css";
 
 export type ApiRequest = <T>(path: string, options?: RequestInit) => Promise<T>;
@@ -34,6 +35,11 @@ type ProviderSettings = {
   docsUrl: string;
   setupUrl: string;
   callbackUrl?: string;
+  companion?: {
+    id: string;
+    name: string;
+    connection: { accountName: string; status: "connected" | "error"; error?: string } | null;
+  };
 };
 type TunnelState = {
   available?: boolean;
@@ -338,6 +344,55 @@ export function ProviderSetup({
       setBusy(false);
     }
   }
+  async function connectTikTokAccountHolder() {
+    if (!settings?.companion) return;
+    setBusy(true);
+    setError("");
+    try {
+      await request("/api/settings", {
+        method: "PUT",
+        body: JSON.stringify({ values }),
+      });
+      setValues({});
+      const saved = await request<ProviderSettings>(`/api/settings/providers/${encodeURIComponent(provider.id)}`);
+      setSettings(saved);
+      if (saved.callbackUrl && new URL(saved.callbackUrl).origin !== window.location.origin)
+        throw new Error("Application settings saved. Open your public Connector workspace, then reopen TikTok Business Manager setup to authorize the TikTok account holder.");
+      const result = await request<{ url: string }>("/api/oauth/tiktok-business-account/start", { method: "POST" });
+      const destination = new URL(result.url);
+      if (destination.protocol !== "https:")
+        throw new Error("TikTok returned an invalid authorization URL. Check your setup.");
+      window.location.assign(destination.href);
+    } catch (cause) {
+      setError(message(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function disconnectTikTokAccountHolder() {
+    setBusy(true);
+    setError("");
+    try {
+      await request("/api/connections/tiktok-business-account", { method: "DELETE" });
+      setSettings(await request<ProviderSettings>(`/api/settings/providers/${encodeURIComponent(provider.id)}`));
+    } catch (cause) {
+      setError(message(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function verifyTikTokAccountHolder() {
+    setBusy(true);
+    setError("");
+    try {
+      await request("/api/connections/tiktok-business-account/verify", { method: "POST" });
+      setSettings(await request<ProviderSettings>(`/api/settings/providers/${encodeURIComponent(provider.id)}`));
+    } catch (cause) {
+      setError(message(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <div className="provider-setup">
       <p className="dialog-copy">
@@ -377,7 +432,7 @@ export function ProviderSetup({
                   organizations={(values.LINKEDIN_ENABLE_ORGANIZATIONS ?? settings.fields.find(field => field.key === "LINKEDIN_ENABLE_ORGANIZATIONS")?.value) === "true"}
                   conversions={(values.LINKEDIN_ENABLE_CONVERSIONS ?? settings.fields.find(field => field.key === "LINKEDIN_ENABLE_CONVERSIONS")?.value) === "true"}
                   combined={(values.LINKEDIN_COMBINE_SCOPES ?? settings.fields.find(field => field.key === "LINKEDIN_COMBINE_SCOPES")?.value) === "true"}
-                /> : provider.id === "pinterest-ads" ? <PinterestAdsSetup callbackUrl={settings.callbackUrl} /> : ["youtube", "google-ads", "google-analytics", "search-console"].includes(provider.id) ? <GoogleSetup callbackUrl={settings.callbackUrl} /> : <>
+                /> : provider.id === "tiktok-business" ? <TikTokBusinessSetup callbackUrl={settings.callbackUrl} /> : provider.id === "pinterest-ads" ? <PinterestAdsSetup callbackUrl={settings.callbackUrl} /> : ["youtube", "google-ads", "google-analytics", "search-console"].includes(provider.id) ? <GoogleSetup callbackUrl={settings.callbackUrl} /> : <>
                 <strong>Add this redirect address</strong>
                 <p>
                   In the developer portal’s OAuth or redirect settings, paste
@@ -455,6 +510,21 @@ export function ProviderSetup({
               </div>
             ))}
           </div>
+          {provider.id === "tiktok-business" && settings.companion && (
+            <section className="setup-notice" aria-label="TikTok account holder authorization">
+              <strong>TikTok account holder authorization</strong>
+              <p>Use this when you want to authorize a TikTok account holder through your Business application. This verifies the account holder connection; it does not add posting actions or other account holder tools.</p>
+              {settings.companion.connection && <p>{settings.companion.connection.status === "connected" ? "Connected" : "Needs authorization"}: {settings.companion.connection.accountName}</p>}
+              <div className="form-actions">
+                <button type="button" className="button button-secondary" onClick={connectTikTokAccountHolder} disabled={busy}>
+                  {settings.companion.connection ? "Reconnect TikTok account holder" : "Connect TikTok account holder"}
+                </button>
+                {settings.companion.connection && <button type="button" className="button button-secondary" onClick={verifyTikTokAccountHolder} disabled={busy}>Verify TikTok account holder</button>}
+                {settings.companion.connection && <button type="button" className="button button-danger-subtle" onClick={disconnectTikTokAccountHolder} disabled={busy}>Disconnect TikTok account holder</button>}
+              </div>
+              <p className="setup-help">Connecting saves your application fields above before opening TikTok. Save and continue below configures the advertiser connection.</p>
+            </section>
+          )}
           {error && (
             <p className="inline-error" role="alert">
               {error}

@@ -4,6 +4,7 @@ import { parseAppOrigin } from './config';
 import { ProviderError, providerSetupRequirements, type ProviderDefinition } from './providers';
 import { Store } from './store';
 import { hydratePipelineKey } from './pipeline-key';
+import { oauthCallbackUrl } from './oauth-callback';
 
 export interface SettingField {
   key: string;
@@ -47,6 +48,7 @@ const definitions: Record<string, FieldDefinition> = {
   MICROSOFT_ADS_DEVELOPER_TOKEN: { label: 'Microsoft Advertising developer token', secret: true },
   TIKTOK_BUSINESS_APP_ID: { label: 'TikTok Business app ID' }, TIKTOK_BUSINESS_APP_SECRET: { label: 'TikTok Business app secret', secret: true },
   TIKTOK_EVENTS_ACCESS_TOKEN: { label: 'TikTok Events access token', secret: true },
+  TIKTOK_BUSINESS_ACCOUNT_AUTH_URL: { label: 'TikTok account holder authorization URL', help: 'Optional for advertiser access. For account-holder authorization, activate the account-holder redirect shown above in TikTok for Business → My Apps → App Detail → Basic Information, then copy its generated authorization URL here. Requires TikTok Accounts approval. This is separate from the redirect URL.' },
   X_ADS_API_VERSION: { label: 'X Ads API version', defaultValue: '12' },
   DISCORD_CLIENT_ID: { label: 'Discord client ID' }, DISCORD_CLIENT_SECRET: { label: 'Discord client secret', secret: true },
   DISCORD_BOT_TOKEN: { label: 'Discord bot token', secret: true, help: 'Optional for account verification; required to send messages as your installed Discord bot.' },
@@ -60,7 +62,7 @@ const optionalFields: Record<string, string[]> = {
   linkedin: ['LINKEDIN_COMBINE_SCOPES', 'LINKEDIN_ENABLE_MEMBER_READ', 'LINKEDIN_ENABLE_ORGANIZATIONS', 'LINKEDIN_ENABLE_CONVERSIONS', 'LINKEDIN_API_VERSION'],
   'linkedin-ads': ['LINKEDIN_COMBINE_SCOPES', 'LINKEDIN_ENABLE_MEMBER_READ', 'LINKEDIN_ENABLE_ORGANIZATIONS', 'LINKEDIN_ENABLE_CONVERSIONS', 'LINKEDIN_API_VERSION'],
   'reddit-ads': ['REDDIT_USER_AGENT', 'REDDIT_CONVERSIONS_TOKEN'],
-  'tiktok-business': ['TIKTOK_EVENTS_ACCESS_TOKEN'],
+  'tiktok-business': ['TIKTOK_EVENTS_ACCESS_TOKEN', 'TIKTOK_BUSINESS_ACCOUNT_AUTH_URL'],
   'x-ads': ['X_ADS_API_VERSION'],
   xai: ['XAI_MODEL'],
 };
@@ -70,6 +72,7 @@ const setupUrls: Record<string, string> = {
   facebook: 'https://developers.facebook.com/apps/', instagram: 'https://developers.facebook.com/apps/', 'meta-business': 'https://developers.facebook.com/apps/', threads: 'https://developers.facebook.com/apps/', whatsapp: 'https://developers.facebook.com/apps/',
   youtube: 'https://console.cloud.google.com/apis/credentials', 'google-ads': 'https://console.cloud.google.com/apis/credentials', 'google-analytics': 'https://console.cloud.google.com/apis/credentials', 'search-console': 'https://console.cloud.google.com/apis/credentials',
   x: 'https://developer.x.com/', 'x-ads': 'https://developer.x.com/', tiktok: 'https://developers.tiktok.com/', 'tiktok-business': 'https://business-api.tiktok.com/portal/',
+  'tiktok-business-account': 'https://business-api.tiktok.com/portal/',
   linkedin: 'https://www.linkedin.com/developers/apps', 'linkedin-ads': 'https://www.linkedin.com/developers/apps',
   reddit: 'https://www.reddit.com/prefs/apps', 'reddit-ads': 'https://ads.reddit.com/',
   pinterest: 'https://developers.pinterest.com/', 'pinterest-ads': 'https://developers.pinterest.com/', wordpress: 'https://developer.wordpress.com/apps/',
@@ -137,7 +140,7 @@ export function providerSettings(provider: ProviderDefinition, config: AppConfig
   return {
     id: provider.id, name: provider.name, docsUrl: provider.docsUrl, setupUrl: setupUrls[provider.id] || provider.docsUrl,
     fields: providerKeys(provider.id).filter(key => Object.hasOwn(definitions, key)).map(key => ({ ...field(key, env), required: required.includes(key) })),
-    ...(provider.authType === 'oauth' ? { callbackUrl: `${config.origin}/api/oauth/${provider.id}/callback` } : {}),
+    ...(provider.authType === 'oauth' ? { callbackUrl: oauthCallbackUrl(config.origin, provider.id) } : {}),
   };
 }
 export function saveSettings(config: AppConfig, store: Store, env: NodeJS.ProcessEnv, body: unknown, localOrigin?: string): void {

@@ -39,7 +39,7 @@ This starts Connector for your Windows user after sign-in, without administrator
 
 Updates add new connector code while keeping the existing installation's saved accounts, application settings, password, connector API key, and scheduled jobs. You authorize a new platform once after its connector becomes available. Existing platforms may request authorization again if access is revoked, refresh credentials expire, or a new action needs additional permissions.
 
-1. In Connector, open **Settings → Updates and new connectors** and click **View Windows releases**. For an older version, [open Windows releases here](https://github.com/GiftedElephant1/connector/releases). Choose **Connector-Windows.zip** from a signed release. If none is available, keep your current installation.
+1. In Connector, open **Settings → Updates and new connectors** and click **View Windows releases**. For an older version, [open Windows releases here](https://github.com/GiftedElephant1/connector/releases). Choose **Connector-Windows.zip** from a signed release. Developers can also use the [manual source update](#manual-source-update) below when installing directly from the repository.
 2. Open **Downloads** in File Explorer. Right-click the downloaded ZIP, select **Extract All…**, and then **Extract**. Open the extracted **Connector** folder. Release assets have one ZIP layer; the automatically listed source archives are developer source, not the signed Windows package.
 3. Keep the new download separate from your existing installation. Beside the Windows clock, click the **Show hidden icons** arrow if needed, right-click Connector's icon, and choose **Stop Connector**. If you are updating an older version without a tray icon, click **Stop Connector** in its small window. Closing the browser or hiding the current window does not stop the app. Scheduled actions pause while the app is stopped.
 4. Open the **newly downloaded** folder containing **Update Connector.vbs** and double-click **Update Connector**.
@@ -56,6 +56,24 @@ The improved reopen behavior takes effect after you install the update on your P
 Existing Connector API keys stay the same. Your AI connections continue to use their saved URL while your public address stays the same. If ngrok assigns a different address after restarting, copy the new URL from **AI connections** into each AI app and authorize its OAuth connection again. Your destination accounts remain saved.
 
 The launcher uses port 3000 on your own PC. If another program uses that port, it shows a message and stops rather than taking over that program. Close the other program or previous Connector instance, then try again.
+
+### Manual source update
+
+A repository checkout can also be used as the new source folder for the update wizard. This installs and builds the source on your PC; it is separate from the signed Windows release package.
+
+1. Install [Git for Windows](https://git-scm.com/downloads/win) if it is not already installed.
+2. Open PowerShell and download a separate copy (choose a different destination if this folder already exists):
+
+   ```powershell
+   $connectorSourceUpdate = Join-Path $env:USERPROFILE 'Connector-source-update'
+   git clone --branch main --single-branch https://github.com/GiftedElephant1/connector.git $connectorSourceUpdate
+   ```
+
+3. If your update instructions specify a commit, check it out in that source copy with `git -C $connectorSourceUpdate checkout --detach COMMIT_ID`, replacing `COMMIT_ID` with the supplied public commit identifier.
+4. Back up your original installation privately, stop Connector using its tray menu, then open the new source folder and double-click **Update Connector.vbs**.
+5. Choose your **original inner Connector folder** containing **Start Connector.vbs**, `.env`, and its saved data. Complete the wizard and restart from that original folder.
+
+The wizard preserves the original configuration and saved connections using the same update process described above. Do not copy `.env`, encryption keys, or account databases into the source checkout or commit them to Git. A source update does not change Windows or browser security settings.
 
 ## Troubleshooting without a terminal
 

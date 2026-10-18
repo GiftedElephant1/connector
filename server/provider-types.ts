@@ -15,6 +15,8 @@ export type ProviderDefinition = {
   description: string;
   authType: 'api_key' | 'oauth' | 'local';
   docsUrl: string;
+  /** Companion authorization managed within its parent's setup, not an action destination. */
+  auxiliaryFor?: string;
   credentialFields?: { name: string; label: string; secret?: boolean }[];
 };
 

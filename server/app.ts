@@ -19,6 +19,7 @@ import { LegalPages, mountLegalPublic, mountLegalOwner } from './legal';
 import { TikTokVerification, mountTikTokVerificationPublic, mountTikTokVerificationOwner } from './tiktok-verification';
 import { mountConnectorReset } from './connector-reset';
 import { mountPipelineKeyReset } from './pipeline-key';
+import { oauthCallbackUrl } from './oauth-callback';
 
 export type ProviderService = Pick<typeof providers, 'providerCatalog' | 'getProvider' | 'getProviderSetup' | 'createOAuthRequest' | 'exchangeOAuthCode' | 'refreshCredential' | 'verifyConnection'>;
 
@@ -126,7 +127,13 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
     saveSettings(config, store, env, req.body, localOrigin);
     res.json(settingsSnapshot(config, store, env, localOrigin));
   });
-  app.get('/api/settings/providers/:provider', (req, res) => res.json(providerSettings(service.getProvider(String(req.params.provider)), config, env)));
+  app.get('/api/settings/providers/:provider', (req, res) => {
+    const provider = service.getProvider(String(req.params.provider));
+    const companion = providers.auxiliaryProviderCatalog.find(entry => entry.auxiliaryFor === provider.id);
+    res.json({ ...providerSettings(provider, config, env), ...(companion ? {
+      companion: { id: companion.id, name: companion.name, connection: store.connection(companion.id) },
+    } : {}) });
+  });
   app.get('/api/settings/pipeline-key', (_req, res) => {
     if (!config.pipelineKey) throw new RequestError('The connector key has not been generated. Open the desktop launcher or run setup.', 409);
     res.json({ apiKey: config.pipelineKey, url: `${config.origin}/mcp`, transport: 'Streamable HTTP' });
@@ -143,12 +150,13 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
     res.clearCookie('connector_session', cookieOptions(req)).json({ ok: true });
   });
   app.get('/api/providers', (_req, res) => {
-    res.json({ providers: service.providerCatalog.map(provider => ({ ...provider, actions: pipeline.definitions(provider.id), ...service.getProviderSetup(provider.id, env), ...(provider.authType === 'oauth' ? { callbackUrl: `${config.origin}/api/oauth/${provider.id}/callback` } : {}), connection: store.connection(provider.id) })) });
+    res.json({ providers: service.providerCatalog.map(provider => ({ ...provider, actions: pipeline.definitions(provider.id), ...service.getProviderSetup(provider.id, env), ...(provider.authType === 'oauth' ? { callbackUrl: oauthCallbackUrl(config.origin, provider.id) } : {}), connection: store.connection(provider.id) })) });
   });
   const apiLimit = rateLimit({ windowMs: 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'Too many connection requests. Try again in a minute.' } });
   app.use('/api/connections', apiLimit);
   app.use('/api/oauth', apiLimit);
-  mountConnectorReset(app, store, env, service.providerCatalog, () => workspaceAccounts.resetAll());
+  const resetCatalog = [...service.providerCatalog, ...providers.auxiliaryProviderCatalog.filter(entry => service.providerCatalog.some(parent => parent.id === entry.auxiliaryFor))];
+  mountConnectorReset(app, store, env, resetCatalog, () => workspaceAccounts.resetAll());
   app.post('/api/connections/:provider/api-key', async (req, res) => {
     const id = String(req.params.provider);
     const provider = service.getProvider(id);
@@ -201,7 +209,7 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
     if (isLocalDashboard(req) && localOrigin !== config.origin) return void res.status(409).json({ error: 'Open the public dashboard and sign in before connecting this account so the platform can return to the same browser session.', publicOrigin: config.origin });
     const state = randomBytes(32).toString('base64url');
     const codeVerifier = randomBytes(48).toString('base64url');
-    const url = service.createOAuthRequest(id, { state, codeVerifier, redirectUri: `${config.origin}/api/oauth/${id}/callback`, env });
+    const url = service.createOAuthRequest(id, { state, codeVerifier, redirectUri: oauthCallbackUrl(config.origin, id), env });
     store.saveOAuth(state, sessionToken(req), id, codeVerifier);
     res.json({ url });
   });
@@ -215,7 +223,7 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
       if (req.query.error !== undefined) throw new RequestError(oauthAuthorizationError(id, req.query.error));
       const code = stringValue(req.query.code ?? req.query.auth_code, 'Authorization code');
       const generation = store.connectionGeneration(id);
-      const credential = await service.exchangeOAuthCode(id, { code, codeVerifier: flow.verifier, redirectUri: `${config.origin}/api/oauth/${id}/callback`, env });
+      const credential = await service.exchangeOAuthCode(id, { code, codeVerifier: flow.verifier, redirectUri: oauthCallbackUrl(config.origin, id), env });
       store.assertConnectionGeneration(id, generation);
       const account = await service.verifyConnection(id, credential, env);
       store.assertConnectionGeneration(id, generation);

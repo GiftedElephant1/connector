@@ -945,7 +945,9 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
     if (params.has("connected"))
       setFeedback({
         kind: "success",
-        message: "Account connected. Your connection is ready.",
+        message: params.get("connected") === "tiktok-business-account"
+          ? "TikTok account-holder authorization saved. Manage it in TikTok Business Manager setup."
+          : "Account connected. Your connection is ready.",
       });
     if (params.has("error"))
       setFeedback({
