@@ -83,6 +83,91 @@ test("ngrok placeholder errors guide the user back to the actual dashboard token
   await expect(page.getByRole("button", { name: "Start public access", exact: true })).toBeEnabled();
 });
 
+for (const initialUrl of ["https://saved-workspace.ngrok-free.app", ""]) {
+  test(`interrupted public access can stop and restart with the saved token${initialUrl ? "" : " before a URL is ready"}`, async ({ page }) => {
+    await login(page);
+    let snapshot = {
+      available: true,
+      status: "error",
+      configured: true,
+      url: initialUrl,
+      needsStop: true,
+      error: "The public connection was interrupted. Check your Internet connection or stop and reconnect.",
+    };
+    let startBody: unknown;
+    let stopRequests = 0;
+    await page.route("**/api/tunnel", (route) => route.fulfill({ json: snapshot }));
+    await page.route("**/api/tunnel/stop", (route) => {
+      stopRequests += 1;
+      snapshot = { ...snapshot, status: "stopped", url: "", needsStop: false, error: "" };
+      return route.fulfill({ json: snapshot });
+    });
+    await page.route("**/api/tunnel/start", (route) => {
+      startBody = route.request().postDataJSON();
+      snapshot = {
+        ...snapshot,
+        status: "running",
+        needsStop: true,
+        url: "https://saved-workspace.ngrok-free.app",
+      };
+      return route.fulfill({ json: snapshot });
+    });
+
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    const publicAccess = page.getByRole("region", { name: "Make Connector available to your AI agent" });
+    await expect(publicAccess.locator(".setup-status")).toHaveText("Public access needs attention");
+    await expect(publicAccess.getByRole("alert")).toContainText("public connection was interrupted");
+    await expect(publicAccess.getByRole("button", { name: "Stop before starting again" })).toBeDisabled();
+    await publicAccess.getByRole("button", { name: "Stop public access", exact: true }).click();
+    await expect(publicAccess.locator(".setup-status")).toHaveText("Public access is off");
+    await expect(publicAccess.getByRole("status")).toContainText("Public access stopped.");
+    await expect(publicAccess.getByRole("alert")).toHaveCount(0);
+    await expect(publicAccess.getByLabel("ngrok authentication token")).toHaveValue("");
+    await expect(publicAccess.getByLabel("ngrok authentication token")).toHaveAttribute("placeholder", "Token saved — leave blank to reuse");
+    await expect(publicAccess.getByRole("button", { name: "Start public access", exact: true })).toBeEnabled();
+    await publicAccess.getByRole("button", { name: "Start public access", exact: true }).click();
+    await expect(publicAccess.locator(".setup-status")).toHaveText("Public access is on");
+    await expect(publicAccess.getByRole("status")).toContainText("Your public address is ready.");
+    expect(stopRequests).toBe(1);
+    expect(startBody).toEqual({});
+  });
+}
+
+test("a failed stop refreshes public access state and preserves the recovery error", async ({ page }) => {
+  await login(page);
+  let stoppingFailed = false;
+  let snapshotRequests = 0;
+  const stopError = "Could not close public access. Choose Stop Connector in the Windows tray, then start Connector again.";
+  await page.route("**/api/tunnel", (route) => {
+    snapshotRequests += 1;
+    return route.fulfill({
+      json: {
+        available: true,
+        status: stoppingFailed ? "error" : "running",
+        configured: true,
+        url: "https://saved-workspace.ngrok-free.app",
+        ...(stoppingFailed ? { error: "The public connection has not been released." } : {}),
+      },
+    });
+  });
+  await page.route("**/api/tunnel/stop", (route) => {
+    stoppingFailed = true;
+    return route.fulfill({ status: 502, json: { error: stopError } });
+  });
+
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const publicAccess = page.getByRole("region", { name: "Make Connector available to your AI agent" });
+  await expect(publicAccess.locator(".setup-status")).toHaveText("Public access is on");
+  await publicAccess.getByRole("button", { name: "Stop public access", exact: true }).click();
+  await expect(publicAccess.locator(".setup-status")).toHaveText("Public access needs attention");
+  await expect(publicAccess.getByRole("alert").filter({ hasText: stopError })).toBeVisible();
+  await expect(publicAccess.getByRole("alert").filter({ hasText: "The public connection has not been released." })).toBeVisible();
+  await expect(publicAccess.getByRole("status")).toHaveCount(0);
+  await expect(publicAccess.getByRole("button", { name: "Stop before starting again" })).toBeDisabled();
+  await expect(publicAccess.getByRole("button", { name: "Stop public access", exact: true })).toBeEnabled();
+  expect(snapshotRequests).toBe(2);
+});
+
 test("advanced Connector key can be copied and remains masked by default", async ({
   page,
   context,

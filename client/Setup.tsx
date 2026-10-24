@@ -46,6 +46,7 @@ type TunnelState = {
   available?: boolean;
   status: string;
   url?: string;
+  needsStop?: boolean;
   configured: boolean;
   domain?: string;
   error?: string;
@@ -591,6 +592,7 @@ export function WorkspaceSetup({
   const id = useId();
   const currentIsPublic = settings.origin.startsWith("https://");
   const differentOrigin = window.location.origin !== settings.origin;
+  const needsStop = tunnel?.needsStop ?? !!tunnel?.url;
   useEffect(() => {
     setOrigin(settings.origin);
   }, [settings.origin]);
@@ -663,6 +665,11 @@ export function WorkspaceSetup({
       );
     } catch (cause) {
       setError(message(cause));
+      try {
+        setTunnel(await request<TunnelState>("/api/tunnel"));
+      } catch {
+        /* Preserve the original stop error. */
+      }
     } finally {
       setBusy("");
     }
@@ -714,7 +721,13 @@ export function WorkspaceSetup({
           >
             {tunnel?.status === "running"
               ? "Public access is on"
-              : "Public access"}
+              : tunnel?.status === "error"
+                ? "Public access needs attention"
+                : tunnel?.status === "starting"
+                  ? "Starting public access…"
+                  : tunnel?.status === "stopped"
+                    ? "Public access is off"
+                    : "Checking public access…"}
           </span>
         </div>
         <form className="setup-form" onSubmit={start}>
@@ -790,17 +803,17 @@ export function WorkspaceSetup({
               disabled={
                 !!busy ||
                 tunnel?.available === false ||
-                !!tunnel?.url ||
+                needsStop ||
                 (!token.trim() && !tunnel?.configured)
               }
             >
               {busy === "start"
                 ? "Starting public access…"
-                : tunnel?.url
+                : needsStop
                   ? "Stop before starting again"
                   : "Start public access"}
             </button>
-            {tunnel?.url && (
+            {needsStop && (
               <button
                 className="button button-secondary"
                 type="button"
@@ -819,7 +832,7 @@ export function WorkspaceSetup({
             launcher.
           </p>
         )}
-        {tunnel?.url && (
+        {needsStop && (
           <p className="setup-help">
             To change the token or domain, stop public access first.
           </p>

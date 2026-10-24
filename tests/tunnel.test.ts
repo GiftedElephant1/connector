@@ -153,3 +153,128 @@ test('saved enabled tunnel restores with the saved credential and graceful shutd
   assert.equal(second.snapshot().status, 'running');
   await second.stop();
 });
+
+test('interrupted tunnel stops through its owned session and restarts with saved credentials', async t => {
+  const store = new Store(':memory:', config.encryptionKey);
+  t.after(() => store.close());
+  store.writeSetting('unrelated-provider', { secret: 'preserve-this-setting' });
+  const callbacks: Array<(status: string) => void> = [];
+  let sessionsClosed = 0, listenerCalls = 0, starts = 0;
+  const origins: string[] = [];
+  const tunnel = new PublicTunnel({ ...config }, store, origin => { origins.push(origin); }, async () => ({
+    forward: async options => {
+      starts++;
+      assert.equal(options.authtoken, token);
+      assert.equal(options.domain, 'owner.ngrok-free.app');
+      callbacks.push(options.onStatusChange);
+      return { url: () => 'https://owner.ngrok-free.app', close: async () => { listenerCalls++; throw new Error('RPC transport disconnected'); } };
+    },
+    close: async () => { sessionsClosed++; },
+  }));
+  await tunnel.start({ authtoken: token, domain: 'owner.ngrok-free.app' });
+  callbacks[0]('closed');
+  assert.equal(tunnel.snapshot().status, 'error');
+  assert.equal(tunnel.snapshot().needsStop, true);
+  const stopped = await tunnel.stop();
+  assert.equal(stopped.status, 'stopped');
+  assert.equal(stopped.needsStop, false);
+  assert.equal(stopped.url, undefined);
+  assert.equal(stopped.autoStart, false);
+  assert.equal(sessionsClosed, 1);
+  assert.equal(listenerCalls, 0);
+  callbacks[0]('connected');
+  assert.equal(tunnel.snapshot().status, 'stopped');
+  await tunnel.start();
+  callbacks[0]('closed');
+  assert.equal(tunnel.snapshot().status, 'running');
+  assert.equal(starts, 2);
+  assert.deepEqual(origins, ['https://owner.ngrok-free.app', 'https://owner.ngrok-free.app']);
+  assert.deepEqual(store.readSetting('unrelated-provider'), { secret: 'preserve-this-setting' });
+  await tunnel.stop();
+  await tunnel.stop();
+  assert.equal(sessionsClosed, 2);
+});
+
+test('failed session cleanup stays retryable and disables auto-start without discarding saved credentials', async t => {
+  const store = new Store(':memory:', config.encryptionKey);
+  t.after(() => store.close());
+  let fail = true, starts = 0;
+  let notify!: (status: string) => void;
+  const tunnel = new PublicTunnel({ ...config }, store, () => {}, async () => ({
+    forward: async options => {
+      starts++; notify = options.onStatusChange;
+      return { url: () => 'https://owner.ngrok-free.app', close: async () => {} };
+    },
+    close: async () => { if (fail) throw new Error(`SDK error with ${token}`); },
+  }));
+  await tunnel.start({ authtoken: token, domain: 'owner.ngrok-free.app' });
+  await assert.rejects(tunnel.stop(), /choose Stop Connector/);
+  notify('connected');
+  const failed = tunnel.snapshot();
+  assert.equal(failed.status, 'error');
+  assert.equal(failed.needsStop, true);
+  assert.equal(failed.autoStart, false);
+  assert.equal(failed.configured, true);
+  assert.equal(failed.domain, 'owner.ngrok-free.app');
+  assert.equal(JSON.stringify(failed).includes(token), false);
+  assert.equal(store.readSetting<{ authtoken: string }>('public-tunnel')?.authtoken, token);
+  await assert.rejects(tunnel.start(), /Stop the current public connection/);
+  assert.equal(starts, 1);
+  fail = false;
+  assert.equal((await tunnel.stop()).needsStop, false);
+  await tunnel.start();
+  assert.equal(tunnel.snapshot().status, 'running');
+  await tunnel.stop();
+});
+
+test('a hung stop is bounded, keeps session ownership, and can be retried after cleanup completes', async t => {
+  const store = new Store(':memory:', config.encryptionKey);
+  t.after(() => store.close());
+  let finishClose!: () => void;
+  const closing = new Promise<void>(resolve => { finishClose = resolve; });
+  const tunnel = new PublicTunnel({ ...config }, store, () => {}, async () => ({
+    forward: async () => ({ url: () => 'https://owner.ngrok-free.app', close: async () => {} }),
+    close: () => closing,
+  }), 10);
+  await tunnel.start({ authtoken: token });
+  await assert.rejects(tunnel.stop(), /Could not close public access/);
+  assert.equal(tunnel.snapshot().needsStop, true);
+  assert.equal(tunnel.snapshot().status, 'error');
+  await assert.rejects(tunnel.start(), /Stop the current/);
+  finishClose();
+  assert.equal((await tunnel.stop()).status, 'stopped');
+});
+
+test('failed endpoint creation retains its session until cleanup succeeds, even without a public URL', async t => {
+  const store = new Store(':memory:', config.encryptionKey);
+  t.after(() => store.close());
+  let failClose = true;
+  const tunnel = new PublicTunnel({ ...config }, store, () => {}, async () => ({
+    forward: async () => { throw new Error(`ERR_NGROK_105 ${token}`); },
+    close: async () => { if (failClose) throw new Error(`close failed ${token}`); },
+  }));
+  await assert.rejects(tunnel.start({ authtoken: token }), /session could not be closed/);
+  assert.equal(tunnel.snapshot().needsStop, true);
+  assert.equal(tunnel.snapshot().url, undefined);
+  assert.equal(JSON.stringify(tunnel.snapshot()).includes(token), false);
+  await assert.rejects(tunnel.start({ authtoken: token }), /Stop the current/);
+  failClose = false;
+  assert.equal((await tunnel.stop()).needsStop, false);
+});
+
+test('a disconnect during endpoint creation is not overwritten by a false running state', async t => {
+  const store = new Store(':memory:', config.encryptionKey);
+  t.after(() => store.close());
+  let notify!: (status: string) => void;
+  const tunnel = new PublicTunnel({ ...config }, store, () => {}, async () => ({
+    forward: async options => {
+      notify = options.onStatusChange;
+      notify('closed');
+      return { url: () => 'https://owner.ngrok-free.app', close: async () => {} };
+    },
+  }));
+  assert.equal((await tunnel.start({ authtoken: token })).status, 'error');
+  notify('connected');
+  assert.equal(tunnel.snapshot().status, 'running');
+  await tunnel.stop();
+});

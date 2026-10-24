@@ -1,6 +1,6 @@
 {
   "name": "connector",
-  "version": "0.9.19",
+  "version": "0.9.20",
   "private": true,
   "type": "module",
   "description": "A guided account connector for AI assistants, social platforms, advertising, Google Workspace, and WhatsApp.",
