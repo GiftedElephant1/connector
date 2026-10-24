@@ -61,7 +61,7 @@ Reporting is a read operation. It does not change attribution, fabricate convers
 
 | Action | Scope and limits |
 | --- | --- |
-| `list-ad-accounts` | First 100 visible advertising accounts, with currency, timezone and account roles when returned. |
+| `list-ad-accounts` | First 100 visible advertising accounts, with currency, timezone and account roles when returned. Discovery allows up to 10 additional organization reads when embedded account lists are absent. |
 | `list-campaigns` | First 100 campaigns for the selected advertising account. |
 | `create-campaign` | One paused auction awareness-and-engagement campaign with a daily spending cap. Optional explicit start timestamp. |
 | `set-campaign-status` | Set one existing campaign to `ACTIVE` or `PAUSED`; activating can start spend. |
@@ -74,6 +74,7 @@ Reporting is a read operation. It does not change attribution, fabricate convers
 - **No intended company profile:** check the optional organization ID and the user’s profile role. Reconnect or verify after correcting setup; do not substitute an advertising account ID.
 - **Redirect mismatch:** register the complete callback shown in the matching setup screen. Update it if your public Connector address changes.
 - **Ads access denied:** check the separate Ads credentials, Marketing API access and the user’s advertising account role.
+- **Ads account discovery failed:** Connector reads your organizations and their advertising accounts after sign-in. If Snapchat omits an organization's embedded account list, Connector requests that organization's accounts directly. The error identifies the failed read and includes a safe diagnostic code when available. A successful Ads Manager login alone does not establish API access. Share only the displayed diagnostic, not credentials or the full authorization URL. Connection verification does not create or change campaigns.
 - **Media rejected:** use the action’s supported format and size, check Snapchat’s current media requirements, and inspect the target profile before retrying a submission that may already have been accepted.
 - **Expired access:** Connector refreshes expiring OAuth tokens when supported. If access was revoked or refresh is rejected, reconnect that Snapchat connection.
 

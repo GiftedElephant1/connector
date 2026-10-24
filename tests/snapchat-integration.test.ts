@@ -177,6 +177,62 @@ test('Snapchat public-profile and advertising authorization use distinct credent
   f.assertUnrelated();
 });
 
+test('Snapchat Ads OAuth discovers accounts through the organization fallback and exposes the same accounts to AI tools', async t => {
+  const f = await fixture(t, true);
+  const emptyOrganizationId = '66666666-6666-4666-8666-666666666666';
+  const calls = mockSnap(t, call => {
+    if (call.url.origin === 'https://accounts.snapchat.com') return token('snapchat-ads', '-replacement');
+    assert.equal(call.url.origin, 'https://adsapi.snapchat.com');
+    assert.equal(call.method, 'GET', 'connection verification and listing must never write to advertising accounts');
+    assert.equal(call.body, undefined);
+    assert.equal(call.headers.get('authorization'), `Bearer ${adsCredential.accessToken}-replacement`);
+    if (call.url.pathname === '/v1/me/organizations') {
+      return Response.json({ request_status: 'SUCCESS', organizations: [
+        { sub_request_status: 'SUCCESS', organization: { id: emptyOrganizationId, ad_accounts: [] } },
+        { sub_request_status: 'SUCCESS', organization: { id: organizationId, name: 'Vectre Pay', ad_accounts: null } },
+      ] });
+    }
+    assert.equal(call.url.pathname, `/v1/organizations/${organizationId}/adaccounts`);
+    return Response.json({ request_status: 'SUCCESS', adaccounts: [{ sub_request_status: 'SUCCESS', adaccount: { id: adAccountId, name: 'Vectre Pay Ads', currency: 'USD' } }] });
+  });
+  const state = await f.start('snapchat-ads');
+  const callback = await f.callback('snapchat-ads', state);
+  assert.equal(callback.headers.get('location'), '/?connected=snapchat-ads');
+  assert.deepEqual(f.store.connection('snapchat-ads')?.resources, [{ id: adAccountId, name: 'Vectre Pay Ads', type: 'ad_account' }]);
+  const listed = await f.api('/api/v1/actions/snapchat-ads/list-ad-accounts', { values: {} });
+  assert.equal(listed.status, 200);
+  assert.match(await listed.text(), new RegExp(adAccountId));
+  assert.equal(calls.filter(call => call.url.pathname.endsWith(`/organizations/${organizationId}/adaccounts`)).length, 2);
+  assert.deepEqual(f.store.credential('snapchat'), profileCredential);
+  f.assertUnrelated();
+});
+
+test('Snapchat Ads fallback failures expose safe read diagnostics without overwriting saved connections', async t => {
+  const f = await fixture(t, true);
+  const before = f.store.connection('snapchat-ads');
+  const calls = mockSnap(t, call => {
+    if (call.url.origin === 'https://accounts.snapchat.com') return token('snapchat-ads', '-replacement');
+    assert.equal(call.method, 'GET');
+    if (call.url.pathname === '/v1/me/organizations') {
+      return Response.json({ request_status: 'SUCCESS', organizations: [{ sub_request_status: 'SUCCESS', organization: { id: organizationId } }] });
+    }
+    assert.equal(call.url.pathname, `/v1/organizations/${organizationId}/adaccounts`);
+    return Response.json({ request_status: 'ERROR', error_code: 'E3001', display_message: 'private-provider-detail private-replacement-token' });
+  });
+  const state = await f.start('snapchat-ads');
+  const callback = await f.callback('snapchat-ads', state);
+  const message = new URL(callback.headers.get('location')!, f.config.origin).searchParams.get('error')!;
+  assert.match(message, /could not read organization advertising accounts/i);
+  assert.match(message, /E3001/);
+  assert.doesNotMatch(message, /retrying a write/);
+  assert.doesNotMatch(message, secretPattern);
+  assert.equal(calls.length, 3);
+  assert.deepEqual(f.store.connection('snapchat-ads'), before);
+  assert.deepEqual(f.store.credential('snapchat-ads'), adsCredential);
+  assert.deepEqual(f.store.credential('snapchat'), profileCredential);
+  f.assertUnrelated();
+});
+
 for (const provider of ['snapchat', 'snapchat-ads'] as const) {
   for (const failure of ['declined', 'wrong-session', 'wrong-provider', 'exchange', 'verification'] as const) {
     test(`${provider} ${failure} OAuth failure preserves both existing connections`, async t => {

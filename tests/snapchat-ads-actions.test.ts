@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { snapchatAdsActions } from '../server/actions-snapchat-ads';
 import { ProviderError } from '../server/provider-types';
+import { snapchatAdsAdapter } from '../server/providers-snapchat-ads';
 
 const credential = { accessToken: 'private-advertising-token' };
 const accountId = '11111111-1111-1111-1111-111111111111';
@@ -30,6 +31,30 @@ test('Snapchat advertising writes are explicit spending operations and cannot be
   for (const a of snapchatAdsActions) { assert.equal(a.provider, 'snapchat-ads'); assert.equal(a.definition.schedulable, undefined); }
   assert.match(action('set-campaign-status').definition.description, /start spending/);
   assert.match(action('set-campaign-budget').definition.description, /spend more/);
+});
+
+test('Snapchat connection verification and list-ad-accounts use identical bounded fallback discovery', async t => {
+  const organizationId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  let fail = false;
+  const calls: string[] = [];
+  t.mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = request(input, init);
+    assert.equal(init?.method, 'GET');
+    calls.push(url.pathname + url.search);
+    if (url.pathname === '/v1/me/organizations') return Response.json(envelope('organizations', 'organization', { id: organizationId, ad_accounts: null }));
+    assert.equal(url.pathname, `/v1/organizations/${organizationId}/adaccounts`);
+    return Response.json(fail ? { request_status: 'ERROR', error_code: 'E3001', display_message: credential.accessToken } : envelope('adaccounts', 'adaccount', { id: accountId, name: 'Vectre Pay', currency: 'USD', roles: ['admin'] }));
+  });
+  const verified = await snapchatAdsAdapter.verify(credential, {});
+  const listed = await action('list-ad-accounts').execute(credential, {}, {});
+  assert.deepEqual(listed.items?.map(row => ({ id: row.id, name: row.name })), verified.resources.map(row => ({ id: row.id, name: row.name })));
+  assert.equal(listed.items?.[0].currency, 'USD');
+  assert.equal(listed.items?.[0].roles, 'admin');
+  assert.deepEqual(calls.slice(0, 2), calls.slice(2));
+  fail = true;
+  let verifyError = '';
+  await assert.rejects(snapchatAdsAdapter.verify(credential, {}), error => { verifyError = (error as Error).message; return error instanceof ProviderError; });
+  await assert.rejects(action('list-ad-accounts').execute(credential, {}, {}), error => error instanceof ProviderError && error.message === verifyError && !error.message.includes(credential.accessToken));
 });
 
 test('Snapchat lists only chosen account campaigns and does not follow untrusted next links', async t => {

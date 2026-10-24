@@ -1,4 +1,4 @@
-import { fetchJson, isObject, safeCredential, tokenResponse } from './provider-http';
+import { fetchJson, isObject, safeCredential, tokenResponse, type ProviderHttpFailure } from './provider-http';
 import { ProviderError, type Credential, type ProviderAdapter } from './provider-types';
 
 // Official contracts: developers.snap.com/marketing-api/Ads-API/authentication
@@ -28,17 +28,86 @@ export function snapchatAdsRows(body: unknown, collection: string, entity: strin
     return snapchatAdsObject(row[entity]);
   });
 }
-export function snapchatAdAccounts(body: unknown): Record<string, unknown>[] {
-  const accounts: Record<string, unknown>[] = [];
-  for (const organization of snapchatAdsRows(body, 'organizations', 'organization')) {
-    if (!Array.isArray(organization.ad_accounts) || !organization.ad_accounts.every(isObject)) snapchatAdsFailure();
-    for (const account of organization.ad_accounts) {
-      snapchatAdsId(account.id);
-      accounts.push(account);
-    }
-  }
-  return [...new Map(accounts.map(account => [account.id, account])).values()];
+type DiscoveryStage = 'organizations' | 'organization-adaccounts';
+type DiscoveryReason = 'PROVIDER_REJECTED' | 'INVALID_RESPONSE' | 'INVALID_COLLECTION' | 'INVALID_ENTITY' | 'INVALID_ACCOUNT_ID' | 'INVALID_ORGANIZATION_ID' | 'INVALID_INLINE_ACCOUNTS' | 'FALLBACK_LIMIT' | 'HTTP_ERROR' | 'NETWORK_ERROR';
+const maxDiscoveryFallbacks = 10;
+function discoveryCode(value: unknown): string | undefined {
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 2_147_483_647) return String(value);
+  return typeof value === 'string' && /^E[0-9]{1,8}$/.test(value) ? value : undefined;
 }
+function responseCode(value: unknown): string | undefined {
+  if (!isObject(value)) return undefined;
+  const code = discoveryCode(value.error_code) ?? discoveryCode(value.sub_request_error_code);
+  if (code) return code;
+  // Snap documents this nested format. Extract only its bounded code, never
+  // the remaining provider message (which may contain names or credentials).
+  const reason = value.sub_request_error_reason;
+  return discoveryCode(reason) ?? (typeof reason === 'string' ? /^Error code: (E[0-9]{1,8}), message:/.exec(reason.slice(0, 64))?.[1] : undefined);
+}
+function discoveryError(stage: DiscoveryStage, reason: DiscoveryReason, code?: string, httpStatus?: number): ProviderError {
+  const read = stage === 'organizations' ? 'advertising organizations' : 'organization advertising accounts';
+  const context = [httpStatus === undefined ? '' : `HTTP ${httpStatus}`, `reason SNAP_ADS_${stage === 'organizations' ? 'ORGANIZATIONS' : 'ADACCOUNTS'}_${reason}`, code ? `provider code ${code}` : ''].filter(Boolean).join('; ');
+  const help = reason === 'FALLBACK_LIMIT'
+    ? `This discovery needs more than ${maxDiscoveryFallbacks} additional organization reads, which exceeds Connector's read limit.`
+    : 'Check Snapchat Ads access and reconnect. No advertising changes were sent.';
+  return new ProviderError(`Snapchat Ads could not read ${read} (${context}). ${help}`, httpStatus === 401 || httpStatus === 403 || httpStatus === 429 ? httpStatus : 502);
+}
+function discoveryRows(body: unknown, stage: DiscoveryStage): Record<string, unknown>[] {
+  if (!isObject(body)) throw discoveryError(stage, 'INVALID_RESPONSE');
+  const collection = stage === 'organizations' ? 'organizations' : 'adaccounts';
+  const entity = stage === 'organizations' ? 'organization' : 'adaccount';
+  const rows = body[collection];
+  if (typeof body.request_status !== 'string' || body.request_status.toUpperCase() !== 'SUCCESS') {
+    const code = responseCode(body) ?? (Array.isArray(rows) ? rows.slice(0, 5).map(responseCode).find(value => value !== undefined) : undefined);
+    throw discoveryError(stage, 'PROVIDER_REJECTED', code);
+  }
+  if (!Array.isArray(rows)) throw discoveryError(stage, 'INVALID_COLLECTION');
+  return rows.map(value => {
+    if (!isObject(value)) throw discoveryError(stage, 'INVALID_ENTITY');
+    if (typeof value.sub_request_status !== 'string' || value.sub_request_status.toUpperCase() !== 'SUCCESS') throw discoveryError(stage, 'PROVIDER_REJECTED', responseCode(value));
+    if (!isObject(value[entity])) throw discoveryError(stage, 'INVALID_ENTITY');
+    return value[entity];
+  });
+}
+function discoveryAccounts(values: unknown[], stage: DiscoveryStage): Record<string, unknown>[] {
+  return values.map(value => {
+    if (!isObject(value)) throw discoveryError(stage, 'INVALID_ENTITY');
+    if (typeof value.id !== 'string' || !uuid.test(value.id)) throw discoveryError(stage, 'INVALID_ACCOUNT_ID');
+    return value;
+  });
+}
+async function discoveryRequest(credential: Credential, path: string, stage: DiscoveryStage) {
+  return fetchJson('Snapchat Ads', `${snapchatAdsOrigin}${path}`, { method: 'GET', headers: { authorization: `Bearer ${safeCredential(credential)}` } }, {
+    failure: (failure: ProviderHttpFailure) => discoveryError(stage, failure.kind === 'http' ? 'HTTP_ERROR' : failure.kind === 'network' ? 'NETWORK_ERROR' : 'INVALID_RESPONSE', discoveryCode(failure.code), failure.status),
+  });
+}
+
+/** Read-only discovery using the two documented Marketing API account routes. */
+export async function discoverSnapchatAdAccounts(credential: Credential): Promise<Record<string, unknown>[]> {
+  const organizations = discoveryRows(await discoveryRequest(credential, 'me/organizations?with_ad_accounts=true', 'organizations'), 'organizations');
+  const fallbackIds = new Set<string>();
+  // Validate the complete plan before requesting any provider-supplied ID.
+  const plan = organizations.map(organization => {
+    if (organization.ad_accounts === undefined || organization.ad_accounts === null) {
+      if (typeof organization.id !== 'string' || !uuid.test(organization.id)) throw discoveryError('organizations', 'INVALID_ORGANIZATION_ID');
+      const organizationId = organization.id.toLowerCase();
+      fallbackIds.add(organizationId);
+      return { organizationId };
+    }
+    if (!Array.isArray(organization.ad_accounts)) throw discoveryError('organizations', 'INVALID_INLINE_ACCOUNTS');
+    return { accounts: discoveryAccounts(organization.ad_accounts, 'organizations') };
+  });
+  if (fallbackIds.size > maxDiscoveryFallbacks) throw discoveryError('organizations', 'FALLBACK_LIMIT');
+  const fallbackAccounts = new Map<string, Record<string, unknown>[]>();
+  // At most ten sequential requests: no unbounded fan-out or paging URLs.
+  for (const organizationId of fallbackIds) {
+    const body = await discoveryRequest(credential, `organizations/${organizationId}/adaccounts`, 'organization-adaccounts');
+    fallbackAccounts.set(organizationId, discoveryAccounts(discoveryRows(body, 'organization-adaccounts'), 'organization-adaccounts'));
+  }
+  const accounts = plan.flatMap(entry => entry.accounts ?? fallbackAccounts.get(entry.organizationId!)!);
+  return [...new Map(accounts.map(account => [(account.id as string).toLowerCase(), account])).values()];
+}
+
 function setting(env: NodeJS.ProcessEnv, key: string): string {
   const value = env[key]?.trim();
   if (!value || /[\r\n\0]/.test(value)) throw new ProviderError(`Configure ${key} before connecting Snapchat Ads.`, 503);
@@ -79,8 +148,7 @@ export const snapchatAdsAdapter: ProviderAdapter = {
     return token(env, { grant_type: 'refresh_token', refresh_token: credential.refreshToken }, credential);
   },
   async verify(credential) {
-    const body = await fetchJson('Snapchat Ads', `${snapchatAdsOrigin}me/organizations?with_ad_accounts=true`, { headers: { authorization: `Bearer ${safeCredential(credential)}` } });
-    const accounts = snapchatAdAccounts(body);
+    const accounts = await discoverSnapchatAdAccounts(credential);
     return {
       accountName: accounts.length > 100 ? 'Snapchat advertising access (first 100 accounts)' : 'Snapchat advertising access',
       resources: accounts.slice(0, 100).map(account => ({ id: snapchatAdsId(account.id), name: typeof account.name === 'string' && account.name.trim() ? account.name.slice(0, 300) : `Ad account ${account.id}`, type: 'ad_account' })),

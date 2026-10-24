@@ -2,7 +2,7 @@ import { apiRequest, bearer, required, string } from './action-http';
 import type { ActionAdapter, ActionField, ActionValues } from './action-types';
 import { isObject } from './provider-http';
 import { ProviderError, type Credential } from './provider-types';
-import { snapchatAdAccounts, snapchatAdsFailure, snapchatAdsId, snapchatAdsObject, snapchatAdsOrigin, snapchatAdsRows } from './providers-snapchat-ads';
+import { discoverSnapchatAdAccounts, snapchatAdsFailure, snapchatAdsId, snapchatAdsObject, snapchatAdsOrigin, snapchatAdsRows } from './providers-snapchat-ads';
 
 // Campaigns use POST envelopes and targeted JSON PATCH. Do not use PUT: omitted
 // fields can reset campaign configuration. Monetary values use account currency.
@@ -90,8 +90,8 @@ function confirmChange(body: unknown, accountId: string, campaignId: string | un
   return result;
 }
 
-add('list-ad-accounts', 'List advertising accounts', 'read', [], 'Read up to 100 Snapchat advertising accounts visible to the authorizing user, including currency, time zone and account roles.', async c => {
-  const rows = snapchatAdAccounts(await request(c, 'me/organizations?with_ad_accounts=true'));
+add('list-ad-accounts', 'List advertising accounts', 'read', [], 'Read up to 100 Snapchat advertising accounts visible to the authorizing user, including currency, time zone and account roles. Discovery supports up to 10 additional organization reads when account lists are omitted.', async c => {
+  const rows = await discoverSnapchatAdAccounts(c);
   return {
     summary: `Snapchat advertising accounts (first ${Math.min(rows.length, 100)} returned).${rows.length > 100 ? ' More accounts exist beyond this preview.' : ''}`,
     items: rows.slice(0, 100).map(row => ({ id: snapchatAdsId(row.id), name: string(row.name), currency: string(row.currency), timezone: string(row.timezone), roles: Array.isArray(row.roles) ? row.roles.filter(role => typeof role === 'string').slice(0, 20).join(', ').slice(0, 300) : '' })),
