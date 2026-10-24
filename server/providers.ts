@@ -11,6 +11,8 @@ import { mailchimpAdapters } from './providers-mailchimp.ts';
 import { obsidianAdapters } from './providers-obsidian.ts';
 import { pinterestAdsAdapter } from './providers-pinterest-ads.ts';
 import { tiktokAccountAdapter } from './providers-tiktok-account';
+import { snapchatAdapter } from './providers-snapchat';
+import { snapchatAdsAdapter } from './providers-snapchat-ads';
 
 export * from './provider-types.ts';
 
@@ -59,7 +61,7 @@ const aiAdapters: ProviderAdapter[] = aiDefinitions.map((definition) => ({
   },
 }));
 
-const adapters: ProviderAdapter[] = [...aiAdapters, ...socialAdapters, ...metaAdapters, ...googleAdapters, ...adsAdapters, pinterestAdsAdapter, tiktokAccountAdapter, ...discordAdapters, ...whatsappAdapters, ...wordpressAdapters, ...mailchimpAdapters, ...obsidianAdapters];
+const adapters: ProviderAdapter[] = [...aiAdapters, ...socialAdapters, snapchatAdapter, ...metaAdapters, ...googleAdapters, ...adsAdapters, pinterestAdsAdapter, snapchatAdsAdapter, tiktokAccountAdapter, ...discordAdapters, ...whatsappAdapters, ...wordpressAdapters, ...mailchimpAdapters, ...obsidianAdapters];
 const byId = new Map(adapters.map((adapter) => [adapter.definition.id, adapter]));
 if (byId.size !== adapters.length) throw new Error('Provider IDs must be unique.');
 export const providerCatalog = adapters.map((adapter) => adapter.definition).filter(provider => !provider.auxiliaryFor);

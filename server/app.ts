@@ -87,7 +87,13 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
   mountOAuthPublic(app, mcpOAuth);
   mountPipeline(app, config, store, pipeline, env, { accounts: workspaceAccounts, oauth: mcpOAuth });
   app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
-  app.use(express.json({ limit: '24kb' }));
+  const smallJson = express.json({ limit: '24kb' });
+  app.use((req, res, next) => {
+    // Media action bodies are parsed only after owner authentication and CSRF
+    // checks below. Other owner/login/settings requests keep the small limit.
+    if (req.method === 'POST' && /^\/api\/actions\/[^/]+\/[^/]+\/?$/i.test(req.path)) return next();
+    smallJson(req, res, next);
+  });
   app.use('/api', (req, _res, next) => {
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
       if (req.headers['x-connector-request'] !== '1' || (req.headers.origin && req.headers.origin !== config.origin && req.headers.origin !== localOrigin)) {
@@ -200,7 +206,7 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
   app.get('/api/jobs', (_req, res) => res.json({ jobs: pipeline.jobs() }));
   app.post('/api/jobs', (req, res) => res.json({ job: pipeline.schedule(req.body?.provider, req.body?.action, req.body?.values, req.body?.scheduledAt, req.body?.confirmed, req.body?.requestId) }));
   app.delete('/api/jobs/:id', (req, res) => res.json({ job: pipeline.cancel(String(req.params.id)) }));
-  app.post('/api/actions/:provider/:action', async (req, res) => res.json(await pipeline.run(String(req.params.provider), String(req.params.action), req.body?.values, req.body?.confirmed, req.body?.requestId)));
+  app.post('/api/actions/:provider/:action', express.json({ limit: '30mb' }), async (req, res) => res.json(await pipeline.run(String(req.params.provider), String(req.params.action), req.body?.values, req.body?.confirmed, req.body?.requestId)));
   app.post('/api/oauth/:provider/start', (req, res) => {
     const id = String(req.params.provider);
     if (service.getProvider(id).authType !== 'oauth') throw new RequestError('This platform uses an API credential.');
@@ -242,6 +248,7 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
     else res.status(503).type('text').send('Build the interface with npm run build, then reload.');
   });
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    if (error && typeof error === 'object' && 'type' in error && error.type === 'entity.too.large') return void res.status(413).json({ error: 'This request is too large. Media uploads support files up to 20 MiB.' });
     if (error instanceof SyntaxError) return void res.status(400).json({ error: 'The request body must be valid JSON.' });
     const result = safeError(error);
     res.status(result.status).json({ error: result.message });

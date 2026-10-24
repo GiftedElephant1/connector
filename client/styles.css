@@ -2450,6 +2450,11 @@ input {
 .tiktok-mark {
   font-size: 34px;
 }
+.provider-mark-snapchat {
+  background: #fffcdd;
+  color: #24352e;
+  border-color: #eee8a4;
+}
 .provider-mark-reddit {
   background: #fff3e9;
   color: #c8763f;

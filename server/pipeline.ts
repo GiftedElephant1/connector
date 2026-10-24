@@ -93,7 +93,7 @@ export class Pipeline {
       const result = await this.execute(job.provider, action, values, assertCurrent);
       this.store.finishJob(id, 'succeeded', result);
     } catch (error) {
-      const clearlyRejected = error instanceof ProviderError && [400, 401, 403, 404, 409, 422, 429].includes(error.status);
+      const clearlyRejected = error instanceof ProviderError && [400, 401, 403, 404, 409, 413, 422, 429].includes(error.status);
       this.store.finishJob(id, clearlyRejected ? 'failed' : 'uncertain', undefined, safeMessage(error));
     }
     return this.store.job(id)!;

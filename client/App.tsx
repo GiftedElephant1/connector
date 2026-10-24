@@ -477,6 +477,9 @@ function ProviderMark({ provider }: { provider: Provider }) {
   } else if (name.includes("tiktok")) {
     style = "tiktok";
     content = <span className="tiktok-mark">♪</span>;
+  } else if (name.includes("snapchat")) {
+    style = "snapchat";
+    content = <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true" fill="white" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"><path d="M7 10V7a5 5 0 0 1 10 0v3l3-1-1 3-2 1c0 2 2 4 4 4l-3 2-2-1-1 3-3-1-3 1-1-3-2 1-3-2c2 0 4-2 4-4l-2-1-1-3 3 1Z" /></svg>;
   } else if (name.includes("reddit")) {
     style = "reddit";
     content = (

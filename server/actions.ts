@@ -10,8 +10,10 @@ import { wordpressActions } from './actions-wordpress';
 import { mailchimpActions } from './actions-mailchimp';
 import { obsidianActions } from './actions-obsidian';
 import { pinterestAdsActions } from './actions-pinterest-ads';
+import { snapchatActions } from './actions-snapchat';
+import { snapchatAdsActions } from './actions-snapchat-ads';
 
-const actions: ActionAdapter[] = [...googleActions, ...metaActions, ...discordActions, ...socialActions, ...adsActions, ...pinterestAdsActions, ...whatsappActions, ...wordpressActions, ...mailchimpActions, ...obsidianActions];
+const actions: ActionAdapter[] = [...googleActions, ...metaActions, ...discordActions, ...socialActions, ...snapchatActions, ...adsActions, ...pinterestAdsActions, ...snapchatAdsActions, ...whatsappActions, ...wordpressActions, ...mailchimpActions, ...obsidianActions];
 const registry = new Map(actions.map(action => [`${action.provider}:${action.definition.id}`, action]));
 if (registry.size !== actions.length) throw new Error('Action identifiers must be unique per provider.');
 export function listActions(provider: string) { return actions.filter(action => action.provider === provider).map(action => action.definition); }

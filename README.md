@@ -83,6 +83,7 @@ For code changes, run `npm run build` to rebuild the interface and `npm run dev`
 | Meta | Facebook Pages, Instagram professional accounts, Threads, Meta Business Manager | [Meta setup](docs/providers-meta.md) |
 | Google | YouTube, Google Ads, Google Analytics, Google Search Console | [Google setup](docs/providers-google.md) |
 | Social and websites | X, TikTok, LinkedIn, Reddit, Pinterest, WordPress.com | [Social setup](docs/providers-social.md) |
+| Snapchat | Public Profile Stories and Spotlight posts; separate Snapchat Ads campaigns and reporting | [Snapchat setup](docs/providers-snapchat.md) |
 | WordPress on another host | Create, read, and edit blog posts and pages through WordPress's own REST API | [WordPress setup](docs/providers-wordpress.md) |
 | Advertising | LinkedIn Campaign Manager, Microsoft Advertising, TikTok Business Manager, X Ads, Reddit Ads | [Advertising setup](docs/providers-ads.md) |
 | Communications | Discord profile/server memberships and bot actions; WhatsApp Business Cloud API | [Discord setup](docs/providers-discord.md), [WhatsApp setup](docs/providers-whatsapp.md) |

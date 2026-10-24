@@ -29,6 +29,11 @@ const definitions: Record<string, FieldDefinition> = {
   GOOGLE_ADS_DEVELOPER_TOKEN: { label: 'Google Ads developer token', secret: true },
   X_CLIENT_ID: { label: 'X OAuth client ID' }, X_CLIENT_SECRET: { label: 'X OAuth client secret', secret: true },
   TIKTOK_CLIENT_KEY: { label: 'TikTok client key' }, TIKTOK_CLIENT_SECRET: { label: 'TikTok client secret', secret: true },
+  SNAPCHAT_CLIENT_ID: { label: 'Snapchat client ID', help: 'Use an OAuth application created in Snap Business Manager, allowlisted for the Public Profile API. This is not a Snap Kit Login Kit application.' },
+  SNAPCHAT_CLIENT_SECRET: { label: 'Snapchat client secret', secret: true, help: 'Use the matching Public Profile application secret. Saved separately from Snapchat Ads.' },
+  SNAPCHAT_ORGANIZATION_ID: { label: 'Snapchat organization ID', help: 'Optional: enter your Snap Business organization ID to discover its Public Profiles. Leave blank to verify your own Public Profile. Use the organization ID, not an ad account or profile ID.' },
+  SNAPCHAT_ADS_CLIENT_ID: { label: 'Snapchat Ads client ID', help: 'Use the OAuth application from Snap Business Manager for Marketing API access. Register the separate Snapchat Ads redirect URL.' },
+  SNAPCHAT_ADS_CLIENT_SECRET: { label: 'Snapchat Ads client secret', secret: true, help: 'Use the secret belonging to the Snapchat Ads client ID above. This does not replace your content connection credentials.' },
   LINKEDIN_CLIENT_ID: { label: 'LinkedIn client ID' }, LINKEDIN_CLIENT_SECRET: { label: 'LinkedIn client secret', secret: true },
   LINKEDIN_COMBINE_SCOPES: { label: 'Use LinkedIn Pages and Ads together', options: ['false', 'true'], defaultValue: 'false', help: 'Enable when using both LinkedIn and Campaign Manager with this app and all listed permissions are approved. Both sign-ins will request the same permissions so one does not invalidate the other. Save, then update permissions on both connections once. Changing these permission choices later requires updating both again.' },
   LINKEDIN_ENABLE_MEMBER_READ: { label: 'Approved LinkedIn member reading', options: ['false', 'true'], defaultValue: 'false', help: 'Enable only after LinkedIn grants r_member_social, then reconnect LinkedIn.' },
@@ -55,6 +60,7 @@ const definitions: Record<string, FieldDefinition> = {
   XAI_MODEL: { label: 'xAI API bot model', defaultValue: 'grok-4' },
 };
 const optionalFields: Record<string, string[]> = {
+  snapchat: ['SNAPCHAT_ORGANIZATION_ID'],
   facebook: ['META_API_VERSION'], instagram: ['META_API_VERSION'], 'meta-business': ['META_API_VERSION'],
   threads: ['THREADS_API_VERSION'],
   'google-workspace': ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'],
@@ -67,6 +73,7 @@ const optionalFields: Record<string, string[]> = {
   xai: ['XAI_MODEL'],
 };
 const setupUrls: Record<string, string> = {
+  snapchat: 'https://ads.snapchat.com/', 'snapchat-ads': 'https://ads.snapchat.com/',
   'microsoft-ads': 'https://entra.microsoft.com/', discord: 'https://discord.com/developers/applications',
   openai: 'https://platform.openai.com/api-keys', anthropic: 'https://console.anthropic.com/settings/keys', xai: 'https://console.x.ai/',
   facebook: 'https://developers.facebook.com/apps/', instagram: 'https://developers.facebook.com/apps/', 'meta-business': 'https://developers.facebook.com/apps/', threads: 'https://developers.facebook.com/apps/', whatsapp: 'https://developers.facebook.com/apps/',
