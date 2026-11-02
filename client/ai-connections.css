@@ -1,5 +1,5 @@
 .ai-connections h2 { margin-bottom: 12px; }
-.ai-app-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 24px 0; }
+.ai-app-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin: 24px 0; }
 .ai-app-card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 20px; border: 1px solid #dce4e1; border-radius: 12px; background: #fff; color: #253c34; cursor: pointer; text-align: left; }
 .ai-app-card.selected { border-color: #12765a; box-shadow: 0 0 0 1px #12765a; background: #f0f8f4; }
 .ai-app-card:focus-visible { outline: 3px solid #74b99e; outline-offset: 3px; }
@@ -55,7 +55,7 @@
 .ai-developer-provider strong, .ai-developer-provider small { display: block; }
 .ai-developer-provider small { margin-top: 6px; color: #617067; }
 @media(max-width: 650px) {
-  .ai-app-grid { gap: 8px; }
+  .ai-app-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .ai-app-card { padding: 13px 10px; }
   .ai-app-card strong { font-size: 15px; }
   .ai-app-card > span:last-child { font-size: 11px; }

@@ -1,6 +1,6 @@
-# Connect Claude, ChatGPT, and Grok Bot
+# Connect Claude, ChatGPT, Gemini, Cursor, and Grok Bot
 
-Connector gives an AI client access to the destination accounts you have connected. Claude and ChatGPT use its MCP tools; Grok Bot can call its authenticated HTTPS API from the Bot's cloud computer. **Neither route calls Anthropic, OpenAI, or xAI model APIs or requires a developer key from those providers.** Model access and usage remain subject to the AI product's plan. The Grok Bot card prepares a message with this installation's connection instructions; verify access with a real account-list request.
+Connector gives an AI client access to the destination accounts you have connected. Claude, ChatGPT, Gemini, and Cursor use its MCP tools; Grok Bot can call its authenticated HTTPS API from the Bot's cloud computer. **These connections do not call model APIs or require a model-provider developer key.** Model access and usage remain subject to the AI product's plan. The Grok Bot card prepares a message with this installation's connection instructions; verify access with a real account-list request.
 
 The MCP connection uses OAuth: you paste one public Connector URL into the AI app, sign in with your **Connector workspace password**, and approve access. Connector and the AI app exchange their connection credentials automatically. Never paste your AI account password into Connector.
 
@@ -50,6 +50,49 @@ Claude Max supplies the model usage for this workflow. It does not need separate
 6. Return to a ChatGPT conversation and select Connector from its apps/tools menu. Follow section 4 to check the connection.
 
 Custom app creation, write tools, and developer mode depend on your ChatGPT plan and workspace policy. Enabling this server cannot unlock a missing ChatGPT feature. OAuth does not cause Connector to call the separately billed OpenAI model API.
+
+### Gemini website and mobile app
+
+Google's [custom-app instructions](https://support.google.com/gemini/answer/17209137?hl=en) currently require a **personal Google Account, age 18 or over, US availability, English, and Keep Activity turned on**. Work and school Google Accounts are not eligible for this Gemini feature. Configure the connection on the Gemini website first; afterward, the same custom app is available in Gemini's website and mobile app. This setup does not use Gemini CLI or a Gemini model API key.
+
+1. Complete section 1 so Connector has a running public HTTPS address. In **AI connections**, select **Gemini**, copy **Connector URL**, and click **Open Gemini**.
+2. Sign in to Gemini with the eligible personal Google Account you want to use. Check that **Keep Activity** is on if custom apps are unavailable.
+3. On the Gemini website, click **Settings → Connected Apps**. If **Connected Apps** is not shown there, open **Personal Intelligence → Connected Apps** instead. You can also open [Gemini's Connected Apps page](https://gemini.google.com/apps) directly.
+4. Under **Custom apps**, use **Add a custom app link to get started**, or click **Add a custom app** if you already have one.
+5. Paste the current **Connector URL**, including `/mcp`, and click **Next**. Leave advanced client credentials blank: Connector supports automatic registration, so you do not need a developer application, client ID, or client secret for this AI connection.
+6. Follow the browser's authorization flow. On your Connector address, sign in with your Connector workspace password and choose the access described in section 3 below. Return to Gemini and finish any confirmation.
+7. In a new Gemini conversation, enter **@** and select your custom Connector app. Run the read-only account-list check in section 4 before asking for writes. Gemini currently requires manual confirmation for custom-app writes, in addition to Connector's write confirmation.
+8. To use it on your phone, open the Gemini mobile app with the same Google Account, enter **@**, and select the connected custom app. Keep the PC running Connector awake and online; the mobile connection does not move Connector onto your phone or into Google's cloud.
+
+If **Custom apps** is unavailable, check Google's current eligibility requirements. An account or region outside the supported rollout cannot be enabled by Connector. Your Gemini sign-in is separate from Google Workspace access through Connector: the selected Connector profile determines which already-connected Google accounts and apps Gemini may use.
+
+### Cursor
+
+1. Install or update [Cursor](https://cursor.com/downloads), open it, and sign in to the Cursor account you want to use. The **Download Cursor** link on Connector's Cursor card opens its download page. Its own plan supplies model access; Connector does not need a model API key.
+2. In Connector, open **AI connections**, select **Cursor**, and click **Add to Cursor**. Allow the browser to open Cursor if prompted.
+3. Review the proposed server before adding it. Its name should be `connector` and its URL should be your current public Connector address ending in `/mcp`. The installation link contains the server configuration, not your password or a Connector key.
+4. In Cursor's **Customize** area, find the MCP server, enable it, and use its sign-in/authentication control if prompted. Complete Connector's OAuth approval in section 3 below, then return to Cursor.
+5. Open an Agent conversation with the Connector tools enabled and run the read-only account-list check in section 4. Keep Cursor's tool-approval controls enabled; adding a server does not approve arbitrary writes.
+
+If the browser cannot open Cursor, add the configuration manually:
+
+1. In Cursor, open your user MCP configuration, `~/.cursor/mcp.json`, or create `mcp.json` in that folder if it is missing. On Windows, this is `%USERPROFILE%\.cursor\mcp.json`; open that location from File Explorer or Cursor's file-opening dialog. A project's `.cursor/mcp.json` limits the configuration to that project instead.
+2. On Connector's Cursor card, click **Copy Cursor configuration**, or expand **View Cursor configuration** and copy the text manually. For a new file, it has this structure; replace the example URL below with **Connector URL** from your dashboard:
+
+   ```json
+   {
+     "mcpServers": {
+       "connector": {
+         "url": "https://YOUR_CONNECTOR_ADDRESS/mcp"
+       }
+     }
+   }
+   ```
+
+3. If the file already contains settings, add or update only the `connector` entry inside its existing `mcpServers` object. Preserve other servers and settings; do not replace the entire file or create a second `mcpServers` object. No `headers`, model API key, or Connector password belongs in this OAuth configuration.
+4. Save the file, return to Cursor's MCP settings, and complete the authentication and read-only check above.
+
+Cursor and Grok Bot are separate connection choices even if they use the same account sign-in. Adding Cursor here does not change Grok Bot's existing credentials or your connected destination accounts.
 
 ### Grok Bot
 
@@ -138,6 +181,8 @@ The app retains optional developer API integrations for existing users. The opti
 | A public-address warning | Start public access under **Settings**, then copy the resulting HTTPS `/mcp` URL. |
 | The AI cannot reach the server | Keep the PC awake, Connector running, and public access on. Open **Open public workspace** to check the address. Check for tunnel errors or an expired tunnel session in Settings. |
 | No custom-app or connector setting in the AI app | Check the AI provider's current plan and workspace-admin requirements. This server cannot add a missing client feature. |
+| Gemini has no **Custom apps** option | Google's current requirements are US availability, English, age 18+, a personal Google Account, and Keep Activity on. Add the app on the Gemini website before using it on mobile. |
+| **Add to Cursor** does not open the app | Install/open Cursor, allow the browser's external-app prompt, or use the card's configuration in your existing `mcp.json` as described above. |
 | Invalid or expired authorization | Restart the connection from the AI app; do not reuse an old authorization-page bookmark. Check that the public address has not changed. |
 | No tools for the expected account | Check the grant in **AI connections**, the destination's connection status, and any selected Google profile's account/app permissions. Refresh/reconnect the AI app's tool list after changing access if required. |
 | Google asks you to sign in again | Google consent/token expiry is separate from AI OAuth. Reauthorize that Google account in **Google Workspace**; retain its existing agent profile. |
@@ -152,5 +197,7 @@ See also [the MCP protocol guide](pipeline.md), [Windows update instructions](wi
 - [Grok Bot: Settings and notifications](https://docs.x.ai/grok-bot/settings-and-notifications), including account-wide plugins and usage controls.
 - [OpenAI's official Apps SDK examples: testing in ChatGPT](https://github.com/openai/openai-apps-sdk-examples#testing-in-chatgpt).
 - [OpenAI's authenticated MCP server example](https://github.com/openai/openai-apps-sdk-examples/blob/main/authenticated_server_python/README.md).
+- [Google: connect and manage custom apps for Gemini Apps](https://support.google.com/gemini/answer/17209137?hl=en), including web setup, mobile use, and account/region requirements.
+- [Cursor: Model Context Protocol](https://cursor.com/docs/mcp) and [MCP installation links](https://cursor.com/docs/mcp/install-links).
 - [Zernio's Claude plugin and connector instructions](https://github.com/zernio-dev/zernio-claude-plugin), describing the OAuth connection pattern this app implements with its own URL.
 - [MCP authorization specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2025-11-25/basic/authorization.mdx).
