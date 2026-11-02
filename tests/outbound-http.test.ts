@@ -13,7 +13,7 @@ import { Store } from '../server/store';
 import { WorkspaceAccounts } from '../server/workspace-accounts';
 
 const masterKey = 'test-outbound-master-key-12345678901234567890';
-const aiTools = ['cancel_ai_task', 'get_ai_task', 'list_ai_agents', 'list_ai_tasks', 'start_ai_task'];
+const aiTools = ['cancel_ai_task', 'check_ai_agent', 'get_ai_task', 'list_ai_agents', 'list_ai_tasks', 'start_ai_task'];
 
 async function fixture(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), 'connector-outbound-http-'));
@@ -22,8 +22,10 @@ async function fixture(t: TestContext) {
     databasePath: join(directory, 'test.sqlite'), secureCookies: false, pipelineKey: masterKey };
   const store = new Store(config.databasePath, config.encryptionKey);
   let calls = 0;
+  let checks = 0;
   const outbound = new OutboundAI(store, config.databasePath, {
     localRun: async () => { calls++; return { result: 'Fixture answer without external calls' }; },
+    localCheck: async () => { checks++; return { available: true, authenticated: true, status: 'ready', message: 'Fixture saved subscription sign-in; no task sent.' }; },
   });
   outbound.configure('claude', { enabled: true });
   outbound.configure('cursor', { enabled: false, apiKey: 'private-cursor-api-key', model: 'fixture-model' });
@@ -73,14 +75,117 @@ async function fixture(t: TestContext) {
     store.close();
     await rm(directory, { recursive: true, force: true });
   });
-  return { config, store, outbound, oauth, request, owner, cookie, rpc, tool, restTool, grant, workspaceKey, completed, calls: () => calls };
+  return { config, store, outbound, oauth, request, owner, cookie, rpc, tool, restTool, grant, workspaceKey, completed, calls: () => calls, checks: () => checks };
 }
 
 const taskInput = (requestId: string) => ({ provider: 'claude', prompt: 'Explain the supplied phrase in plain language.', confirmed: true, requestId });
 
+interface ToolCatalog { tools: { name: string; description: string; inputSchema: { type?: string; properties?: Record<string, unknown>; required?: string[]; additionalProperties?: boolean } }[] }
+interface ConnectionDiscovery {
+  connections: { provider: string }[];
+  aiDelegation?: {
+    delegationAllowed: boolean;
+    agents: { provider: string; enabled: boolean; configured: boolean; returnsResult: boolean }[];
+    toolsEndpoint: string;
+    workflow: string[];
+  };
+}
+
+test('REST connections expose authorized AI discovery and a source agent can dispatch and read a result using the discovered tools', async t => {
+  const f = await fixture(t);
+  const headers = { authorization: `Bearer ${masterKey}` };
+  assert.equal((await f.request('/api/v1/tools')).status, 401);
+  const before = await f.request('/api/v1/connections', { headers });
+  assert.equal(before.status, 200);
+  const locked = await before.json() as ConnectionDiscovery;
+  assert.ok(locked.connections.length > 0, 'existing platform discovery stays available');
+  assert.equal(locked.aiDelegation?.delegationAllowed, false);
+  assert.ok(locked.aiDelegation?.agents.every(agent => !agent.enabled));
+  assert.equal((await f.restTool(masterKey, 'check_ai_agent', { provider: 'claude' })).status, 403);
+  assert.equal((await f.restTool(masterKey, 'start_ai_task', taskInput('discovered-but-not-authorized'))).status, 403);
+  assert.equal(f.calls(), 0);
+  assert.equal(f.checks(), 0);
+
+  await f.owner('/api/outbound-ai/access', { allowSharedKey: true });
+  const discovered = await (await f.request('/api/v1/connections', { headers })).json() as ConnectionDiscovery;
+  assert.equal(discovered.aiDelegation?.delegationAllowed, true);
+  assert.equal(discovered.aiDelegation.toolsEndpoint, '/api/v1/tools');
+  for (const required of ['list_ai_agents', 'check_ai_agent', 'start_ai_task', 'get_ai_task']) assert.ok(discovered.aiDelegation.workflow.includes(required));
+  const destination = discovered.aiDelegation.agents.find(agent => agent.provider === 'claude');
+  assert.ok(destination?.enabled && destination.configured && destination.returnsResult);
+  const catalogResponse = await f.request(discovered.aiDelegation.toolsEndpoint, { headers });
+  assert.equal(catalogResponse.status, 200);
+  const catalog = await catalogResponse.json() as ToolCatalog;
+  assert.ok(catalog.tools.some(tool => tool.name === 'list_connections'));
+  for (const name of discovered.aiDelegation.workflow) assert.ok(catalog.tools.some(tool => tool.name === name), `${name} is invocable through the advertised endpoint`);
+  const start = catalog.tools.find(tool => tool.name === 'start_ai_task')!;
+  assert.ok(start.description.length > 0);
+  assert.equal(start.inputSchema.type, 'object');
+  assert.equal(start.inputSchema.additionalProperties, false);
+  assert.deepEqual(new Set(start.inputSchema.required), new Set(['provider', 'prompt', 'confirmed', 'requestId']));
+  assert.ok(start.inputSchema.properties?.provider);
+  assert.equal(JSON.stringify({ discovered, catalog }).includes('private-cursor-api-key'), false);
+  const post = async (name: string, args: unknown) => f.request(`${discovered.aiDelegation!.toolsEndpoint}/${name}`, { method: 'POST',
+    headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify(args) });
+  assert.equal((await post('check_ai_agent', { provider: destination.provider, executable: '/untrusted/program' })).status, 400);
+  assert.equal((await post('check_ai_agent', { provider: 'cursor' })).status, 409, 'a machine cannot check an agent the owner disabled');
+  const checked = await post('check_ai_agent', { provider: destination.provider });
+  assert.equal(checked.status, 200);
+  const readiness = await checked.json() as { provider: string; enabled: boolean; check: { status: string; message: string } };
+  assert.equal(readiness.provider, destination.provider);
+  assert.equal(readiness.enabled, true);
+  assert.equal(readiness.check.status, 'ready');
+  assert.equal(JSON.stringify(readiness).includes('private-cursor-api-key'), false);
+  assert.equal(f.checks(), 1);
+  assert.equal(f.calls(), 0, 'checking readiness must not send a model task');
+  const started = await post(start.name, { ...taskInput('rest-discovery-flow'), provider: destination.provider });
+  assert.equal(started.status, 200);
+  const { task } = await started.json() as { task: { id: string } };
+  let result: { id: string; status: string; result?: string } | undefined;
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const response = await post('get_ai_task', { id: task.id });
+    assert.equal(response.status, 200);
+    result = (await response.json() as { task: typeof result }).task;
+    if (result?.status !== 'running') break;
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  assert.equal(result?.id, task.id);
+  assert.equal(result?.status, 'succeeded');
+  assert.equal(result?.result, 'Fixture answer without external calls');
+  assert.equal(f.calls(), 1, 'the source agent uses the machine API without an owner task submission');
+});
+
+test('REST discovery respects Workspace key scope and OAuth platform discovery requires explicit outbound approval', async t => {
+  const f = await fixture(t);
+  await f.owner('/api/outbound-ai/access', { allowSharedKey: true });
+  const workspaceHeaders = { authorization: `Bearer ${f.workspaceKey}` };
+  const catalog = await f.request('/api/v1/tools', { headers: workspaceHeaders });
+  assert.equal(catalog.status, 200);
+  const body = await catalog.json() as ToolCatalog;
+  assert.deepEqual(body.tools.map(tool => tool.name).sort(), ['list_workspace_accounts', 'list_workspace_actions', 'run_workspace_action']);
+  assert.equal((await f.request('/api/v1/connections', { headers: workspaceHeaders })).status, 403);
+  assert.equal((await f.restTool(f.workspaceKey, 'list_connections')).status, 404);
+  assert.equal((await f.restTool(f.workspaceKey, 'list_ai_agents')).status, 404);
+  assert.equal((await f.restTool(f.workspaceKey, 'check_ai_agent', { provider: 'claude' })).status, 404);
+  assert.equal((await f.restTool(f.workspaceKey, 'start_ai_task', taskInput('discovery-workspace-denied'))).status, 404);
+  const platforms = f.grant({ platforms: true });
+  const withOutbound = f.grant({ platforms: true, outbound: true });
+  for (const [token, expected] of [[platforms, false], [withOutbound, true]] as const) {
+    assert.equal((await f.request('/api/v1/tools', { headers: { authorization: `Bearer ${token}` } })).status, 403, 'OAuth remains MCP-only');
+    const response = await f.tool(token, 'list_connections');
+    assert.equal(response.status, 200);
+    const connections = await response.json() as { result: { structuredContent: ConnectionDiscovery } };
+    assert.equal(!!connections.result.structuredContent.aiDelegation, expected);
+    if (expected) assert.equal(connections.result.structuredContent.aiDelegation?.delegationAllowed, true);
+  }
+  assert.equal(f.calls(), 0, 'reading discovery cannot dispatch an AI task');
+  assert.equal(f.checks(), 0, 'reading discovery cannot run an account check');
+});
+
 test('outbound setup and credentials require an owner session and CSRF protection', async t => {
   const f = await fixture(t);
   assert.equal((await f.request('/api/outbound-ai')).status, 401);
+  assert.equal((await f.owner('/api/outbound-ai/tasks', taskInput('removed-owner-form'))).status, 404, 'task creation is available through authorized AI tools, not the owner dashboard');
   for (const key of [masterKey, f.workspaceKey, f.grant({ outbound: true })]) {
     assert.equal((await f.request('/api/outbound-ai', { headers: { authorization: `Bearer ${key}` } })).status, 401);
     assert.equal((await f.request('/api/outbound-ai/providers/cursor', { method: 'PUT', headers: {
@@ -140,10 +245,14 @@ test('Google Workspace keys and old platform OAuth approvals cannot gain outboun
     const forbidden = await f.tool(key, 'start_ai_task', taskInput('must-not-dispatch'));
     const rejected = await forbidden.json() as { error?: unknown; result?: { isError?: boolean } };
     assert.ok(rejected.error || rejected.result?.isError);
+    const forbiddenCheck = await f.tool(key, 'check_ai_agent', { provider: 'claude' });
+    const rejectedCheck = await forbiddenCheck.json() as { error?: unknown; result?: { isError?: boolean } };
+    assert.ok(rejectedCheck.error || rejectedCheck.result?.isError);
   }
   assert.equal((await f.restTool(f.workspaceKey, 'start_ai_task', taskInput('workspace-denied'))).status, 404);
   assert.equal((await f.restTool(existing, 'start_ai_task', taskInput('oauth-rest-denied'))).status, 403);
   assert.equal(f.calls(), 0);
+  assert.equal(f.checks(), 0);
 });
 
 test('outbound-only OAuth grants expose exactly delegation tools, isolate receipts, and stop access after revocation', async t => {
@@ -154,6 +263,10 @@ test('outbound-only OAuth grants expose exactly delegation tools, isolate receip
   assert.equal(listing.status, 200);
   const tools = await listing.json() as { result: { tools: { name: string }[] } };
   assert.deepEqual(tools.result.tools.map(tool => tool.name).sort(), aiTools);
+  const check = await (await f.tool(first, 'check_ai_agent', { provider: 'claude' })).json() as { result: { structuredContent: { check: { status: string } } } };
+  assert.equal(check.result.structuredContent.check.status, 'ready');
+  assert.equal(f.checks(), 1);
+  assert.equal(f.calls(), 0);
   const started = await f.tool(first, 'start_ai_task', taskInput('oauth-private-task'));
   const response = await started.json() as { result: { isError?: boolean; structuredContent: { task: { id: string } } } };
   assert.notEqual(response.result.isError, true);

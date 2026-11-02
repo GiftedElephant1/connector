@@ -124,16 +124,20 @@ export class OutboundAI {
     if (!config || !this.configured(provider, config)) throw new ProviderError('Save this agent’s setup first.', 409);
     let check: NonNullable<OutboundProviderConfig['check']>;
     const checkedAt = new Date().toISOString();
-    if (isLocal(provider)) {
-      const result = await this.localCheck(provider, { executable: config.executable });
-      check = { status: result.status === 'ready' || result.status === 'unverified' ? 'ready' : result.available ? 'action_required' : 'unavailable', message: result.message, checkedAt };
-    } else if (provider === 'cursor') {
-      const models = await this.cursor.models({ apiKey: config.apiKey!, model: config.model! });
-      const available = models.some(item => item.id === config.model && item.subscriptionEligible);
-      check = { status: available ? 'ready' : 'action_required', message: available ? 'Cursor accepted the key and lists the selected included model. A task has not been started; account limits still apply.' : 'Choose an available model covered by the Cursor subscription.', checkedAt };
-    } else {
-      validateGrokConfig({ webhookUrl: config.webhookUrl, webhookKey: config.webhookKey });
-      check = { status: 'ready', message: 'Webhook settings are valid in format; the URL and key have not been verified by Grok Bot. Sending a task is the acceptance test and uses your Bot allowance. Results appear in Grok Bot.', checkedAt };
+    try {
+      if (isLocal(provider)) {
+        const result = await this.localCheck(provider, { executable: config.executable });
+        check = { status: result.status === 'ready' || result.status === 'unverified' ? 'ready' : result.available ? 'action_required' : 'unavailable', message: result.message, checkedAt };
+      } else if (provider === 'cursor') {
+        const models = await this.cursor.models({ apiKey: config.apiKey!, model: config.model! });
+        const available = models.some(item => item.id === config.model && item.subscriptionEligible);
+        check = { status: available ? 'ready' : 'action_required', message: available ? 'Cursor accepted the key and lists the selected included model. A task has not been started; account limits still apply.' : 'Choose an available model covered by the Cursor subscription.', checkedAt };
+      } else {
+        validateGrokConfig({ webhookUrl: config.webhookUrl, webhookKey: config.webhookKey });
+        check = { status: 'ready', message: 'Webhook settings are valid in format; the URL and key have not been verified by Grok Bot. Sending a task is the acceptance test and uses your Bot allowance. Results appear in Grok Bot.', checkedAt };
+      }
+    } catch (error) {
+      check = { status: 'action_required', message: error instanceof ProviderError ? error.message : 'The agent’s setup could not be checked. Review its installation and sign-in on the Connector PC.', checkedAt };
     }
     const settings = this.settings();
     if (settings.providers[provider]?.generation === config.generation) {
@@ -141,6 +145,14 @@ export class OutboundAI {
       this.store.writeSetting(SETTING, settings);
     }
     return { provider: this.view(provider) };
+  }
+  async checkForAgent(value: string, principal: string) {
+    this.assertPrincipal(principal);
+    const provider = this.provider(value);
+    if (!this.settings().providers[provider]?.enabled) throw new ProviderError('The owner must enable this outbound AI agent before it can be checked.', 409);
+    const result = await this.check(provider);
+    this.assertPrincipal(principal);
+    return { provider, name: result.provider.name, enabled: result.provider.enabled, check: result.provider.check };
   }
   private assertPrincipal(principal: string) {
     if (principal.startsWith('key:') && !this.settings().allowSharedKey) throw new ProviderError('The owner must enable AI delegation for the shared Connector key in AI connections → Send tasks to AI agents.', 403);
@@ -152,6 +164,7 @@ export class OutboundAI {
       return { provider, name: outboundNames[provider], enabled: !!config?.enabled && allowed, configured: this.configured(provider, config),
         mode: isLocal(provider) ? 'local_text_task' : provider === 'cursor' ? 'cloud_agent' : 'routine_webhook',
         returnsResult: provider !== 'grok', canCancel: provider !== 'grok',
+        ...(config?.check ? { check: config.check } : {}),
         note: provider === 'grok' ? 'Starts the configured routine. Acceptance is not completion; read the result in Grok Bot.' : isLocal(provider) ? 'Uses the official signed-in agent on the owner’s PC. Text tasks only; no Connector keys or platform tools are forwarded.' : 'Starts an isolated no-repository Cursor Cloud Agent using the configured included model. No Connector credentials are forwarded.',
       };
     }) };

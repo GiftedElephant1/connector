@@ -217,8 +217,9 @@ test('native MCP initializes and discovers all supported tools with usable input
   const discovery = await f.rpc('tools/list');
   assert.equal(discovery.status, 200);
   const discovered = await discovery.json() as { result: { tools: { name: string; inputSchema: { type: string; properties: Record<string, unknown> }; annotations: { readOnlyHint: boolean } }[] } };
-  assert.deepEqual(discovered.result.tools.map(tool => tool.name).sort(), ['cancel_ai_task', 'cancel_job', 'get_ai_task', 'list_actions', 'list_ai_agents', 'list_ai_tasks', 'list_connections', 'list_jobs', 'run_action', 'schedule_post', 'start_ai_task']);
+  assert.deepEqual(discovered.result.tools.map(tool => tool.name).sort(), ['cancel_ai_task', 'cancel_job', 'check_ai_agent', 'get_ai_task', 'list_actions', 'list_ai_agents', 'list_ai_tasks', 'list_connections', 'list_jobs', 'run_action', 'schedule_post', 'start_ai_task']);
   assert.equal(discovered.result.tools.find(tool => tool.name === 'get_ai_task')?.annotations.readOnlyHint, true);
+  assert.equal(discovered.result.tools.find(tool => tool.name === 'check_ai_agent')?.annotations.readOnlyHint, true);
   assert.equal(discovered.result.tools.find(tool => tool.name === 'start_ai_task')?.annotations.readOnlyHint, false);
   const run = discovered.result.tools.find(tool => tool.name === 'run_action')!;
   assert.equal(run.inputSchema.type, 'object');

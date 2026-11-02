@@ -5,7 +5,6 @@ import "./outbound-ai.css";
 
 type OutboundData = { allowSharedKey: boolean; providers: OutboundProviderView[]; tasks: AiTask[] };
 type Model = { id: string; name: string; subscriptionEligible: boolean };
-type Submission = { provider: OutboundProvider; prompt: string; confirmed: true; requestId: string };
 const names: Record<OutboundProvider, string> = { claude: "Claude", chatgpt: "ChatGPT", gemini: "Gemini", cursor: "Cursor", grok: "Grok Bot" };
 const localSetup = {
   claude: { executable: "claude", tool: "Claude Code", command: "claude", followup: "In Claude Code, enter /login and sign in with your eligible Claude subscription.", docs: "https://code.claude.com/docs/en/setup" },
@@ -109,18 +108,11 @@ function ProviderSetup({ provider, request, onSaved, onChecked, onAuthError }: {
 }
 
 export function OutboundAi({ request, onAuthError }: { request: ApiRequest; onAuthError?: (error: unknown) => void }) {
-  const id = useId();
   const [data, setData] = useState<OutboundData | null>(null);
   const [selected, setSelected] = useState<OutboundProvider>("claude");
   const [formVersion, setFormVersion] = useState(0);
   const [sharedAccess, setSharedAccess] = useState(false);
   const [accessDirty, setAccessDirty] = useState(false);
-  const [target, setTarget] = useState<OutboundProvider | "">("");
-  const [prompt, setPrompt] = useState("");
-  const [approved, setApproved] = useState(false);
-  const [submission, setSubmission] = useState<Submission | null>(null);
-  const [retry, setRetry] = useState(false);
-  const [abandon, setAbandon] = useState(false);
   const [pendingCancel, setPendingCancel] = useState<AiTask | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -161,7 +153,6 @@ export function OutboundAi({ request, onAuthError }: { request: ApiRequest; onAu
     return () => { current = false; window.clearInterval(interval); };
   }, [activeIds, request]);
   const provider = data?.providers.find(item => item.id === selected);
-  const available = data?.providers.filter(item => item.enabled && item.configured && item.check?.status !== "action_required" && item.check?.status !== "unavailable") || [];
   const addTask = (task: AiTask) => setData(previous => previous ? { ...previous, tasks: [task, ...previous.tasks.filter(item => item.id !== task.id)].slice(0, 100) } : previous);
   async function saveAccess(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError(""); setNotice("");
@@ -172,19 +163,6 @@ export function OutboundAi({ request, onAuthError }: { request: ApiRequest; onAu
       await load();
     } catch (cause) { setError(message(cause)); authRef.current?.(cause); }
     finally { setBusy(false); }
-  }
-  async function send(event?: FormEvent) {
-    event?.preventDefault();
-    if (!submission && (!target || !prompt.trim() || !approved)) return;
-    const pending = submission || { provider: target as OutboundProvider, prompt, confirmed: true as const, requestId: crypto.randomUUID() };
-    setSubmission(pending); setBusy(true); setError(""); setNotice("");
-    try {
-      const result = await request<{ task: AiTask }>("/api/outbound-ai/tasks", { method: "POST", body: JSON.stringify(pending) });
-      addTask(result.task); setSubmission(null); setRetry(false); setPrompt(""); setApproved(false); setAbandon(false);
-      setNotice(result.task.status === "submitted" ? "Task submitted. Read the result in the destination AI app." : "Task accepted. Its status and result appear in AI task history.");
-    } catch (cause) {
-      setRetry(true); setError(`The send request did not return a confirmed result. It may already have been accepted. ${message(cause)} Refresh AI tasks before starting another task; retrying here reuses the same request ID.`); authRef.current?.(cause);
-    } finally { setBusy(false); }
   }
   async function refreshTask(task: AiTask) {
     setBusy(true); setError("");
@@ -206,8 +184,13 @@ export function OutboundAi({ request, onAuthError }: { request: ApiRequest; onAu
   return <section className="setup-panel outbound-ai" aria-label="Send tasks to AI agents">
     <div className="eyebrow">CONNECTOR → YOUR AI AGENTS</div>
     <h2>Send tasks to AI agents</h2>
-    <p className="setup-description">Configure where Connector sends instructions, then review and send a task. The incoming AI connections below let AI apps use Connector; they do not enable task sending back to those apps.</p>
-    <p className="setup-help">Your existing subscriptions and each provider’s supported tools are used where available. Local tasks run on the PC running Connector. These connections create new tasks and do not retrieve existing chat history.</p>
+    <p className="setup-description">Ask Grok Bot or another connected AI to delegate work to an AI destination here. Your AI writes the instructions, sends the task through Connector, checks progress, and brings the result back to your conversation.</p>
+    <ol className="outbound-delegation-steps" aria-label="Set up AI-to-AI delegation">
+      <li><strong>Enable the destination.</strong> Choose the AI that should do the work, save its setup, and check readiness.</li>
+      <li><strong>Authorize your connected AI.</strong> Allow the AI you normally chat with to send tasks using the access settings below.</li>
+      <li><strong>Ask in your usual AI conversation.</strong> For example: “Ask Gemini to review this draft and return its feedback. Do not publish or change anything.”</li>
+    </ol>
+    <p className="setup-help">Give requests in your usual AI conversation. Your connected AI supplies each task; Connector manages access and shows progress and results. Local destinations run on this PC; subscription limits apply. These are new tasks, not access to existing chat history.</p>
     {!data && !error && <p role="status">Loading AI task settings…</p>}
     {data && <>
       <div className="outbound-provider-options" role="group" aria-label="Choose an outbound AI agent">
@@ -216,33 +199,27 @@ export function OutboundAi({ request, onAuthError }: { request: ApiRequest; onAu
       {provider && <ProviderSetup key={`${provider.id}-${formVersion}`} provider={provider} request={request} onAuthError={onAuthError}
         onSaved={async () => { await load(); setFormVersion(value => value + 1); setNotice(`${names[provider.id]} task setup saved. Existing platform connections are preserved.`); }}
         onChecked={checked => setData(previous => previous ? { ...previous, providers: previous.providers.map(item => item.id === checked.id ? checked : item) } : previous)} />}
-      <details className="outbound-agent-access"><summary>Let an incoming AI agent send tasks to other AI agents</summary>
+      <section className="outbound-agent-access" aria-label="Authorize the AI that delegates tasks">
+        <h3>Authorize the AI that delegates tasks</h3>
+        <p>For Grok Bot using your existing general Connector key, enable and save shared-key task access below. Keep the same saved key and connected accounts.</p>
         <p>For an OAuth connection, approve the separate <strong>Send tasks to AI agents</strong> permission in Connector’s sign-in screen. Existing approvals keep their current access; reconnect that AI app to add this permission. Google Workspace profile keys do not gain outbound task access.</p>
         <form onSubmit={saveAccess}>
           <label className="outbound-checkbox"><input type="checkbox" checked={sharedAccess} onChange={event => { setSharedAccess(event.target.checked); setAccessDirty(true); }} disabled={busy} /><span>Allow the shared Connector key to send AI tasks</span></label>
           <p className="setup-help">Off by default. Enabling this lets every client with your general Connector key send instructions to the enabled agents and read tasks available to that credential. This includes Grok Bot using the shared key. It can consume your AI subscription usage; approve only the task access you intend.</p>
           <button className="button button-secondary" type="submit" disabled={busy || !accessDirty}>Save shared-key access</button>
         </form>
-      </details>
-      <form className="outbound-task-form" aria-label="New AI task" onSubmit={send}>
-        <h3>Send a task</h3>
-        <label htmlFor={`${id}-target`}>Send task to</label>
-        <select id={`${id}-target`} value={target} onChange={event => { setTarget(event.target.value as OutboundProvider); setApproved(false); }} disabled={busy || !!submission} required><option value="">Choose an enabled AI agent</option>{available.map(item => <option value={item.id} key={item.id}>{names[item.id]}</option>)}</select>
-        {!available.length && <p className="setup-help">Save and enable an agent’s setup above, then check readiness before sending your first task.</p>}
-        <label htmlFor={`${id}-prompt`}>Task instructions</label>
-        <textarea id={`${id}-prompt`} rows={5} value={prompt} onChange={event => { setPrompt(event.target.value); setApproved(false); }} maxLength={16000} disabled={busy || !!submission} required placeholder="Describe the task and the result you want. Include only information you intend to share with this AI." />
-        <p className="setup-help">The selected agent receives these instructions. Its saved sign-in, permissions, and subscription limits apply. Review the content and destination before sending.</p>
-        <label className="outbound-checkbox"><input type="checkbox" checked={approved} onChange={event => setApproved(event.target.checked)} disabled={busy || !!submission} /><span>I approve sending these instructions to the selected AI agent</span></label>
-        {!retry && <button className="button button-primary" type="submit" disabled={busy || !approved || !prompt.trim() || !available.some(item => item.id === target)}>{busy && submission ? "Sending…" : "Send task"}</button>}
-        {retry && <div className="outbound-retry"><p>The destination and instructions are held unchanged for a safe retry. This does not generate a new task request.</p><button type="button" className="button button-primary" onClick={() => void send()} disabled={busy}>Retry same task request</button><button type="button" className="text-button" onClick={() => setAbandon(true)} disabled={busy}>Discard retry</button>{abandon && <div role="group" aria-label="Confirm discard task retry"><p>Check AI task history and the destination AI app first. The original request may already be running. Starting another request could duplicate it.</p><button type="button" className="button button-secondary" onClick={() => setAbandon(false)}>Keep retry</button><button type="button" className="button button-danger" onClick={() => { setSubmission(null); setRetry(false); setAbandon(false); setPrompt(""); setApproved(false); setError(""); }}>I checked the task history; discard retry</button></div>}</div>}
-      </form>
+        <p className="setup-help">If your AI does not yet know how to delegate, review its setup instructions below. The Grok Bot setup message already includes the delegation tools. Ask it to update its Connector instructions using its existing saved credential.</p>
+        <button className="text-button" onClick={() => document.querySelector<HTMLElement>(".ai-connections")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Review incoming AI connection setup ↓</button>
+        <details className="outbound-tool-help"><summary>How your AI delegates a task</summary><p>Your AI checks enabled destinations with <code>list_ai_agents</code>, sends your approved instructions using <code>start_ai_task</code>, and checks <code>get_ai_task</code> until it can return the result. It reuses the same request ID if a send needs retrying. These calls use the access you authorize above.</p></details>
+      </section>
       <section className="outbound-task-history" aria-label="AI task history">
         <div className="outbound-history-heading"><h3>AI task history</h3><button className="text-button" onClick={() => void load()} disabled={busy}>Refresh AI tasks</button></div>
-        {!data.tasks.length && <p className="setup-help">No tasks have been sent. Readiness checks do not create a task.</p>}
+        {!data.tasks.length && <p className="setup-help">No tasks have been sent. Ask your connected AI to delegate work; its tasks will appear here.</p>}
         {data.tasks.map(task => { const link = taskLink(task.link); return <article className="outbound-task" key={task.id} data-task-id={task.id}>
           <div className="outbound-history-heading"><h4>{names[task.provider]}</h4><span className={`outbound-task-status task-${task.status}`}>{({ running: "Running", succeeded: "Succeeded", failed: "Failed", uncertain: "Result uncertain", cancelled: "Cancelled", submitted: "Submitted" })[task.status]}</span></div>
           <p className="setup-help">Created {new Date(task.createdAt).toLocaleString()} · Task <code>{task.id}</code></p>
-          <details><summary>Task instructions and result</summary><h5>Instructions sent</h5><pre>{task.prompt}</pre>{task.result && <><h5>Result</h5><pre>{task.result}</pre></>}{task.error && <p className="inline-error">{task.error}</p>}</details>
+          <details><summary>Task instructions and result</summary><h5>Task instructions</h5><pre>{task.prompt}</pre>{task.result && <><h5>Result</h5><pre>{task.result}</pre></>}</details>
+          {task.error && <p className="inline-error">{task.error}</p>}
           {task.status === "submitted" && <p className="setup-help">The destination accepted the request. This does not confirm completion; read the result in the AI app.</p>}
           {task.status === "uncertain" && <p className="setup-help">Check the destination before sending another request. The task may have run even though its result could not be confirmed.</p>}
           <div className="outbound-buttons">{task.provider === "cursor" && ["running", "uncertain"].includes(task.status) && <button className="button button-secondary" onClick={() => void refreshTask(task)} disabled={busy}>Refresh task status</button>}{link && <a className="text-link" href={link} target="_blank" rel="noopener noreferrer">Open task in AI app ↗</a>}{task.provider !== "grok" && (task.status === "running" || (task.provider === "cursor" && task.status === "uncertain")) && <button className="button button-secondary" onClick={() => setPendingCancel(task)} disabled={busy}>Cancel task</button>}</div>

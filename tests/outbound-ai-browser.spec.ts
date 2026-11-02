@@ -42,7 +42,6 @@ function taskFixture(overrides: Partial<Task> = {}): Task {
 async function mockOutbound(page: Page, options: {
   providers?: Provider[];
   tasks?: Task[];
-  onTask?: (route: Route, body: Record<string, unknown>) => Promise<void>;
   onReadTask?: (route: Route, task: Task) => Promise<void>;
 } = {}) {
   const state = {
@@ -95,12 +94,7 @@ async function mockOutbound(page: Page, options: {
       }
       return route.fulfill({ json: { provider } });
     }
-    if (path === "/api/outbound-ai/tasks") {
-      if (options.onTask) return options.onTask(route, body);
-      const task = taskFixture({ provider: body.provider as ProviderId, prompt: String(body.prompt) });
-      state.tasks.unshift(task);
-      return route.fulfill({ json: { task } });
-    }
+    expect(path, "The dashboard must never submit an owner-created AI task").not.toBe("/api/outbound-ai/tasks");
     const task = state.tasks.find(item => path === `/api/outbound-ai/tasks/${item.id}/cancel`);
     if (task) {
       task.status = "cancelled";
@@ -126,6 +120,10 @@ async function openOutbound(page: Page) {
   await page.getByRole("button", { name: "AI connections", exact: true }).click();
   const section = page.getByRole("region", { name: "Send tasks to AI agents", exact: true });
   await expect(section).toBeVisible();
+  await expect(section.getByRole("form", { name: "New AI task", exact: true })).toHaveCount(0);
+  await expect(section.getByLabel("Task instructions", { exact: true })).toHaveCount(0);
+  await expect(section.getByRole("button", { name: "Send task", exact: true })).toHaveCount(0);
+  await expect(section.getByText("Optional: test an AI task manually", { exact: true })).toHaveCount(0);
   return section;
 }
 
@@ -135,8 +133,10 @@ test("local outbound setup is disabled until explicitly enabled and checks readi
   for (const name of ["Claude", "ChatGPT", "Gemini", "Cursor", "Grok Bot"]) {
     await expect(section.getByRole("button", { name: `Configure ${name}`, exact: true })).toBeVisible();
   }
-  await section.getByText("Let an incoming AI agent send tasks to other AI agents", { exact: true }).click();
+  await expect(section.getByRole("region", { name: "Authorize the AI that delegates tasks", exact: true })).toBeVisible();
+  await expect(section.getByRole("checkbox", { name: "Allow the shared Connector key to send AI tasks", exact: true })).toBeVisible();
   await expect(section.getByRole("checkbox", { name: "Allow the shared Connector key to send AI tasks", exact: true })).not.toBeChecked();
+  await expect(section.getByLabel("Task instructions", { exact: true })).toHaveCount(0);
   for (const [id, name, executable] of [
     ["claude", "Claude", "C:\\Tools\\Claude\\claude.exe"],
     ["chatgpt", "ChatGPT", "C:\\Tools\\Codex\\codex.exe"],
@@ -210,7 +210,6 @@ test("Cursor offers only subscription models and private credentials stay masked
 test("shared-key access requires its own explicit saved opt-in and does not send tasks", async ({ page }) => {
   const state = await mockOutbound(page);
   const section = await openOutbound(page);
-  await section.getByText("Let an incoming AI agent send tasks to other AI agents", { exact: true }).click();
   const checkbox = section.getByRole("checkbox", { name: "Allow the shared Connector key to send AI tasks", exact: true });
   await expect(checkbox).not.toBeChecked();
   expect(state.allowSharedKey).toBe(false);
@@ -257,41 +256,6 @@ function readyProvider(): Provider[] {
   } : provider);
 }
 
-test("sending requires approval and retrying a lost response reuses the original task request", async ({ page }) => {
-  let attempts = 0;
-  const state = await mockOutbound(page, {
-    providers: readyProvider(),
-    onTask: async (route, body) => {
-      attempts++;
-      if (attempts === 1) return route.abort("failed");
-      const task = taskFixture({ status: "succeeded", provider: body.provider as ProviderId, prompt: String(body.prompt), result: "Task result from the same request." });
-      state.tasks.unshift(task);
-      return route.fulfill({ json: { task } });
-    },
-  });
-  const section = await openOutbound(page);
-  await section.getByLabel("Send task to", { exact: true }).selectOption("claude");
-  await section.getByLabel("Task instructions", { exact: true }).fill("Summarize this note without editing files.");
-  const send = section.getByRole("button", { name: "Send task", exact: true });
-  await expect(send).toBeDisabled();
-  expect(attempts).toBe(0);
-  await section.getByRole("checkbox", { name: "I approve sending these instructions to the selected AI agent", exact: true }).check();
-  await send.click();
-  await expect(section.getByRole("button", { name: "Retry same task request", exact: true })).toBeVisible();
-  expect(attempts).toBe(1);
-  await expect(section.getByLabel("Task instructions", { exact: true })).toBeDisabled();
-  await section.getByRole("button", { name: "Retry same task request", exact: true }).click();
-  await expect(section.getByRole("region", { name: "AI task history", exact: true })).toContainText("Task result from the same request.");
-  const requests = state.writes.filter(item => item.path === "/api/outbound-ai/tasks");
-  expect(requests).toHaveLength(2);
-  expect(requests[0].body).toMatchObject({ provider: "claude", prompt: "Summarize this note without editing files.", confirmed: true });
-  expect(requests[0].body.requestId).toEqual(expect.any(String));
-  expect(String(requests[0].body.requestId).length).toBeGreaterThan(10);
-  expect(requests[1].body).toEqual(requests[0].body);
-  await expect(section.getByLabel("Task instructions", { exact: true })).toHaveValue("");
-  await expect(section.getByRole("checkbox", { name: "I approve sending these instructions to the selected AI agent", exact: true })).not.toBeChecked();
-});
-
 test("running task results refresh automatically and cancellation requires confirmation", async ({ page }) => {
   const running = taskFixture();
   let taskReads = 0;
@@ -334,6 +298,8 @@ test("submitted Grok tasks remain distinct from completed results and outbound f
     await section.getByRole("button", { name: `Configure ${name}`, exact: true }).click();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   }
+  await expect(section.getByRole("form", { name: "New AI task", exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(state.writes).toEqual([]);
   await page.screenshot({ path: "test-results/outbound-ai-mobile.png", fullPage: true });
 });
@@ -364,4 +330,50 @@ test("an uncertain Cursor task can be checked without submitting another task", 
   expect(checks).toBe(1);
   expect(state.writes).toEqual([]);
   expect(state.reads.filter(path => path.startsWith("/api/outbound-ai/tasks/"))).toEqual(["/api/outbound-ai/tasks/cursor-uncertain"]);
+});
+
+test("delegated AI tasks appear through history refresh without an owner submission", async ({ page }) => {
+  const state = await mockOutbound(page, { providers: readyProvider() });
+  const section = await openOutbound(page);
+  await expect(section.getByRole("region", { name: "Authorize the AI that delegates tasks", exact: true })).toBeVisible();
+  await expect(section.getByRole("checkbox", { name: "Allow the shared Connector key to send AI tasks", exact: true })).toBeVisible();
+  await expect(section.getByLabel("Task instructions", { exact: true })).toHaveCount(0);
+  const history = section.getByRole("region", { name: "AI task history", exact: true });
+  await expect(history).toContainText("No tasks have been sent");
+  await page.screenshot({ path: "test-results/outbound-delegation-default.png", fullPage: true });
+  state.tasks.push(taskFixture({
+    id: "delegated-by-grok", status: "succeeded",
+    prompt: "Review the article drafted by my Grok Bot without publishing it.",
+    result: "The delegated review is ready to return to Grok Bot.",
+  }));
+  await section.getByRole("button", { name: "Refresh AI tasks", exact: true }).click();
+  const task = history.locator('[data-task-id="delegated-by-grok"]');
+  await expect(task).toContainText("Succeeded");
+  await task.getByText("Task instructions and result", { exact: true }).click();
+  await expect(task).toContainText("The delegated review is ready to return to Grok Bot.");
+  await expect(section.getByLabel("Task instructions", { exact: true })).toHaveCount(0);
+  expect(state.writes).toEqual([]);
+  expect(state.reads.every(path => path === "/api/outbound-ai")).toBe(true);
+});
+
+test("a delegated task changes from running to failed without any owner task submission", async ({ page }) => {
+  const state = await mockOutbound(page, {
+    providers: readyProvider(), tasks: [taskFixture({ prompt: "Check the draft supplied by Grok Bot without modifying anything." })],
+    onReadTask: async (route, task) => {
+      task.status = "failed";
+      task.error = "Claude needs a fresh subscription sign-in. The task did not complete.";
+      return route.fulfill({ json: { task } });
+    },
+  });
+  const section = await openOutbound(page);
+  const task = section.getByRole("region", { name: "AI task history", exact: true }).locator('[data-task-id="task-one"]');
+  await expect(task.getByText("Running", { exact: true })).toBeVisible();
+  await expect(task.getByText("Failed", { exact: true })).toBeVisible({ timeout: 10000 });
+  await expect(task.getByText("Running", { exact: true })).toHaveCount(0);
+  await task.getByText("Task instructions and result", { exact: true }).click();
+  await expect(task).toContainText("Claude needs a fresh subscription sign-in. The task did not complete.");
+  await expect(task.getByRole("heading", { name: "Task instructions", exact: true })).toBeVisible();
+  await expect(task).not.toContainText("Instructions sent");
+  await expect(section).not.toContainText("Task accepted");
+  expect(state.writes).toEqual([]);
 });

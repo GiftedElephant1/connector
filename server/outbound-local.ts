@@ -5,6 +5,7 @@ import { constants } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { ProviderError } from './provider-types';
+import { checkAntigravitySettings } from './outbound-antigravity-settings';
 
 export type LocalProvider = 'claude' | 'chatgpt' | 'gemini';
 export interface LocalConfig { executable?: string }
@@ -239,61 +240,12 @@ async function authCheck(provider: 'claude' | 'chatgpt', command: Command, env: 
     : signIn(provider);
 }
 
-async function jsonSettings(file: string): Promise<Json | undefined> {
-  try {
-    const info = await lstat(file);
-    if (!info.isFile() || info.size > 256 * 1024) throw new Error('Unsafe settings file');
-    const value: unknown = JSON.parse(await readFile(file, 'utf8'));
-    if (!object(value)) throw new Error('Invalid settings');
-    return value;
-  } catch (error) {
-    if (object(error) && error.code === 'ENOENT') return undefined;
-    throw new ProviderError('Antigravity settings could not be checked safely. Review its configuration before using outbound tasks.');
-  }
-}
-
-async function pathPresent(file: string): Promise<boolean> {
-  try { await lstat(file); return true; } catch (error) { if (object(error) && error.code === 'ENOENT') return false; throw error; }
-}
-
-/** Inspect public customization settings only, never credential/keyring files. */
-async function checkGeminiSettings(env: NodeJS.ProcessEnv): Promise<void> {
-  const home = envValue(env, 'HOME') || envValue(env, 'USERPROFILE') || homedir();
-  const root = path.join(home, '.gemini');
-  const settings = await jsonSettings(path.join(root, 'antigravity-cli', 'settings.json'));
-  if (settings?.modelProvider || settings?.useG1Credits === true) {
-    throw new ProviderError('In Antigravity, select Google account sign-in and turn off Use AI Credits / AI Credit Overages before using subscription tasks.');
-  }
-  if (settings?.statusLine || settings?.title) {
-    throw new ProviderError('Antigravity has a custom startup script. Use an Antigravity profile without custom scripts for Connector’s text tasks.');
-  }
-  const global = path.join(root, 'config');
-  const config = await jsonSettings(path.join(global, 'config.json'));
-  if (object(config?.userSettings) && config.userSettings.enableAdc === true) {
-    throw new ProviderError('Turn off Google Cloud ADC in Antigravity and sign in with your personal Google subscription account.');
-  }
-  for (const filename of ['hooks.json', 'mcp_config.json']) {
-    const value = await jsonSettings(path.join(global, filename));
-    if (value && Object.values(value).some(item => object(item) ? Object.keys(item).length > 0 : Array.isArray(item) ? item.length > 0 : Boolean(item))) {
-      throw new ProviderError('Antigravity has global hooks or MCP servers. Use a clean Antigravity profile without those customizations for Connector’s isolated text tasks.');
-    }
-  }
-  for (const dir of ['plugins', 'skills', 'rules']) {
-    try {
-      if ((await readdir(path.join(global, dir))).length) throw new ProviderError('Antigravity has global plugins, skills, or rules. Use a clean Antigravity profile for Connector’s isolated text tasks.');
-    } catch (error) { if (object(error) && error.code === 'ENOENT') continue; throw error; }
-  }
-  if (await pathPresent(path.join(root, 'GEMINI.md'))) {
-    throw new ProviderError('Antigravity has global instructions. Use a clean Antigravity profile for Connector’s isolated text tasks.');
-  }
-}
-
 export async function checkLocal(provider: LocalProvider, config: LocalConfig): Promise<LocalCheck> {
   const env = localEnvironment();
   const command = await resolveCommand(provider, config, env);
   if (!command) return unavailable(provider);
   if (provider !== 'gemini') return await authCheck(provider, command, env);
-  await checkGeminiSettings(env);
+  await checkAntigravitySettings(env);
   const version = await capture(command, ['--version'], env, { timeoutMs: CHECK_TIMEOUT });
   if (version.code !== 0) return { available: true, authenticated: null, status: 'unsupported', message: 'Antigravity could not report its version. Update its official CLI and try again.' };
   // No official no-model-call auth-status command is documented for agy. Never
@@ -363,11 +315,11 @@ export async function runLocal(provider: LocalProvider, config: LocalConfig, pro
   if (!command) throw new ProviderError(unavailable(provider).message);
   let args: string[];
   if (provider === 'gemini') {
-    await checkGeminiSettings(env);
+    await checkAntigravitySettings(env);
     const name = `connector-text-${randomUUID()}`;
     const dir = path.join(options.cwd, '.agents', 'agents', name);
     await mkdir(dir, { recursive: true, mode: 0o700 });
-    await writeFile(path.join(dir, 'agent.md'), `---\nname: ${name}\ndescription: Answer one text task without tools.\nmainAgent: true\nsubagent: false\ntools: []\nmcpServers: []\nskills: []\nplugins: []\ncommandExecutionPolicy: off\n---\nAnswer the supplied task using only the text provided. Do not claim to have inspected files, used tools, or changed external accounts.\n`, { flag: 'wx', mode: 0o600 });
+    await writeFile(path.join(dir, 'agent.md'), `---\nname: ${name}\ndescription: Answer one text task without tools.\nmainAgent: true\nsubagent: false\ninheritCustomizations: false\ntools: []\nmcpServers: []\nskills: []\nplugins: []\ncommandExecutionPolicy: off\n---\nAnswer the supplied task using only the text provided. Do not claim to have inspected files, used tools, or changed external accounts.\n`, { flag: 'wx', mode: 0o600 });
     args = ['--agent', name, '--mode', 'plan', '--disable-slash-commands', '--print-timeout', '5m', '--output-format', 'stream-json', '--input-format', 'stream-json'];
   } else {
     const check = await authCheck(provider, command, env, options.signal);

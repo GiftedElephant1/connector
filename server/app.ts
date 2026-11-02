@@ -97,7 +97,6 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
     // Media action bodies are parsed only after owner authentication and CSRF
     // checks below. Other owner/login/settings requests keep the small limit.
     if (req.method === 'POST' && /^\/api\/actions\/[^/]+\/[^/]+\/?$/i.test(req.path)) return next();
-    if (req.method === 'POST' && req.path === '/api/outbound-ai/tasks') return next();
     smallJson(req, res, next);
   });
   app.use('/api', (req, _res, next) => {
@@ -130,7 +129,7 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
     next();
   });
   app.get('/api/installation', (_req, res) => res.json(installation));
-  mountOutboundOwner(app, outbound, express.json({ limit: '96kb' }));
+  mountOutboundOwner(app, outbound);
   mountLegalOwner(app, legal);
   mountTikTokVerificationOwner(app, tiktokVerification);
   mountOAuthOwner(app, mcpOAuth, sessionToken);

@@ -1,6 +1,6 @@
 # Send tasks from Connector to AI agents
 
-Open **AI connections → Send tasks to AI agents** to send a prompt to an enabled agent and track the task. This is separate from adding Connector's tools inside an AI app: that connection lets the AI call Connector; this feature lets Connector start work in the AI.
+Open **AI connections → Send tasks to AI agents** to configure destinations, authorize the AI that delegates, and monitor its tasks. Give your request to your connected AI, such as Grok Bot. That AI writes the instructions, sends them through Connector, and retrieves the other agent's answer. Connector has no manual task prompt form.
 
 | Agent | How Connector starts work | Where to read the result |
 | --- | --- | --- |
@@ -25,7 +25,7 @@ These three integrations run the providers' official command-line clients on the
 3. Return to Connector's **AI connections → Send tasks to AI agents** section and open that agent's setup.
 4. Leave the executable path blank for automatic discovery. If Connector cannot find the installed client, enter the full path to the official executable in the setup field; do not paste a shell command or command-line arguments there.
 5. Click **Save outbound setup**, then **Check readiness**. Follow any reported installation or sign-in instruction. A detected executable alone does not prove that an account is signed in or has usage available.
-6. Select **Enable [agent] task sending**, save the setup again, then send a short task as described below. An actual successful task checks the account's access.
+6. Select **Enable [agent] task sending**, save the setup again, then ask your connected AI to delegate a short task as described below. An actual successful task checks the account's access.
 
 Use the official setup for each client:
 
@@ -35,7 +35,7 @@ Use the official setup for each client:
 
 After installing a client, restart Connector so it can discover the new executable. These commands are one-time account setup, not a request to create a model API developer account.
 
-Local tasks use a temporary working folder and a restricted text-task configuration. Connector does not automatically give these subprocesses your projects, platform credentials, Connector key, Google profiles, or other agents' tools. Send the text needed for the task in the prompt. Their responses are generated text; review them before using them to authorize a platform write.
+Local tasks use a temporary working folder and a restricted text-task configuration. Connector does not automatically give these subprocesses your projects, platform credentials, Connector key, Google profiles, or other agents' tools. The delegating AI includes the text needed for the task in its generated prompt. Their responses are generated text; review them before using them to authorize a platform write.
 
 The **Gemini website/mobile connection** in the incoming AI cards still works as documented in the [AI connection guide](ai-connections.md#gemini-website-and-mobile-app). Sending an outbound Gemini task here uses Antigravity CLI, a separate product route with its own account eligibility. It does not insert a conversation into the Gemini website or mobile app.
 
@@ -46,7 +46,7 @@ The **Gemini website/mobile connection** in the incoming AI cards still works as
 3. In Connector, open **AI connections → Send tasks to AI agents** and click **Configure Cursor**. Paste the key into the masked Cursor API-key field.
 4. Click **Load subscription models** and choose a **Cursor subscription model** from the eligible options. Connector does not choose an arbitrary paid third-party model or silently switch models for you.
 5. Click **Save outbound setup**, then **Check readiness**. Select **Enable Cursor task sending** and save again. The check reads model availability; it does not start an agent or guarantee that your remaining plan allowance is sufficient.
-6. Send a small task and refresh its status to read the result.
+6. Ask your connected AI to delegate a small task to Cursor and return its result.
 
 Cursor tasks use a cloud agent without an attached repository. Connector does not forward its platform credentials or automatically install its MCP tools into that agent. Cursor's cloud computer can still have capabilities of its own; approve the exact task you want it to perform. Inspect Cursor's usage settings before enabling extra spending. Selecting an included model does not make usage unlimited or override the account's billing policy.
 
@@ -63,7 +63,7 @@ This uses Grok Bot's documented [routine webhook](https://docs.x.ai/grok-bot/ski
 4. Click **POST to** to copy the exact webhook URL. In Connector, click **Configure Grok Bot** and paste it into the webhook URL field.
 5. Return to the routine, click **key**, and paste the copied value into Connector's masked webhook-key field. Copy the key itself, not the full **header** value. This secret belongs to the routine; it is not your Grok password, Connector API key, or xAI developer API key.
 6. Select **Enable Grok Bot task sending** and click **Save outbound setup**. The settings check validates the address and key format without starting a run. A real task is the acceptance test and consumes Bot usage.
-7. Send a small task from Connector. When Connector shows **Submitted**, open the Bot's conversation and find the reply with the matching task ID.
+7. Have your connected AI delegate a small task to this routine. When Connector shows **Submitted**, open the destination Bot's conversation and find the reply with the matching task ID.
 
 Connector sends one HTTP POST with `Authorization: Bearer <routine-key>` and a JSON body containing `{ "taskId": "...", "prompt": "..." }`. The JSON field names are this app's convention; the routine instruction tells the Bot how to use them. HTTP **200** means the routine accepted the request and started, not that it finished. Connector does not fetch the Bot's final reply or pretend that acknowledgement is an answer.
 
@@ -71,13 +71,23 @@ Use the URL shown by your own routine. Connector permits public HTTPS destinatio
 
 Grok Bot's webhook has no documented cancellation operation. Manage an accepted run inside Grok Bot. Stopping Connector, revoking an AI grant, disabling this outbound setup, or losing the network connection does not stop a routine that Grok Bot already received. Each routine run spends account usage; review its schedule, triggers, and on-demand settings if usage is higher than expected.
 
-## Send a task and read its status
+## Let another AI delegate tasks
 
-1. Open **AI connections → Send tasks to AI agents**.
-2. In **New AI task**, choose a configured, enabled agent under **Send task to**.
-3. Enter a clear prompt under **Task instructions**, up to 16,000 characters. For a first test, use: **“Reply with one sentence confirming you received this text task. Do not use tools or change anything.”**
-4. Review the selected agent and exact prompt. Confirm that you want to start this task and use that account's allowance, then click **Send task**.
-5. Click **Refresh AI tasks** until it finishes or reports an issue. Open its task details to read the result. For Grok Bot, **Submitted** is the final acknowledgement shown here; read its answer in the Bot conversation.
+Starting work in another AI can consume usage and share the prompt with that provider. Outbound delegation is an additional permission; existing incoming AI connections do not gain it automatically.
+
+1. Enable and verify the outbound agents you want to offer.
+2. For an incoming OAuth AI connection, authorize a new connection and check **Send tasks to AI agents** on Connector's approval screen. Leave this option unchecked for clients that should only use their existing platform or Google tools. Review the other access options before approving.
+3. For a client using the shared general Connector key, under **Authorize the AI that delegates tasks**, check **Allow the shared Connector key to send AI tasks**, and click **Save shared-key access** only if every holder of that key should receive this capability. Workspace profile keys do not grant outbound delegation.
+4. Ask the calling AI to refresh its Connector tools and delegate the work you want. It chooses an authorized destination, writes the instructions, starts the task, and retrieves the result. No prompt needs to be entered in Connector.
+
+The calling AI receives a task receipt and can check that task later. Its task history is isolated from other incoming AI connections; the owner can see all tasks in the dashboard. Existing grants, Google account/app restrictions, and platform credentials remain unchanged. Disabling delegation blocks future authorized access; cancel already-running tasks separately where supported.
+
+## Monitor delegated tasks
+
+1. Give the task to the connected AI that should coordinate the work. For example, ask Grok Bot to have Gemini review a draft and bring back its recommendations.
+2. That AI discovers the available agents, checks the destination, writes the task instructions within your authorized scope, and submits through Connector.
+3. The AI reads the task status and returns the result in your conversation. You can also open **AI task history** in Connector to monitor progress, inspect errors, or cancel supported tasks.
+4. For Grok Bot routines, **Submitted** is the acknowledgement shown here; read the answer in the destination Bot conversation.
 
 | Task state | Meaning |
 | --- | --- |
@@ -90,24 +100,14 @@ Grok Bot's webhook has no documented cancellation operation. Manage an accepted 
 
 Where cancellation is supported, click **Cancel task**, then **Confirm cancel task**. Cancellation is best effort and cannot undo completed work. A timeout or crash can occur after a provider accepted a task; Connector does not automatically resubmit it. The task ID identifies the saved receipt, while callers' request IDs prevent an identical transport retry from starting the task twice.
 
-## Let another AI delegate tasks
-
-Starting work in another AI can consume usage and share the prompt with that provider. Outbound delegation is an additional permission; existing incoming AI connections do not gain it automatically.
-
-1. Enable and verify the outbound agents you want to offer.
-2. For an incoming OAuth AI connection, authorize a new connection and check **Send tasks to AI agents** on Connector's approval screen. Leave this option unchecked for clients that should only use their existing platform or Google tools. Review the other access options before approving.
-3. For a client using the shared general Connector key, expand **Let an incoming AI agent send tasks to other AI agents**, check **Allow the shared Connector key to send AI tasks**, and click **Save shared-key access** only if every holder of that key should receive this capability. Workspace profile keys do not grant outbound delegation.
-4. Ask the calling AI to list available agents before choosing one. Approve the exact destination agent and task before it starts work.
-
-The calling AI receives a task receipt and can check that task later. Its task history is isolated from other incoming AI connections; the owner can see all tasks in the dashboard. Existing grants, Google account/app restrictions, and platform credentials remain unchanged. Disabling delegation blocks future authorized access; cancel already-running tasks separately where supported.
-
 ## Troubleshooting
 
 | What you see | What to check |
 | --- | --- |
 | A local client is unavailable | Install the current official client under the Windows user running Connector, restart Connector, or enter its full executable path. The field accepts an executable path, not an installer or shell command. |
 | Claude or Codex needs sign-in | Complete the official client's subscription sign-in. An API-key login is not accepted for this route. Website sign-in alone does not sign in the local client. |
-| Antigravity is installed but sign-in is unverified | Its readiness check does not spend model usage to test authentication. Run `agy` once for account sign-in, then approve a small task to test actual access. |
+| Antigravity names a configuration file in an error | Connector 0.9.24 accepts UTF-8 BOM and the comments/trailing commas Antigravity supports in MCP configuration, including version 1.4.12. A remaining error identifies the safe file location and whether the issue is access, encoding, malformed data, size, or a linked file. Follow that specific message; do not share the file's contents or reset your sign-in. Connector never rewrites Antigravity settings. |
+| Antigravity is installed but sign-in is unverified | Its readiness check does not spend model usage to test authentication. Run `agy` once for account sign-in, then have the delegating AI check readiness and send an authorized small task to test actual access. |
 | Antigravity reports customizations or a billing mode it cannot use | The runner rejects model API/ADC mode, enabled AI Credit Overages, and global hooks, MCP servers, plugins, skills, rules, startup scripts, or instructions that could change the isolated task. Review the named setting in Antigravity and use a configuration without those customizations. Connector does not delete them or weaken its restrictions automatically. |
 | A local client rejects a command option | Update the official client. Connector requires its supported isolation controls and does not retry with a weaker configuration. |
 | Cursor offers no eligible models | Check the account, subscription, and returned model list. Connector does not fall back to an unlisted or separately billed model. |

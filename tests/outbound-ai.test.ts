@@ -28,6 +28,30 @@ async function finished(ai: OutboundAI, id: string, principal = 'owner'): Promis
 }
 const status = (code: number) => (error: unknown) => error instanceof ProviderError && error.status === code;
 
+test('readiness failures replace stale success and expose only safe diagnostics to the delegating AI', async t => {
+  let fail = false;
+  const {ai} = fixture(t, {localCheck: async () => {
+    if (fail) throw new ProviderError('Antigravity configuration (~/.gemini/config/config.json) contains malformed JSON.');
+    return {available: true, authenticated: null, status: 'unverified', message: 'Installed; sign-in has not been checked.'};
+  }});
+  ai.configure('gemini', {enabled: true});
+  assert.equal((await ai.check('gemini')).provider.check?.status, 'ready');
+  fail = true;
+  const checked = await ai.checkForAgent('gemini', 'oauth:approved-source');
+  assert.equal(checked.check?.status, 'action_required');
+  assert.match(checked.check?.message || '', /config\/config.json/);
+  assert.equal(ai.agents('oauth:approved-source').agents.find(agent => agent.provider === 'gemini')?.check?.status, 'action_required');
+  assert.equal('executable' in checked, false);
+  assert.equal(ai.listTasks('owner').length, 0, 'checking readiness must not create a task');
+});
+
+test('unexpected readiness failures never expose provider output or private configuration text', async t => {
+  const {ai} = fixture(t, {localCheck: async () => {throw new Error('private-settings-content');}});
+  const result = await ai.check('claude');
+  assert.equal(result.provider.check?.status, 'action_required');
+  assert.ok(!JSON.stringify(result).includes('private-settings-content'));
+});
+
 test('outbound task retries are idempotent before and after completion, with strict confirmation and validation', async t => {
   let calls = 0;
   const {ai} = fixture(t, { localRun: async () => { calls++; return {result: 'Done'}; } });
