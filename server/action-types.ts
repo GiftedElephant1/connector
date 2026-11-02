@@ -18,7 +18,7 @@ export interface ActionField {
 export interface ActionDefinition {
   id: string;
   label: string;
-  group: 'publishing' | 'inbox' | 'analytics' | 'advertising';
+  group: 'publishing' | 'inbox' | 'analytics' | 'advertising' | 'ai';
   kind: 'read' | 'write';
   description: string;
   fields: ActionField[];

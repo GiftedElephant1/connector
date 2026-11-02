@@ -368,3 +368,81 @@ test("shared AI key reset explains every affected client and hides the previous 
   await expect(page.getByLabel("Connector API key", { exact: true })).toHaveValue("new-shared-key");
   expect(writes).toEqual([{ confirmed: true }]);
 });
+
+test("existing OAuth delegation permissions change only the explicitly confirmed grant without reconnecting accounts", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  const first = {
+    id: "grant-existing-work", clientName: "My existing AI", createdAt: "2026-10-14T00:00:00.000Z",
+    redirectUri: "https://first-ai.example/" + "return-path-".repeat(12),
+    platforms: true, workspaceProfileId: "profile-work", workspaceProfileName: "Work assistant", outbound: false,
+  };
+  const other = {
+    id: "grant-existing-personal", clientName: "My existing AI", createdAt: "2026-10-15T00:00:00.000Z",
+    redirectUri: "https://other-ai.example/callback", platforms: false,
+    workspaceProfileId: "profile-personal", workspaceProfileName: "Personal assistant", outbound: true,
+  };
+  const firstBefore = structuredClone(first);
+  const otherBefore = structuredClone(other);
+  const requests: { method: string; path: string }[] = [];
+  const writes: unknown[] = [];
+  await page.route("**/api/ai/connectors", route => route.fulfill({ json: { url, grants: [first, other], clients: [] } }));
+  await page.route("**/api/ai/connectors/*/outbound", route => {
+    expect(new URL(route.request().url()).pathname).toBe(`/api/ai/connectors/${first.id}/outbound`);
+    expect(route.request().method()).toBe("PUT");
+    expect(route.request().headers()["x-connector-request"]).toBe("1");
+    const body = route.request().postDataJSON() as { enabled: boolean; confirmed: boolean };
+    expect(body.confirmed).toBe(true);
+    writes.push(body);
+    first.outbound = body.enabled;
+    return route.fulfill({ json: { grant: first } });
+  });
+  await login(page);
+  page.on("request", request => requests.push({ method: request.method(), path: new URL(request.url()).pathname }));
+  await page.getByRole("button", { name: "AI connections", exact: true }).click();
+  const firstCard = page.locator(".ai-grants .ai-grant").filter({ hasText: first.redirectUri });
+  const otherCard = page.locator(".ai-grants .ai-grant").filter({ hasText: other.redirectUri });
+  await expect(firstCard).toContainText("AI task sending disabled");
+  await expect(otherCard).toContainText("AI task sending enabled");
+  const otherCardBefore = await otherCard.innerText();
+  await firstCard.getByRole("button", { name: "Enable AI delegation for My existing AI", exact: true }).click();
+  const confirm = page.getByRole("group", { name: "Confirm AI delegation access", exact: true });
+  await expect(confirm).toContainText(first.id);
+  await expect(confirm).toContainText(first.redirectUri);
+  await expect(confirm).not.toContainText(other.id);
+  await expect(confirm).not.toContainText(other.redirectUri);
+  await expect(confirm).toContainText(/subscription/i);
+  await expect(confirm).toContainText(/Google/);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(writes).toEqual([]);
+  await confirm.getByRole("button", { name: "Keep current access", exact: true }).click();
+  await expect(confirm).toHaveCount(0);
+  expect(writes).toEqual([]);
+  await expect(firstCard.getByRole("button", { name: "Enable AI delegation for My existing AI", exact: true })).toBeVisible();
+  await firstCard.getByRole("button", { name: "Enable AI delegation for My existing AI", exact: true }).click();
+  await confirm.getByRole("button", { name: "Confirm enable AI delegation", exact: true }).click();
+  await expect(firstCard.getByRole("button", { name: "Disable AI delegation for My existing AI", exact: true })).toBeVisible();
+  await expect(firstCard).toContainText("Standard platform tools enabled");
+  await expect(firstCard).toContainText("Google profile: Work assistant");
+  await expect(firstCard).toContainText("AI task sending enabled");
+  expect(writes).toEqual([{ enabled: true, confirmed: true }]);
+  expect(first).toEqual({ ...firstBefore, outbound: true });
+  expect(other).toEqual(otherBefore);
+  expect(await otherCard.innerText()).toBe(otherCardBefore);
+  await firstCard.getByRole("button", { name: "Disable AI delegation for My existing AI", exact: true }).click();
+  await expect(confirm).toContainText(first.id);
+  await expect(confirm).toContainText(first.redirectUri);
+  expect(writes).toHaveLength(1);
+  await confirm.getByRole("button", { name: "Confirm disable AI delegation", exact: true }).click();
+  await expect(firstCard.getByRole("button", { name: "Enable AI delegation for My existing AI", exact: true })).toBeVisible();
+  await expect(firstCard).toContainText("AI task sending disabled");
+  expect(writes).toEqual([{ enabled: true, confirmed: true }, { enabled: false, confirmed: true }]);
+  expect(first).toEqual(firstBefore);
+  expect(other).toEqual(otherBefore);
+  expect(await otherCard.innerText()).toBe(otherCardBefore);
+  await expect(page.locator(".ai-grants .ai-grant")).toHaveCount(2);
+  expect(requests.filter(request => !["GET", "HEAD", "OPTIONS"].includes(request.method))).toEqual([
+    { method: "PUT", path: `/api/ai/connectors/${first.id}/outbound` },
+    { method: "PUT", path: `/api/ai/connectors/${first.id}/outbound` },
+  ]);
+  expect(requests.filter(request => /pipeline-key|credentials|\/reset|\/api\/connections\//.test(request.path))).toEqual([]);
+});

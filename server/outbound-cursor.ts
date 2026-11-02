@@ -17,6 +17,7 @@ export interface CursorAdapterOptions { fetch?: typeof fetch; timeoutMs?: number
 
 const ORIGIN = 'https://api.cursor.com';
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+const MAX_ERROR_BYTES = 32 * 1024;
 const MAX_RESULT_CHARACTERS = 200_000;
 const AGENT_ID = /^bc-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const RUN_ID = /^run-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -30,7 +31,7 @@ const SUBSCRIPTION_MODELS = new Set([
 ]);
 
 type JsonObject = Record<string, unknown>;
-type Reply = { kind: 'ok'; body: JsonObject } | { kind: 'http'; status: number } | { kind: 'unavailable' };
+type Reply = { kind: 'ok'; body: JsonObject } | { kind: 'http'; status: number; code?: string } | { kind: 'unavailable' };
 interface Reference { agentId: string; runId?: string }
 const object = (value: unknown): value is JsonObject => !!value && typeof value === 'object' && !Array.isArray(value);
 const text = (value: unknown): value is string => typeof value === 'string';
@@ -57,7 +58,27 @@ function clean(value: string, key: string, limit: number): string {
   return value.replaceAll(key, '[redacted]').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').slice(0, limit);
 }
 
-function httpMessage(status: number): string {
+// Only documented codes select our own text. Upstream messages, links, and
+// identifiers can contain private details and must never reach task/UI output.
+const ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  plan_required: 'Cursor reports that this account needs a plan with Cloud Agents. Check that the key belongs to your subscribed account.',
+  role_forbidden: 'Cursor reports that this account is not permitted to use this operation. Review its account or team permissions.',
+  feature_unavailable: 'Cursor reports that this API feature is not enabled for this account.',
+  key_not_supported: 'Cursor reports that this API key type is not supported for this operation. Review the key’s Cloud Agents access in your dashboard.',
+  integration_not_connected: 'Cursor reports that a required account integration is not connected. Review Cloud Agents setup in your dashboard.',
+  usage_limit_exceeded: 'Cursor reports that the account’s usage limit has been reached. Check its remaining subscription usage and limits.',
+  rate_limit_exceeded: 'Cursor rate-limited the request. Wait before trying again.',
+  unauthorized: 'Cursor rejected this API key. Save a valid Cursor user API key.',
+  api_key_not_found: 'Cursor rejected this API key. Save a valid Cursor user API key.',
+};
+
+function errorCode(body: JsonObject): string | undefined {
+  const code = object(body.error) ? body.error.code : undefined;
+  return typeof code === 'string' && Object.hasOwn(ERROR_MESSAGES, code) ? code : undefined;
+}
+
+function httpMessage(status: number, code?: string): string {
+  if (code && Object.hasOwn(ERROR_MESSAGES, code)) return ERROR_MESSAGES[code];
   if (status === 401) return 'Cursor rejected this API key. Save a valid Cursor user API key.';
   if (status === 403) return 'Cursor denied access. Check the API key permissions and the account’s Cloud Agents eligibility.';
   if (status === 402) return 'Cursor requires available usage or billing authorization. Check your subscription limits before retrying.';
@@ -133,12 +154,13 @@ export class CursorOutboundAdapter {
         return value;
       });
       response = await abortable(pending, controller.signal);
-      if (!response.ok) {
+      if (response.status >= 300 && response.status < 400) {
         void response.body?.cancel().catch(() => {});
         return { kind: 'http', status: response.status };
       }
+      const byteLimit = response.ok ? MAX_RESPONSE_BYTES : MAX_ERROR_BYTES;
       const length = response.headers.get('content-length');
-      if (length && /^\d+$/.test(length) && Number(length) > MAX_RESPONSE_BYTES) throw new Error('Response too large');
+      if (length && /^\d+$/.test(length) && Number(length) > byteLimit) throw new Error('Response too large');
       if (!response.body) throw new Error('Empty response');
       reader = response.body.getReader();
       const chunks: Uint8Array[] = [];
@@ -147,16 +169,20 @@ export class CursorOutboundAdapter {
         const part = await abortable(reader.read(), controller.signal);
         if (part.done) break;
         size += part.value.byteLength;
-        if (size > MAX_RESPONSE_BYTES) throw new Error('Response too large');
+        if (size > byteLimit) throw new Error('Response too large');
         chunks.push(part.value);
       }
       const body: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       if (!object(body)) throw new Error('Invalid response');
+      if (!response.ok) return { kind: 'http', status: response.status, code: errorCode(body) };
       return { kind: 'ok', body };
     } catch {
       controller.abort();
       if (reader) void reader.cancel().catch(() => {});
       else void response?.body?.cancel().catch(() => {});
+      // A malformed, oversized, or stalled error body must not hide an HTTP
+      // refusal we already received, or turn a definite refusal into a retry.
+      if (response && !response.ok) return { kind: 'http', status: response.status };
       return { kind: 'unavailable' };
     } finally {
       clearTimeout(timer);
@@ -168,7 +194,12 @@ export class CursorOutboundAdapter {
   async models(config: CursorConfig, signal?: AbortSignal): Promise<CursorModel[]> {
     const key = configKey(config);
     const response = await this.request(config, '/v1/models', 'GET', undefined, signal);
-    if (response.kind === 'http') throw new ProviderError(httpMessage(response.status), response.status === 401 || response.status === 403 ? 400 : 502);
+    if (response.kind === 'http') {
+      const message = response.status === 403
+        ? `Cursor denied access to its model list (HTTP 403). No task was sent. ${response.code ? httpMessage(response.status, response.code) + ' ' : ''}Open Cloud Agents in the same dashboard account and resolve any setup or access requirement, then reload subscription models.`
+        : httpMessage(response.status, response.code);
+      throw new ProviderError(message, response.status === 401 || response.status === 403 ? 400 : 502);
+    }
     if (response.kind !== 'ok' || !Array.isArray(response.body.items) || response.body.items.length > 500) {
       throw new ProviderError('Cursor’s available models could not be verified. Try refreshing the model list.', 502);
     }
@@ -195,7 +226,7 @@ export class CursorOutboundAdapter {
       agentId: ref.agentId, prompt: { text: prompt }, model: { id: config.model },
     }, signal);
     if (response.kind === 'http' && response.status >= 400 && response.status < 500 && ![408, 409].includes(response.status)) {
-      return { status: 'failed', error: httpMessage(response.status) };
+      return { status: 'failed', error: httpMessage(response.status, response.code) };
     }
     if (response.kind !== 'ok') return uncertain(ref, 'Cursor may have accepted this task, but its response was not confirmed. Check its status before starting another task.');
     const { agent, run } = response.body;

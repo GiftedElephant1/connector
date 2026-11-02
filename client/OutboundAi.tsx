@@ -202,7 +202,7 @@ export function OutboundAi({ request, onAuthError }: { request: ApiRequest; onAu
       <section className="outbound-agent-access" aria-label="Authorize the AI that delegates tasks">
         <h3>Authorize the AI that delegates tasks</h3>
         <p>For Grok Bot using your existing general Connector key, enable and save shared-key task access below. Keep the same saved key and connected accounts.</p>
-        <p>For an OAuth connection, approve the separate <strong>Send tasks to AI agents</strong> permission in Connector’s sign-in screen. Existing approvals keep their current access; reconnect that AI app to add this permission. Google Workspace profile keys do not gain outbound task access.</p>
+        <p>For an OAuth connection, use <strong>Enable AI delegation</strong> on its existing approval under <strong>Approved AI connections</strong> below, then confirm the change. You can also select <strong>Send tasks to AI agents</strong> during initial sign-in. The shared-key switch does not change OAuth approvals, and Google Workspace profile keys do not gain outbound task access.</p>
         <form onSubmit={saveAccess}>
           <label className="outbound-checkbox"><input type="checkbox" checked={sharedAccess} onChange={event => { setSharedAccess(event.target.checked); setAccessDirty(true); }} disabled={busy} /><span>Allow the shared Connector key to send AI tasks</span></label>
           <p className="setup-help">Off by default. Enabling this lets every client with your general Connector key send instructions to the enabled agents and read tasks available to that credential. This includes Grok Bot using the shared key. It can consume your AI subscription usage; approve only the task access you intend.</p>

@@ -298,6 +298,19 @@ export class McpOAuth {
     state.clients = state.clients.filter(item => item.id !== id);
     this.save(state);
   }
+  /** The owner may change only this grant's delegation access, without replacing its tokens. */
+  setOutbound(id: string, enabled: unknown) {
+    if (typeof enabled !== 'boolean') throw new ProviderError('Choose whether this AI connection may delegate tasks.');
+    const state = this.state();
+    const grant = this.liveGrant(state, id);
+    if (!grant) throw new ProviderError('This AI connection expired or was revoked. Refresh AI connections before changing its access.', 404);
+    grant.outbound = enabled;
+    // An outbound-only grant can temporarily have no tools. Keeping its existing
+    // authorization permits an explicit owner re-enable without another login;
+    // authenticate() always returns the current permissions, never token claims.
+    this.save(state);
+    return { id: grant.id, outbound: grant.outbound };
+  }
   disconnect(id: string) {
     const state = this.state(); const grant = state.grants.find(item => item.id === id);
     if (!grant) throw new ProviderError('This AI connection does not exist.', 404);
@@ -331,6 +344,16 @@ export function mountOAuthPublic(app: express.Express, oauth: McpOAuth) {
 export function mountOAuthOwner(app: express.Express, oauth: McpOAuth, sessionToken: (request: express.Request) => string) {
   app.get('/api/ai/connectors', (_req, res) => res.json(oauth.connections()));
   app.delete('/api/ai/connectors/:id', (req, res) => { oauth.disconnect(String(req.params.id)); res.json({ ok: true }); });
+  app.put('/api/ai/connectors/:id/outbound', (req, res) => {
+    const body: unknown = req.body;
+    if (!body || typeof body !== 'object' || Array.isArray(body) ||
+        !('enabled' in body) || typeof body.enabled !== 'boolean' ||
+        !('confirmed' in body) || body.confirmed !== true ||
+        Object.keys(body).some(name => !['enabled', 'confirmed'].includes(name))) {
+      throw new ProviderError('Confirm the delegation access change with enabled=true or enabled=false.');
+    }
+    res.json(oauth.setOutbound(String(req.params.id), body.enabled));
+  });
   app.get('/api/ai/clients/:id/reset', (req, res) => { res.json(oauth.resetPreview(String(req.params.id))); });
   app.post('/api/ai/clients/:id/reset', (req, res) => { oauth.resetClient(String(req.params.id), req.body?.confirmed); res.json({ ok: true }); });
   app.get('/api/ai/authorize/:id', (req, res) => { res.json(oauth.consent(String(req.params.id), sessionToken(req))); });

@@ -114,7 +114,9 @@ Refresh `list_workspace_actions` after Connector updates before reporting a miss
 
 Grok Bot's documented plugin flow is **Connect apps → Add → browser authentication**, then type **@** in chat to attach an installed connector. Its current documentation also supports adding an external MCP server by URL or command. Use Connector's `/mcp` URL and section 3 below when configuring compatible Streamable HTTP MCP with OAuth. The guided HTTPS API route remains available. This project does not claim a marketplace listing or a live test with your Bot account.
 
-These instructions let an AI app call Connector. To let Grok Bot or another authorized client send work to Claude, ChatGPT, Gemini, Cursor, or a Grok Bot routine, configure the separate [outbound AI integrations](outbound-ai.md). Existing OAuth approvals do not receive delegation permission automatically.
+These instructions let an AI app call Connector. To let Grok Bot or another authorized client send work to Claude, ChatGPT, Gemini, Cursor, or a Grok Bot routine, configure the separate [outbound AI integrations](outbound-ai.md). For Grok Bot using the existing general Connector key, enable and save shared-key delegation access; no Grok entry under **Approved AI connections** is expected. Existing OAuth approvals need their own explicit **Enable AI delegation** confirmation in that list. Neither route requires resetting a working Connector key or disconnecting platform accounts.
+
+After an update, have the Bot refresh its live connection and action lists. Outbound destinations now appear alongside platform accounts in `connections`; `list_actions` for `claude` returns the Claude delegation actions. `connectorVersion` and `authentication` identify the running server and whether the Bot is using a key or OAuth. An incoming Claude approval is not evidence that the outbound Claude destination is configured or that Grok has permission to use it.
 
 Grok Bot can continue cloud work with its app closed, but this Connector installation remains on your PC. Keep that PC awake, online, and running Connector with public access on while the Bot needs it. The browser and Connector window may remain closed. The optional xAI API client below is a separate developer tool and is not part of this setup.
 
@@ -124,10 +126,13 @@ Grok Bot can continue cloud work with its app closed, but this Connector install
 2. Enter your **Connector workspace password** when asked. This is the password you chose when setting up Connector, not your AI account password.
 3. Check **Standard platform tools** if this AI should use your social, advertising, communications, website, and Obsidian connections. This permits all standard platform connections, including ones you add later; it is not an individual-platform selector. Leave it unchecked for a Google-only agent.
 4. Under **Google Workspace agent profile**, choose the profile you created for this AI, or leave **No Google Workspace access** selected. Review the account email addresses, apps, and default account shown. Selecting a profile does not give access to other Google accounts or apps.
-5. Select at least one access option, then click **Approve selected access**. To stop without granting access, click **Deny access**.
-6. The browser returns to the AI app. Finish any confirmation shown there. Connector's **Approved AI connections** list now records the grant.
+5. Check **Send tasks to AI agents** only if this connection should delegate your authorized work to the outbound AI destinations enabled in Connector. This is separate from standard platform and Google access and can consume the destination's subscription usage.
+6. Select at least one access option, then click **Approve selected access**. To stop without granting access, click **Deny access**.
+7. The browser returns to the AI app. Finish any confirmation shown there. Connector's **Approved AI connections** list now records the grant.
 
 One OAuth connection can include standard platforms and a selected Google Workspace profile. Create different profiles for different AI agents when they should use different Google accounts or apps. Profile permission edits take effect on subsequent requests without signing the Google accounts in again.
+
+To change delegation for a live OAuth connection, use **Enable AI delegation** or **Disable AI delegation** on its entry under **Approved AI connections**. Review the connection details and confirm the change. This preserves the grant's other access and current tokens; it does not require a new sign-in. Disabling delegation blocks further task access but does not stop tasks already running. Cancel supported tasks separately in **AI task history**.
 
 ## 4. Check that it works
 

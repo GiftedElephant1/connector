@@ -81,6 +81,69 @@ test('Cursor does not forward raw provider error bodies or credentials', async (
   assert.deepEqual(await g.adapter.start(config, 'Task'), { status: 'failed', error: 'Cursor denied access. Check the API key permissions and the account’s Cloud Agents eligibility.' });
 });
 
+test('Cursor explains documented model-list denials without forwarding private provider details or sending a task', async () => {
+  for (const [code, explanation] of [
+    ['plan_required', /key belongs to your subscribed account/],
+    ['role_forbidden', /account or team permissions/],
+    ['feature_unavailable', /feature is not enabled/],
+    ['key_not_supported', /API key type is not supported/],
+    ['integration_not_connected', /required account integration is not connected/],
+    ['usage_limit_exceeded', /usage limit has been reached/],
+  ] as const) {
+    const f = fixture(() => json({ error: { code, message: `${config.apiKey}: PRIVATE_UPSTREAM_DIAGNOSTIC`,
+      helpUrl: `https://private.example/${config.apiKey}`, provider: 'PRIVATE_PROVIDER' } }, 403));
+    await assert.rejects(f.adapter.start(config, 'Task'), error => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /model list \(HTTP 403\)\. No task was sent/);
+      assert.match(error.message, explanation);
+      assert.match(error.message, /Cloud Agents in the same dashboard account/);
+      assert.doesNotMatch(error.message, /PRIVATE_|private\.example|cursor-private-test/);
+      return true;
+    });
+    assert.deepEqual(f.calls.map(call => [call.method, call.url.pathname]), [['GET', '/v1/models']]);
+  }
+});
+
+test('Cursor retains an actionable HTTP denial for unknown or malformed error bodies', async () => {
+  for (const body of [
+    JSON.stringify({ error: { code: config.apiKey, message: 'PRIVATE_UPSTREAM_DIAGNOSTIC' } }),
+    JSON.stringify({ error: { code: 'toString' } }),
+    JSON.stringify({ code: 'plan_required', message: 'PRIVATE_UPSTREAM_DIAGNOSTIC' }),
+    JSON.stringify({ error: { code: ['plan_required'] } }),
+    '<html>PRIVATE_UPSTREAM_DIAGNOSTIC</html>',
+    '',
+  ]) {
+    const f = fixture(() => new Response(body, { status: 403 }));
+    await assert.rejects(f.adapter.models(config), error => {
+      assert.ok(error instanceof Error);
+      assert.equal(error.message, 'Cursor denied access to its model list (HTTP 403). No task was sent. Open Cloud Agents in the same dashboard account and resolve any setup or access requirement, then reload subscription models.');
+      return true;
+    });
+    assert.equal(f.calls.length, 1);
+  }
+});
+
+test('Cursor bounds and cancels oversized or stalled error bodies while preserving the HTTP refusal', async () => {
+  for (const mode of ['declared-size', 'stream-size', 'stalled'] as const) {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        if (mode === 'stream-size') controller.enqueue(new Uint8Array(32 * 1024 + 1));
+      },
+      cancel() { cancelled = true; },
+    });
+    const f = fixture(() => new Response(body, { status: 403,
+      ...(mode === 'declared-size' ? { headers: { 'content-length': String(32 * 1024 + 1) } } : {}),
+    }), 15);
+    const before = Date.now();
+    await assert.rejects(f.adapter.start(config, 'Task'), /model list \(HTTP 403\)\. No task was sent/);
+    assert.ok(Date.now() - before < 2_000);
+    assert.equal(cancelled, true);
+    assert.equal(f.calls[0].signal?.aborted, true);
+    assert.deepEqual(f.calls.map(call => [call.method, call.url.pathname]), [['GET', '/v1/models']]);
+  }
+});
+
 test('ambiguous Cursor creation keeps a recoverable agent reference and never retries the POST', async () => {
   let createdId = '';
   const f = fixture(call => {

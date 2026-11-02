@@ -175,6 +175,9 @@ export class OutboundAI {
     if (!task || (principal !== 'owner' && task.principal !== principal)) throw new ProviderError('This AI task is not available to this connection.', 404);
     return task;
   }
+  assertTaskProvider(id: string, principal: string, provider: OutboundProvider): void {
+    if (this.task(id, principal).provider !== provider) throw new ProviderError('This task belongs to a different AI destination.', 404);
+  }
   listTasks(principal: string) {
     this.assertPrincipal(principal);
     return this.store.aiTasks<StoredAiTask>().filter(task => principal === 'owner' || task.principal === principal).slice(0, 100).map(publicTask);

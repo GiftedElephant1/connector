@@ -65,3 +65,13 @@
   .ai-authorization h1 { font-size: 23px; }
   .ai-developer-provider { flex-wrap: wrap; }
 }
+
+.ai-grant-actions { display: flex; flex-direction: column; gap: 9px; min-width: 210px; max-width: 275px; flex-shrink: 0; }
+.ai-grant-actions .button { width: 100%; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.ai-delegation-confirm { padding: 18px; margin-top: 17px; background: #f0f7f3; border: 1px solid #cddfd3; border-radius: 10px; }
+.ai-delegation-confirm h4 { margin-top: 0; }
+.ai-delegation-confirm p { line-height: 1.7; overflow-wrap: anywhere; }
+.ai-delegation-confirm .button { margin: 0 10px 9px 0; max-width: 100%; white-space: normal; }
+@media(max-width: 650px) {
+  .ai-grant-actions { min-width: 0; max-width: none; width: 100%; }
+}
