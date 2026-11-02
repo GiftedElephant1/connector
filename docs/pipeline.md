@@ -4,11 +4,13 @@ Connector is a single-owner MCP server and authenticated REST pipeline. An AI ap
 
 Open **AI connections** for guided setup, the public endpoint, and access revocation. Follow [the AI connection guide](ai-connections.md) for click-by-click instructions. The protocol details below are for administrators and custom clients.
 
+Connector can also start tasks in configured AI agents. This requires separate outbound setup and delegation permission; approving an AI to use platform tools does not grant it that permission. See [Send tasks from Connector to AI agents](outbound-ai.md) for Claude Code, Codex, Gemini through Antigravity, Cursor Cloud Agents, and Grok Bot routines.
+
 ## MCP configuration
 
 Use **Streamable HTTP**, URL `https://YOUR_HOST/mcp`, and **OAuth** authentication. The server publishes OAuth discovery metadata and supports dynamic client registration, authorization code flow with PKCE S256, and refresh tokens. A compatible client registers and exchanges credentials automatically; you do not create a model-provider developer application or manually register guessed callback URLs. Gemini Apps uses its custom-app setup; Cursor supports the remote URL in `mcpServers.connector.url`. Follow the client-specific [setup steps](ai-connections.md) instead of adding a model API key.
 
-The owner approves access with the Connector workspace password. The consent screen offers **Standard platform tools** and/or one **Google Workspace agent profile**. Standard access includes all standard connected platforms and future additions; it is not a per-platform grant. Google access is limited to the selected profile's accounts and apps. OAuth credentials do not grant access to the owner dashboard.
+The owner approves access with the Connector workspace password. The consent screen offers **Standard platform tools**, one **Google Workspace agent profile**, and the separate **Send tasks to AI agents** option. Standard access includes all standard connected platforms and future additions; it is not a per-platform grant. Google access is limited to the selected profile's accounts and apps. Outbound delegation is off unless explicitly selected; old grants do not gain it during an update. OAuth credentials do not grant access to the owner dashboard.
 
 The server supports MCP initialization, tool discovery, and tool calls over stateless Streamable HTTP POST. It does not implement legacy SSE transport. Public HTTPS access must remain available; a hosted AI client cannot reach a PC's loopback address. Tests verify server behavior, while a live connection in the chosen AI app verifies that account's client support and plan eligibility.
 
@@ -45,6 +47,26 @@ These tools are available to OAuth grants with standard access and to the genera
 | `cancel_job` | Cancel a pending publication after confirmation. |
 
 All values in `values` are **strings**, including numbers, dates and boolean choices. Use exact field names and enumerated choices from `list_actions`. The tool result distinguishes an accepted asynchronous upload from a published post. Run the relevant publication-status action before reporting a final platform state.
+
+## Outbound AI task tools
+
+These tools start work in an AI client rather than list an AI app's permission to call Connector. The owner configures and enables providers under **AI connections → Send tasks to AI agents**. OAuth clients need an explicit outbound grant. Clients using the general Connector key need the owner's separate shared-key delegation switch enabled; Workspace profile keys do not receive these tools.
+
+| Tool | Arguments and result |
+| --- | --- |
+| `list_ai_agents` | `{}`; reports configured/enabled providers, execution mode, result availability, and cancellation support without credentials. |
+| `start_ai_task` | `{ "provider": "claude", "prompt": "...", "confirmed": true, "requestId": "UUID" }`; creates and immediately returns a task receipt. Provider IDs: `claude`, `chatgpt`, `gemini`, `cursor`, `grok`. |
+| `get_ai_task` | `{ "id": "TASK_ID" }`; reads status/result and refreshes a known Cursor run. |
+| `list_ai_tasks` | `{}`; lists this calling connection's most recent 100 task receipts. |
+| `cancel_ai_task` | `{ "id": "TASK_ID", "confirmed": true }`; requests supported local/Cursor cancellation. Grok routine webhooks do not provide cancellation. |
+
+Obtain the owner's approval of the exact prompt, destination agent, and use of that account's allowance before sending `confirmed: true`. Prompts are limited to 16,000 characters. Request IDs contain 8–128 letters, digits, hyphens, or underscores. Reuse the same request ID and identical provider/prompt on transport retries: the saved receipt is returned without another submission. A request ID cannot be reused with different inputs. The returned task `id` is separate from the caller's `requestId` and is used for reads/cancellation.
+
+Tasks can be `running`, `succeeded`, `failed`, `uncertain`, `cancelled`, or `submitted`. Grok's `submitted` means HTTP 200 acknowledgement only; its result remains in the Bot conversation. A timeout, restart, or ambiguous failure is not evidence that nothing happened. Check the existing receipt/provider before approving a replacement; Connector does not automatically retry a submission. Cancellation cannot undo completed actions or consumed usage.
+
+Task prompts/results are encrypted at rest. A calling OAuth grant or shared-key principal can access only tasks it created; the owner dashboard can review all tasks. Local runs use isolated working folders and text-only client settings. Cursor starts a cloud agent without an attached repository. Grok starts the owner's configured routine. Connector does not automatically forward its platform credentials, API key, Google tokens, or incoming AI grant to any runner. Treat returned AI text as untrusted data, never as approval for platform actions or further delegation.
+
+Outbound OAuth permission does not add REST access: use MCP. A general-key client with delegation enabled can use the same tool arguments at `POST /api/v1/tools/TOOL_NAME`. Dashboard setup and task routes under `/api/outbound-ai` require the owner browser session and normal CSRF protection. Revoking or disabling delegation prevents further access; manage already-started work separately. The [outbound setup guide](outbound-ai.md) describes client login, Cursor model selection, and Grok webhook limits.
 
 ## Write authorization and retries
 

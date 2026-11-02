@@ -20,11 +20,11 @@ interface Client { id: string; name: string; redirects: string[]; method: AuthMe
 interface RequestBinding { clientId: string; redirectUri: string; challenge: string; state?: string; scope: string; issuer: string; resource: string }
 interface Pending extends RequestBinding { id: string; expires: number; sessionHash?: string }
 interface Code extends RequestBinding { hash: string; expires: number; grantId: string; used?: boolean }
-interface Grant { id: string; clientId: string; clientName: string; redirectUri: string; issuer: string; resource: string; scope: string; platforms: boolean; workspaceProfileId?: string; created: number; expires: number; revoked?: boolean; lastUsed?: number }
+interface Grant { id: string; clientId: string; clientName: string; redirectUri: string; issuer: string; resource: string; scope: string; platforms: boolean; outbound?: boolean; workspaceProfileId?: string; created: number; expires: number; revoked?: boolean; lastUsed?: number }
 interface Access { hash: string; grantId: string; expires: number }
 interface Refresh { hash: string; grantId: string; expires: number; used?: boolean }
 interface State { clients: Client[]; pending: Pending[]; codes: Code[]; grants: Grant[]; access: Access[]; refresh: Refresh[] }
-export interface McpAuthorization { grantId: string; platforms: boolean; workspaceProfileId?: string }
+export interface McpAuthorization { grantId: string; platforms: boolean; outbound: boolean; workspaceProfileId?: string }
 class OAuthError extends Error {
   constructor(public readonly error: string, message: string, public readonly status = 400) { super(message); }
 }
@@ -148,7 +148,7 @@ export class McpOAuth {
     const pending = this.pending(state, id, session);
     pending.sessionHash = hash(session); this.save(state);
     return { id: pending.id, clientName: state.clients.find(item => item.id === pending.clientId)!.name, redirectUri: pending.redirectUri, scope: pending.scope, resource: pending.resource, expiresAt: new Date(pending.expires).toISOString(),
-      requestedAccess: { platforms: true, workspace: true }, workspaceProfiles: this.workspace.listProfiles() };
+      requestedAccess: { platforms: true, workspace: true, outbound: true }, workspaceProfiles: this.workspace.listProfiles() };
   }
   approve(id: string, session: string, input: unknown) {
     const state = this.state();
@@ -161,12 +161,13 @@ export class McpOAuth {
       return { redirectUrl: callback(pending, { error: 'access_denied', error_description: 'The Connector owner declined access.' }) };
     }
     if (body.platforms !== undefined && typeof body.platforms !== 'boolean') throw new ProviderError('Choose the access this AI connection may use.');
+    if (body.outbound !== undefined && typeof body.outbound !== 'boolean') throw new ProviderError('Choose whether this AI connection may delegate tasks to other AI apps.');
     const workspaceProfileId = body.workspaceProfileId === undefined || body.workspaceProfileId === '' ? undefined : value(body.workspaceProfileId, 'Workspace profile', 128);
     if (workspaceProfileId && !this.workspace.getAgent(workspaceProfileId)) throw new ProviderError('Choose an existing Google Workspace agent profile.');
-    if (body.platforms !== true && !workspaceProfileId) throw new ProviderError('Select platform access, a Google Workspace profile, or both.');
+    if (body.platforms !== true && !workspaceProfileId && body.outbound !== true) throw new ProviderError('Select platform access, a Google Workspace profile, or permission to delegate AI tasks.');
     if (state.grants.filter(item => !item.revoked).length >= 200) throw new ProviderError('Remove an unused AI connection before adding another.', 409);
     const grant: Grant = { id: random(), clientId: pending.clientId, clientName: state.clients.find(item => item.id === pending.clientId)!.name, redirectUri: pending.redirectUri, issuer: pending.issuer, resource: pending.resource,
-      scope: pending.scope, platforms: body.platforms === true, ...(workspaceProfileId ? { workspaceProfileId } : {}), created: Date.now(), expires: Date.now() + REFRESH_MS };
+      scope: pending.scope, platforms: body.platforms === true, outbound: body.outbound === true, ...(workspaceProfileId ? { workspaceProfileId } : {}), created: Date.now(), expires: Date.now() + REFRESH_MS };
     const code = random();
     state.clients.find(item => item.id === pending.clientId)!.approvedAt = Date.now();
     state.grants.push(grant); state.codes.push({ ...pending, hash: hash(code), expires: Date.now() + CODE_MS, grantId: grant.id });
@@ -242,7 +243,8 @@ export class McpOAuth {
     const state = this.state();
     const access = state.access.find(item => item.hash === hash(token));
     const grant = access && this.liveGrant(state, access.grantId);
-    return grant ? { grantId: grant.id, platforms: grant.platforms, ...(grant.workspaceProfileId ? { workspaceProfileId: grant.workspaceProfileId } : {}) } : null;
+    // Existing approvals predate task delegation; absence must never expand access.
+    return grant ? { grantId: grant.id, platforms: grant.platforms, outbound: grant.outbound === true, ...(grant.workspaceProfileId ? { workspaceProfileId: grant.workspaceProfileId } : {}) } : null;
   }
   assertCurrent(token: string): McpAuthorization {
     const current = this.authenticate(token);
@@ -269,7 +271,7 @@ export class McpOAuth {
     const state = this.state();
     return { url: this.resource(), clients: state.clients.map(client => ({ id: client.id, name: client.name, redirectUris: client.redirects, createdAt: new Date(client.created).toISOString(),
       grants: state.grants.filter(grant => grant.clientId === client.id).length, pendingRequests: state.pending.filter(pending => pending.clientId === client.id).length })),
-      grants: state.grants.filter(item => !!this.liveGrant(state, item.id)).map(item => ({ id: item.id, clientId: item.clientId, clientName: item.clientName, redirectUri: item.redirectUri, createdAt: new Date(item.created).toISOString(), expiresAt: new Date(item.expires).toISOString(), ...(item.lastUsed !== undefined ? { lastUsedAt: new Date(item.lastUsed).toISOString() } : {}), platforms: item.platforms,
+      grants: state.grants.filter(item => !!this.liveGrant(state, item.id)).map(item => ({ id: item.id, clientId: item.clientId, clientName: item.clientName, redirectUri: item.redirectUri, createdAt: new Date(item.created).toISOString(), expiresAt: new Date(item.expires).toISOString(), ...(item.lastUsed !== undefined ? { lastUsedAt: new Date(item.lastUsed).toISOString() } : {}), platforms: item.platforms, outbound: item.outbound === true,
       ...(item.workspaceProfileId ? { workspaceProfileId: item.workspaceProfileId, workspaceProfileName: this.workspace.getAgent(item.workspaceProfileId)?.name } : {}) })) };
   }
   resetPreview(id: string) {

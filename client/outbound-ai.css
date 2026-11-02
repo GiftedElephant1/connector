@@ -1,0 +1,37 @@
+.outbound-ai { margin-bottom: 24px; }
+.outbound-ai p { line-height: 1.65; overflow-wrap: anywhere; }
+.outbound-provider-options { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: 24px 0; }
+.outbound-provider-option { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; padding: 15px; border: 1px solid #dce5df; border-radius: 10px; background: #fff; color: #29483b; cursor: pointer; text-align: left; }
+.outbound-provider-option.selected { border-color: #12765a; background: #f0f8f4; box-shadow: 0 0 0 1px #12765a; }
+.outbound-provider-option span { color: #617267; font-size: 12px; }
+.outbound-provider-setup { padding: 21px; border: 1px solid #dce5df; border-radius: 10px; background: #f8faf8; }
+.outbound-ai h3 { margin-top: 0; }
+.outbound-provider-setup > label:not(.outbound-checkbox), .outbound-task-form > label:not(.outbound-checkbox) { display: block; font-weight: 600; font-size: 13px; margin: 18px 0 9px; }
+.outbound-provider-setup > input, .outbound-provider-setup > select, .outbound-task-form > select, .outbound-task-form > textarea { display: block; width: 100%; min-width: 0; padding: 12px; box-sizing: border-box; border: 1px solid #d5e0d8; border-radius: 7px; background: #fff; font: inherit; font-size: 14px; }
+.outbound-provider-setup > input + .button { margin-top: 12px; }
+.outbound-task-form textarea { resize: vertical; line-height: 1.6; }
+.outbound-checkbox { display: flex; gap: 10px; align-items: flex-start; margin: 20px 0 12px; cursor: pointer; line-height: 1.6; font-size: 14px; }
+.outbound-checkbox input { width: 18px; height: 18px; flex-shrink: 0; accent-color: #12765a; margin-top: 2px; }
+.outbound-buttons { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 18px; }
+.outbound-ai .button { max-width: 100%; white-space: normal; }
+.outbound-readiness { padding: 13px; border-radius: 8px; background: #edf4ef; }
+.outbound-readiness small { display: block; font-size: 11px; margin-top: 7px; }
+.readiness-action_required, .readiness-unavailable { background: #fff6e6; }
+.outbound-agent-access, .outbound-task-form, .outbound-task-history { margin-top: 28px; padding-top: 22px; border-top: 1px solid #e2e8e4; }
+.outbound-agent-access summary, .outbound-task summary { cursor: pointer; font-weight: 600; line-height: 1.6; }
+.outbound-history-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.outbound-history-heading h3, .outbound-history-heading h4 { margin: 0; }
+.outbound-task { margin-top: 16px; padding: 18px; border: 1px solid #dce5df; border-radius: 10px; }
+.outbound-task pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 13px; line-height: 1.7; max-height: 440px; overflow-y: auto; padding: 12px; border-radius: 6px; background: #f5f8f6; }
+.outbound-task h5 { margin-bottom: 8px; }
+.outbound-task-status { padding: 5px 8px; background: #edf3ee; border-radius: 5px; font-size: 12px; white-space: nowrap; }
+.task-failed, .task-uncertain { background: #fff0e8; }
+.outbound-retry, .outbound-cancel { margin-top: 18px; padding: 16px; background: #fff7e9; border-radius: 10px; }
+.outbound-retry .button, .outbound-retry .text-button, .outbound-cancel .button { margin: 0 10px 10px 0; }
+@media (max-width: 650px) {
+  .outbound-provider-options { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .outbound-provider-option { padding: 12px 8px; font-size: 12px; }
+  .outbound-provider-setup { padding: 16px; }
+  .outbound-history-heading { flex-wrap: wrap; }
+  .outbound-task { padding: 14px; }
+}

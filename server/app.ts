@@ -20,6 +20,8 @@ import { TikTokVerification, mountTikTokVerificationPublic, mountTikTokVerificat
 import { mountConnectorReset } from './connector-reset';
 import { mountPipelineKeyReset } from './pipeline-key';
 import { oauthCallbackUrl } from './oauth-callback';
+import { OutboundAI } from './outbound-ai';
+import { mountOutboundOwner } from './outbound-http';
 
 export type ProviderService = Pick<typeof providers, 'providerCatalog' | 'getProvider' | 'getProviderSetup' | 'createOAuthRequest' | 'exchangeOAuthCode' | 'refreshCredential' | 'verifyConnection'>;
 
@@ -48,6 +50,7 @@ export interface AppOptions {
   desktopToken?: string;
   localOrigin?: string;
   tunnel?: PublicTunnel;
+  outbound?: OutboundAI;
 }
 
 export function createApp(config: AppConfig, store: Store, service: ProviderService = providers, env: NodeJS.ProcessEnv = process.env, pipeline = new Pipeline(store, env), options: AppOptions = {}) {
@@ -80,18 +83,21 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
   })(req, res, next));
   const workspaceAccounts = new WorkspaceAccounts(config, store, env);
   const mcpOAuth = new McpOAuth(config, store, workspaceAccounts);
+  const outbound = options.outbound || new OutboundAI(store, config.databasePath);
+  app.locals.outboundAI = outbound;
   const legal = new LegalPages(config, store);
   const tiktokVerification = new TikTokVerification(config, store);
   mountLegalPublic(app, legal);
   mountTikTokVerificationPublic(app, tiktokVerification);
   mountOAuthPublic(app, mcpOAuth);
-  mountPipeline(app, config, store, pipeline, env, { accounts: workspaceAccounts, oauth: mcpOAuth });
+  mountPipeline(app, config, store, pipeline, env, { accounts: workspaceAccounts, oauth: mcpOAuth, outbound });
   app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
   const smallJson = express.json({ limit: '24kb' });
   app.use((req, res, next) => {
     // Media action bodies are parsed only after owner authentication and CSRF
     // checks below. Other owner/login/settings requests keep the small limit.
     if (req.method === 'POST' && /^\/api\/actions\/[^/]+\/[^/]+\/?$/i.test(req.path)) return next();
+    if (req.method === 'POST' && req.path === '/api/outbound-ai/tasks') return next();
     smallJson(req, res, next);
   });
   app.use('/api', (req, _res, next) => {
@@ -124,6 +130,7 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
     next();
   });
   app.get('/api/installation', (_req, res) => res.json(installation));
+  mountOutboundOwner(app, outbound, express.json({ limit: '96kb' }));
   mountLegalOwner(app, legal);
   mountTikTokVerificationOwner(app, tiktokVerification);
   mountOAuthOwner(app, mcpOAuth, sessionToken);

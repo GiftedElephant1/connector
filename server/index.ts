@@ -5,6 +5,7 @@ import { createApp } from './app';
 import { Pipeline } from './pipeline';
 import { PublicTunnel } from './tunnel';
 import { updatePublicOrigin } from './settings';
+import { OutboundAI } from './outbound-ai';
 
 try {
   const env = { ...process.env };
@@ -14,10 +15,11 @@ try {
   const config = loadConfig(env);
   const store = new Store(config.databasePath, config.encryptionKey);
   const pipeline = new Pipeline(store, env);
+  const outbound = new OutboundAI(store, config.databasePath);
   const tunnel = new PublicTunnel(config, store, origin => updatePublicOrigin(config, store, env, origin));
   let stopScheduler = async () => {};
   const server = createApp(config, store, undefined, env, pipeline, {
-    desktopToken, ...(desktopToken ? { localOrigin: `http://127.0.0.1:${config.port}` } : {}), tunnel,
+    desktopToken, ...(desktopToken ? { localOrigin: `http://127.0.0.1:${config.port}` } : {}), tunnel, outbound,
   }).listen(config.port, config.host, () => {
     stopScheduler = pipeline.startScheduler();
     console.log(`Connector is listening on port ${config.port}.`);
@@ -28,7 +30,7 @@ try {
   const shutdown = () => {
     if (closing) return;
     closing = true;
-    const stopped = Promise.all([stopScheduler(), tunnel.stop(true).catch(() => {})]);
+    const stopped = Promise.all([stopScheduler(), outbound.close(), tunnel.stop(true).catch(() => {})]);
     server.close(() => { void stopped.then(() => { store.close(); process.exit(0); }); });
   };
   process.on('SIGINT', shutdown);

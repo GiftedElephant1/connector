@@ -41,6 +41,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS oauth_states (id TEXT PRIMARY KEY, session TEXT NOT NULL, provider TEXT NOT NULL, payload TEXT NOT NULL, expires INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, provider TEXT NOT NULL, action TEXT NOT NULL, payload TEXT NOT NULL, scheduled INTEGER NOT NULL, created INTEGER NOT NULL, status TEXT NOT NULL, finished INTEGER, result TEXT, error TEXT);
+      CREATE TABLE IF NOT EXISTS ai_tasks (id TEXT PRIMARY KEY, payload TEXT NOT NULL, created INTEGER NOT NULL);
     `);
   }
   seal(value: unknown, purpose: string): string {
@@ -103,6 +104,17 @@ export class Store {
       .run(name, this.seal(value, `setting:${name}`));
   }
   deleteSetting(name: string) { this.db.prepare('DELETE FROM settings WHERE name=?').run(name); }
+  readAiTask<T>(id: string): T | null {
+    const row = this.db.prepare('SELECT payload FROM ai_tasks WHERE id=?').get(id);
+    return row ? this.open<T>(String(row.payload), `ai-task:${id}`) : null;
+  }
+  saveAiTask(id: string, value: unknown) {
+    this.db.prepare('INSERT INTO ai_tasks(id,payload,created) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload')
+      .run(id, this.seal(value, `ai-task:${id}`), Date.now());
+  }
+  aiTasks<T>(): T[] {
+    return this.db.prepare('SELECT id,payload FROM ai_tasks ORDER BY created DESC').all().map(row => this.open<T>(String(row.payload), `ai-task:${row.id}`));
+  }
   deleteAllSessions() {
     this.db.exec('DELETE FROM sessions; DELETE FROM oauth_states;');
   }
