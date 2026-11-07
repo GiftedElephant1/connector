@@ -78,6 +78,12 @@ jobs:
           if ((Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expectedHash) { throw 'Rebuilt ZIP differs from the verified Windows archive; nothing will be uploaded.' }
           $tags = @(Api "$repo/git/matching-refs/tags/$env:RELEASE_TAG" | Where-Object { $_.ref -ceq "refs/tags/$env:RELEASE_TAG" })
           if ($tags.Count -gt 1 -or ($tags.Count -eq 1 -and ($tags[0].object.type -cne 'commit' -or $tags[0].object.sha -cne $run.head_sha))) { throw 'The existing tag does not identify the verified commit.' }
+          if ($tags.Count -eq 0) {
+            $tagRequestPath = Join-Path $env:RUNNER_TEMP 'windows-release-tag.json'
+            @{ ref = "refs/tags/$env:RELEASE_TAG"; sha = $run.head_sha } | ConvertTo-Json | Set-Content -LiteralPath $tagRequestPath -Encoding utf8
+            gh api "$repo/git/refs" --method POST --input $tagRequestPath --silent
+            if ($LASTEXITCODE -ne 0) { throw 'Could not reserve the verified version tag; existing tags are never replaced.' }
+          }
           $releases = @(Api "$repo/releases?per_page=100" | Where-Object { $_.tag_name -ceq $env:RELEASE_TAG })
           if ($releases.Count -gt 1) { throw 'Release lookup is ambiguous.' }
           $release = $releases | Select-Object -First 1
