@@ -105,22 +105,26 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Could not create the release draft.' }
             $release = ($created -join "`n") | ConvertFrom-Json
           } else {
-            @{ name = "Connector $($manifest.version) — unsigned Windows source"; body = (Get-Content $notesPath -Raw) } | ConvertTo-Json | Set-Content -LiteralPath $requestPath -Encoding utf8
+            @{ tag_name = $env:RELEASE_TAG; target_commitish = $run.head_sha; draft = $true; name = "Connector $($manifest.version) — unsigned Windows source"; body = (Get-Content $notesPath -Raw) } | ConvertTo-Json | Set-Content -LiteralPath $requestPath -Encoding utf8
             gh api "$repo/releases/$($release.id)" --method PATCH --input $requestPath --silent
             if ($LASTEXITCODE -ne 0) { throw 'Could not label the draft as unsigned.' }
           }
+          $release = Api "$repo/releases/$($release.id)"
+          if (-not $release.draft -or $release.tag_name -cne $env:RELEASE_TAG -or $release.target_commitish -cne $run.head_sha -or @($release.assets).Count -ne 0) { throw 'Draft identity changed; no files were uploaded.' }
           $guidePath = Join-Path $PWD 'docs/llm-setup-and-use.md'
           $files = [ordered]@{ 'Connector-Windows.zip' = $zipPath; 'Connector-Windows.zip.sha256' = $checksumPath; 'Connector-Windows.scan.json' = $scanPath; 'llm-setup-and-use.md' = $guidePath }
           gh release upload $env:RELEASE_TAG $zipPath $checksumPath $scanPath $guidePath --repo $env:GITHUB_REPOSITORY
           if ($LASTEXITCODE -ne 0) { throw 'Asset upload failed. The draft is retained; no release was published.' }
           $uploaded = Api "$repo/releases/$($release.id)"
-          if (-not $uploaded.draft -or $uploaded.target_commitish -cne $run.head_sha -or @($uploaded.assets).Count -ne $files.Count) { throw 'Draft changed or expected assets are missing; publication stopped.' }
+          if (-not $uploaded.draft -or $uploaded.tag_name -cne $env:RELEASE_TAG -or $uploaded.target_commitish -cne $run.head_sha -or @($uploaded.assets).Count -ne $files.Count) { throw 'Draft changed or expected assets are missing; publication stopped.' }
           foreach ($name in $files.Keys) {
             $asset = @($uploaded.assets | Where-Object { $_.name -ceq $name })
             $hash = (Get-FileHash $files[$name] -Algorithm SHA256).Hash.ToLowerInvariant()
             if ($asset.Count -ne 1 -or $asset[0].state -cne 'uploaded' -or $asset[0].size -ne (Get-Item $files[$name]).Length -or $asset[0].digest -cne "sha256:$hash") { throw "Uploaded asset verification failed: $name" }
           }
-          @{ draft = $false } | ConvertTo-Json | Set-Content -LiteralPath $requestPath -Encoding utf8
+          @{ tag_name = $env:RELEASE_TAG; target_commitish = $run.head_sha; draft = $false } | ConvertTo-Json | Set-Content -LiteralPath $requestPath -Encoding utf8
           gh api "$repo/releases/$($release.id)" --method PATCH --input $requestPath --silent
           if ($LASTEXITCODE -ne 0) { throw 'Publication failed; inspect the existing draft before retrying.' }
-          "Published unsigned Windows source package: $($uploaded.html_url)" >> $env:GITHUB_STEP_SUMMARY
+          $published = Api "$repo/releases/$($release.id)"
+          if ($published.draft -or $published.tag_name -cne $env:RELEASE_TAG -or $published.target_commitish -cne $run.head_sha -or @($published.assets).Count -ne $files.Count) { throw 'Release publication could not be confirmed.' }
+          "Published unsigned Windows source package: $($published.html_url)" >> $env:GITHUB_STEP_SUMMARY
