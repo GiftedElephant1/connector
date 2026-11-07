@@ -1,0 +1,120 @@
+name: Upload verified Windows source package
+
+on:
+  workflow_dispatch:
+    inputs:
+      verification_run_id:
+        description: 'Successful main Windows verification run ID'
+        required: true
+        default: '42330154807'
+        type: string
+      release_tag:
+        description: 'Version tag matching package.json'
+        required: true
+        default: 'v0.9.25'
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: upload-verified-windows
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Verify identical package, upload draft assets, and publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERIFICATION_RUN_ID: ${{ inputs.verification_run_id }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REF -cne 'refs/heads/main') { throw 'Run this workflow from main.' }
+          if ($env:VERIFICATION_RUN_ID -cnotmatch '^[0-9]{1,20}$' -or $env:RELEASE_TAG -cnotmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') { throw 'Invalid verification run ID or version tag.' }
+          function Api([string]$path) {
+            $response = gh api $path
+            if ($LASTEXITCODE -ne 0) { throw "GitHub API request failed: $path" }
+            return ($response -join "`n") | ConvertFrom-Json
+          }
+          $repo = "repos/$env:GITHUB_REPOSITORY"
+          $run = Api "$repo/actions/runs/$env:VERIFICATION_RUN_ID"
+          if ($run.event -notin @('push', 'workflow_dispatch')) { throw 'Use a main push or manually dispatched verification run.' }
+          if ($run.status -cne 'completed' -or $run.conclusion -cne 'success' -or $run.head_branch -cne 'main' -or $run.path -cne '.github/workflows/windows-release.yml' -or $run.repository.full_name -cne $env:GITHUB_REPOSITORY -or $run.head_repository.full_name -cne $env:GITHUB_REPOSITORY -or $run.head_sha -cnotmatch '^[a-f0-9]{40}$') { throw 'Use a successful main verification run from this repository.' }
+          $artifacts = @((Api "$repo/actions/runs/$env:VERIFICATION_RUN_ID/artifacts").artifacts | Where-Object { $_.name -ceq 'Windows-package-verification' })
+          if ($artifacts.Count -ne 1 -or $artifacts[0].expired) { throw 'The verification artifact is missing, expired, or ambiguous.' }
+          $reports = Join-Path $env:RUNNER_TEMP 'verified-windows-reports'
+          gh run download $env:VERIFICATION_RUN_ID --repo $env:GITHUB_REPOSITORY --name Windows-package-verification --dir $reports
+          if ($LASTEXITCODE -ne 0) { throw 'Could not download verification evidence.' }
+          $status = Get-Content (Join-Path $reports 'Connector-Windows.verification.json') -Raw | ConvertFrom-Json
+          $scanPath = Join-Path $reports 'Connector-Windows.scan.json'
+          $scan = Get-Content $scanPath -Raw | ConvertFrom-Json
+          $checksumPath = Join-Path $reports 'Connector-Windows.zip.sha256'
+          $checksum = Get-Content $checksumPath -Raw
+          if ($checksum -cnotmatch '^([a-f0-9]{64})  Connector-Windows\.zip\r?\n?$') { throw 'Invalid verified package checksum file.' }
+          $expectedHash = $Matches[1]
+          $requiredSteps = @('checkout', 'node', 'nativeChecks', 'launcher', 'dependencies', 'tests', 'build', 'package', 'extractedPackage', 'antivirusCacheDay', 'antivirusCache', 'antivirus')
+          if ($status.commit -cne $run.head_sha -or $status.runId -cne $env:VERIFICATION_RUN_ID -or [string]$status.runAttempt -cne [string]$run.run_attempt -or $status.verificationOutcome -cne 'success') { throw 'Verification status does not match the successful run.' }
+          foreach ($name in $requiredSteps) { if ($status.steps.$name -cne 'success') { throw "Required verification did not pass: $name" } }
+          if (@($status.steps.PSObject.Properties | Where-Object { $_.Value -cne 'success' }).Count) { throw 'Not every recorded verification step passed.' }
+          if ($scan.result -cne 'passed' -or $scan.stage -cne 'complete' -or $scan.detectedThreatCount -ne 0 -or $null -ne $scan.failure -or $scan.packageFile -cne 'Connector-Windows.zip' -or $scan.packageSha256 -cne $expectedHash) { throw 'The completed clean scan and package checksum do not agree.' }
+          $manifest = Get-Content package.json -Raw | ConvertFrom-Json
+          if ("v$($manifest.version)" -cne $env:RELEASE_TAG) { throw 'The release tag must match the current package version.' }
+          node scripts/package-windows.mjs artifacts
+          if ($LASTEXITCODE -ne 0) { throw 'Package creation failed.' }
+          $zipPath = Join-Path $PWD 'artifacts/Connector-Windows.zip'
+          if ((Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expectedHash) { throw 'Rebuilt ZIP differs from the verified Windows archive; nothing will be uploaded.' }
+          $tags = @(Api "$repo/git/matching-refs/tags/$env:RELEASE_TAG" | Where-Object { $_.ref -ceq "refs/tags/$env:RELEASE_TAG" })
+          if ($tags.Count -gt 1 -or ($tags.Count -eq 1 -and ($tags[0].object.type -cne 'commit' -or $tags[0].object.sha -cne $run.head_sha))) { throw 'The existing tag does not identify the verified commit.' }
+          $releases = @(Api "$repo/releases?per_page=100" | Where-Object { $_.tag_name -ceq $env:RELEASE_TAG })
+          if ($releases.Count -gt 1) { throw 'Release lookup is ambiguous.' }
+          $release = $releases | Select-Object -First 1
+          if ($release -and (-not $release.draft -or $release.target_commitish -cne $run.head_sha -or @($release.assets).Count -ne 0)) { throw 'Only an empty draft targeting the verified commit can be uploaded; no existing assets are overwritten.' }
+          $notesPath = Join-Path $env:RUNNER_TEMP 'unsigned-windows-release-notes.md'
+          @"
+          Unsigned Windows source package for Connector $($manifest.version). This download does not carry publisher signatures.
+
+          The archive exactly matches SHA-256 $expectedHash from successful Windows verification run $($run.html_url), including its ClamAV scan. A clean scan does not guarantee browser acceptance.
+
+          Download Connector-Windows.zip and extract the complete archive. For a new installation, open Start Connector.vbs in the extracted Connector folder. For an update, stop Connector, open Update Connector.vbs from the new folder, select the original installation, then restart from the original folder. Saved accounts and settings are preserved.
+
+          The LLM setup and use guide is included at docs/llm-setup-and-use.md and attached separately. Initial setup installs the verified Node runtime and locked dependencies. Source commit: $($run.head_sha).
+          "@ | Set-Content -LiteralPath $notesPath -Encoding utf8
+          $requestPath = Join-Path $env:RUNNER_TEMP 'windows-release-request.json'
+          if (-not $release) {
+            @{ tag_name = $env:RELEASE_TAG; target_commitish = $run.head_sha; name = "Connector $($manifest.version) — unsigned Windows source"; draft = $true; body = (Get-Content $notesPath -Raw) } | ConvertTo-Json | Set-Content -LiteralPath $requestPath -Encoding utf8
+            $created = gh api "$repo/releases" --method POST --input $requestPath
+            if ($LASTEXITCODE -ne 0) { throw 'Could not create the release draft.' }
+            $release = ($created -join "`n") | ConvertFrom-Json
+          } else {
+            @{ name = "Connector $($manifest.version) — unsigned Windows source"; body = (Get-Content $notesPath -Raw) } | ConvertTo-Json | Set-Content -LiteralPath $requestPath -Encoding utf8
+            gh api "$repo/releases/$($release.id)" --method PATCH --input $requestPath --silent
+            if ($LASTEXITCODE -ne 0) { throw 'Could not label the draft as unsigned.' }
+          }
+          $guidePath = Join-Path $PWD 'docs/llm-setup-and-use.md'
+          $files = [ordered]@{ 'Connector-Windows.zip' = $zipPath; 'Connector-Windows.zip.sha256' = $checksumPath; 'Connector-Windows.scan.json' = $scanPath; 'llm-setup-and-use.md' = $guidePath }
+          gh release upload $env:RELEASE_TAG $zipPath $checksumPath $scanPath $guidePath --repo $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE -ne 0) { throw 'Asset upload failed. The draft is retained; no release was published.' }
+          $uploaded = Api "$repo/releases/$($release.id)"
+          if (-not $uploaded.draft -or $uploaded.target_commitish -cne $run.head_sha -or @($uploaded.assets).Count -ne $files.Count) { throw 'Draft changed or expected assets are missing; publication stopped.' }
+          foreach ($name in $files.Keys) {
+            $asset = @($uploaded.assets | Where-Object { $_.name -ceq $name })
+            $hash = (Get-FileHash $files[$name] -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($asset.Count -ne 1 -or $asset[0].state -cne 'uploaded' -or $asset[0].size -ne (Get-Item $files[$name]).Length -or $asset[0].digest -cne "sha256:$hash") { throw "Uploaded asset verification failed: $name" }
+          }
+          @{ draft = $false } | ConvertTo-Json | Set-Content -LiteralPath $requestPath -Encoding utf8
+          gh api "$repo/releases/$($release.id)" --method PATCH --input $requestPath --silent
+          if ($LASTEXITCODE -ne 0) { throw 'Publication failed; inspect the existing draft before retrying.' }
+          "Published unsigned Windows source package: $($uploaded.html_url)" >> $env:GITHUB_STEP_SUMMARY
