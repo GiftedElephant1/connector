@@ -25,7 +25,8 @@ async function fixture(callback: (f: Fixture) => Promise<void>): Promise<void> {
 function safeError(relative: string, reason: RegExp, root?: string) {
   return (error: unknown): boolean => {
     assert.ok(error instanceof ProviderError);
-    assert.ok(error.message.includes(relative));
+    // Diagnostics use the host's path separators; the fixture paths use '/'.
+    assert.ok(error.message.replaceAll('\\', '/').includes(relative.replaceAll('\\', '/')));
     assert.match(error.message, reason);
     assert.equal(error.message.includes('private-config-value'), false);
     assert.equal(error.message.includes('private-token-value'), false);

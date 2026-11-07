@@ -45,6 +45,69 @@ function zipEntries(bytes: Buffer) {
   return entries;
 }
 
+async function workflowStep(file: string, name: string) {
+  const workflow = (await readFile(join(repository, '.github/workflows', file), 'utf8')).replaceAll('\r\n', '\n');
+  const marker = `      - name: ${name}\n`;
+  const start = workflow.indexOf(marker);
+  assert.notEqual(start, -1, `Missing workflow step: ${name}`);
+  const end = workflow.indexOf('\n      - ', start + marker.length);
+  return workflow.slice(start, end === -1 ? undefined : end);
+}
+
+test('Windows failure diagnostics remain uploadable without publishing an unsigned runnable archive', async () => {
+  const status = await workflowStep('windows-release.yml', 'Record Windows verification status');
+  const upload = await workflowStep('windows-release.yml', 'Save verification diagnostics only');
+  assert.match(status, /\n        if: always\(\)\n/);
+  assert.match(upload, /\n        if: always\(\)\n/);
+  const paths = upload.match(/          path: \|\n((?:            [^\n]+\n)+)/)?.[1].trim().split('\n').map(line => line.trim());
+  assert.deepEqual(paths, ['artifacts/Connector-Windows.verification.json', 'artifacts/Connector-Windows.zip.sha256', 'artifacts/Connector-Windows.scan.json']);
+  const signedStatus = await workflowStep('windows-signed-release.yml', 'Record signed release verification status');
+  const signedReports = await workflowStep('windows-signed-release.yml', 'Save verification reports');
+  assert.match(signedStatus, /\n        if: always\(\)\n/);
+  assert.match(signedReports, /\n        if: always\(\)\n/);
+  assert.match(signedReports, /path: reports\/\*\.json/);
+  const signedAssets = await workflowStep('windows-signed-release.yml', 'Save verified release assets');
+  assert.doesNotMatch(signedAssets, /if:.*(?:always|failure|cancelled)/, 'Release archives must stay behind successful verification.');
+});
+
+test('Windows status writers report early failures without including environment credentials', { skip: process.platform !== 'win32' }, async t => {
+  const temp = await mkdtemp(join(tmpdir(), 'connector-windows-diagnostics-'));
+  t.after(() => rm(temp, { recursive: true, force: true }));
+  const signingNames = ['AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID', 'SIGNING_ENDPOINT', 'SIGNING_ACCOUNT', 'SIGNING_CERTIFICATE_PROFILE'];
+  for (const scenario of [
+    { file: 'windows-release.yml', step: 'Record Windows verification status', path: 'artifacts/Connector-Windows.verification.json', outcomes: { TESTS_OUTCOME: 'failure', PACKAGE_OUTCOME: 'skipped' } },
+    { file: 'windows-signed-release.yml', step: 'Record signed release verification status', path: 'reports/windows-release-status.json', outcomes: { CONFIGURATION_OUTCOME: 'failure', SIGN_OUTCOME: 'skipped' } },
+  ]) {
+    const step = await workflowStep(scenario.file, scenario.step);
+    const body = step.split('        run: |\n')[1];
+    assert.ok(body);
+    const script = body.split('\n').map(line => line.startsWith('          ') ? line.slice(10) : line).join('\n');
+    const env: NodeJS.ProcessEnv = { ...process.env, ...scenario.outcomes, GITHUB_SHA: 'fixture-commit', GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '2',
+      GITHUB_STEP_SUMMARY: join(temp, 'summary.md'), SCAN_OUTCOME: 'skipped', VERIFICATION_OUTCOME: 'failure', GITHUB_TOKEN: 'PRIVATE_TEST_TOKEN_MUST_NOT_APPEAR' };
+    for (const name of signingNames) env[name] = '';
+    const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { cwd: temp, env, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const raw = (await readFile(join(temp, scenario.path), 'utf8')).replace(/^\uFEFF/, '');
+    const report = JSON.parse(raw);
+    assert.equal(report.commit, 'fixture-commit');
+    assert.equal(report.runId, '123');
+    assert.equal(report.runAttempt, '2');
+    assert.equal(report.verificationOutcome, 'failure');
+    assert.equal(report.steps.antivirus, 'skipped');
+    if (scenario.file === 'windows-release.yml') {
+      assert.equal(report.steps.tests, 'failure');
+      assert.equal(report.steps.package, 'skipped');
+      assert.equal(report.runnablePackagePublished, false);
+    } else {
+      assert.equal(report.steps.configuration, 'failure');
+      assert.equal(report.steps.signing, 'skipped');
+      assert.deepEqual(report.missingSigningVariables, signingNames);
+    }
+    assert.doesNotMatch(raw, /PRIVATE_TEST_TOKEN_MUST_NOT_APPEAR|GITHUB_TOKEN/);
+    await assert.rejects(readFile(join(temp, 'artifacts/Connector-Windows.zip')), { code: 'ENOENT' });
+  }
+});
+
 test('release staging preserves source and excludes private data; ZIP preserves staged bytes', async t => {
   const f = await fixture(t);
   const original = await readFile(join(f.source, 'Start Connector.vbs'));

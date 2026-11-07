@@ -1,4 +1,4 @@
-name: Package Windows app
+name: Verify Windows package
 
 on:
   workflow_dispatch:
@@ -13,11 +13,14 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
+        id: checkout
       - uses: actions/setup-node@v5
+        id: node
         with:
           node-version: 24
           cache: npm
       - name: Check Windows launcher and updater
+        id: native-checks
         shell: powershell
         run: |
           foreach ($scriptFile in Get-ChildItem scripts\windows-*.ps1, .github\scripts\*.ps1) {
@@ -36,6 +39,7 @@ jobs:
             exit 1
           }
       - name: Verify Windows background launcher behavior
+        id: launcher
         shell: powershell
         run: |
           try {
@@ -46,11 +50,16 @@ jobs:
             exit 1
           }
       - run: npm ci
+        id: dependencies
       - run: npm test
+        id: tests
       - run: npm run build
+        id: build
       - name: Package source and click-to-start launcher
+        id: package
         run: node scripts/package-windows.mjs
       - name: Verify ZIP extraction
+        id: extracted-package
         shell: powershell
         run: |
           Expand-Archive -LiteralPath artifacts\Connector-Windows.zip -DestinationPath "$env:RUNNER_TEMP\connector-package"
@@ -72,6 +81,7 @@ jobs:
         run: |
           "day=$([DateTime]::UtcNow.ToString('yyyy-MM-dd'))" >> $env:GITHUB_OUTPUT
       - name: Restore official antivirus database cache
+        id: antivirus-cache
         uses: actions/cache@v5
         with:
           path: ${{ runner.temp }}\connector-clamav-databases
@@ -89,24 +99,74 @@ jobs:
             Write-Output "::warning title=Windows package verification failed::$message"
             exit 1
           }
-      - name: Record actual scan outcome
-        if: always() && steps.antivirus.outcome != 'skipped'
+      - name: Record Windows verification status
+        if: always()
         shell: pwsh
         env:
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          NODE_OUTCOME: ${{ steps.node.outcome }}
+          NATIVE_CHECKS_OUTCOME: ${{ steps.native-checks.outcome }}
+          LAUNCHER_OUTCOME: ${{ steps.launcher.outcome }}
+          DEPENDENCIES_OUTCOME: ${{ steps.dependencies.outcome }}
+          TESTS_OUTCOME: ${{ steps.tests.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          PACKAGE_OUTCOME: ${{ steps.package.outcome }}
+          EXTRACTED_PACKAGE_OUTCOME: ${{ steps.extracted-package.outcome }}
+          ANTIVIRUS_CACHE_DAY_OUTCOME: ${{ steps.antivirus-cache-day.outcome }}
+          ANTIVIRUS_CACHE_OUTCOME: ${{ steps.antivirus-cache.outcome }}
           SCAN_OUTCOME: ${{ steps.antivirus.outcome }}
+          VERIFICATION_OUTCOME: ${{ job.status }}
         run: |
+          $ErrorActionPreference = 'Stop'
+          $stepOutcomes = [ordered]@{
+            checkout = $env:CHECKOUT_OUTCOME
+            node = $env:NODE_OUTCOME
+            nativeChecks = $env:NATIVE_CHECKS_OUTCOME
+            launcher = $env:LAUNCHER_OUTCOME
+            dependencies = $env:DEPENDENCIES_OUTCOME
+            tests = $env:TESTS_OUTCOME
+            build = $env:BUILD_OUTCOME
+            package = $env:PACKAGE_OUTCOME
+            extractedPackage = $env:EXTRACTED_PACKAGE_OUTCOME
+            antivirusCacheDay = $env:ANTIVIRUS_CACHE_DAY_OUTCOME
+            antivirusCache = $env:ANTIVIRUS_CACHE_OUTCOME
+            antivirus = $env:SCAN_OUTCOME
+          }
+          foreach ($key in @($stepOutcomes.Keys)) {
+            if ($stepOutcomes[$key] -notin @('success', 'failure', 'cancelled', 'skipped')) { $stepOutcomes[$key] = 'not_run' }
+          }
+          $status = [ordered]@{
+            format = 1
+            workflow = 'Verify Windows package'
+            commit = $env:GITHUB_SHA
+            runId = $env:GITHUB_RUN_ID
+            runAttempt = $env:GITHUB_RUN_ATTEMPT
+            recordedAt = [DateTime]::UtcNow.ToString('o')
+            verificationOutcome = $env:VERIFICATION_OUTCOME
+            steps = $stepOutcomes
+            runnablePackagePublished = $false
+          }
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          $status | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath artifacts\Connector-Windows.verification.json -Encoding utf8
+          '## Windows package verification' >> $env:GITHUB_STEP_SUMMARY
+          '| Check | Outcome |' >> $env:GITHUB_STEP_SUMMARY
+          '| --- | --- |' >> $env:GITHUB_STEP_SUMMARY
+          foreach ($entry in $stepOutcomes.GetEnumerator()) { "| $($entry.Key) | $($entry.Value) |" >> $env:GITHUB_STEP_SUMMARY }
           if ($env:SCAN_OUTCOME -eq 'success') {
             'ClamAV scanned the exact development ZIP and extracted contents using current official databases. This unsigned build is not a signed release or a Chrome acceptance test.' >> $env:GITHUB_STEP_SUMMARY
-          } else {
+          } elseif ($env:SCAN_OUTCOME -eq 'failure') {
             'Antivirus verification failed. Inspect the scan report and step error. No clean verdict or browser acceptance is claimed.' >> $env:GITHUB_STEP_SUMMARY
+          } else {
+            'Antivirus verification did not finish. Check the step outcomes above; no clean verdict is available.' >> $env:GITHUB_STEP_SUMMARY
           }
-          'This workflow publishes verification reports and the package checksum only. It never publishes the unsigned runnable ZIP. Windows installation and updates require a release from Publish signed Windows release; if none is available, keep the existing installation.' >> $env:GITHUB_STEP_SUMMARY
-      - name: Save verification report and package checksum only
-        if: always() && (steps.antivirus.outcome == 'success' || steps.antivirus.outcome == 'failure')
+          'Download Windows-package-verification below for the status JSON and any completed checksum or scan report. This workflow never publishes the unsigned runnable ZIP. Windows installation and updates require a release from Publish signed Windows release; if none is available, keep the existing installation.' >> $env:GITHUB_STEP_SUMMARY
+      - name: Save verification diagnostics only
+        if: always()
         uses: actions/upload-artifact@v6
         with:
           name: Windows-package-verification
           path: |
+            artifacts/Connector-Windows.verification.json
             artifacts/Connector-Windows.zip.sha256
             artifacts/Connector-Windows.scan.json
           if-no-files-found: error

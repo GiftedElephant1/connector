@@ -32,10 +32,12 @@ jobs:
       SIGNING_CERTIFICATE_PROFILE: ${{ vars.SIGNING_CERTIFICATE_PROFILE }}
     steps:
       - uses: actions/checkout@v5
+        id: checkout
         with:
           persist-credentials: false
 
       - name: Validate release and signing configuration before signing
+        id: configuration
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -73,11 +75,13 @@ jobs:
           }
 
       - uses: actions/setup-node@v5
+        id: node
         with:
           node-version: 24
           cache: npm
 
       - name: Check native launcher and updater
+        id: native-checks
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -93,10 +97,14 @@ jobs:
           & .\tests\windows-verify-signatures.ps1
 
       - run: npm ci
+        id: dependencies
       - run: npm test
+        id: tests
       - run: npm run build
+        id: build
 
       - name: Stage distribution with signed-script execution policy
+        id: stage
         shell: pwsh
         run: |
           node scripts/package-windows.mjs --stage "$env:RUNNER_TEMP\connector-signing-stage"
@@ -104,6 +112,7 @@ jobs:
           New-Item -ItemType Directory -Path reports -Force | Out-Null
 
       - name: Authenticate to the publisher signing account
+        id: signing-login
         uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
@@ -111,6 +120,7 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Sign staged Windows launchers and PowerShell scripts
+        id: sign
         uses: azure/artifact-signing-action@v2
         with:
           endpoint: ${{ vars.SIGNING_ENDPOINT }}
@@ -129,6 +139,7 @@ jobs:
           cache-dependencies: false
 
       - name: Verify trusted signatures and package the exact signed files
+        id: signatures
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -147,6 +158,7 @@ jobs:
           }
 
       - name: Verify extracted build and account-preserving update
+        id: extracted-package
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -164,16 +176,82 @@ jobs:
         run: |
           "day=$([DateTime]::UtcNow.ToString('yyyy-MM-dd'))" >> $env:GITHUB_OUTPUT
       - name: Restore official antivirus database cache
+        id: antivirus-cache
         uses: actions/cache@v5
         with:
           path: ${{ runner.temp }}\connector-clamav-databases
           key: clamav-official-1.5.4-${{ runner.os }}-${{ steps.antivirus-cache-day.outputs.day }}
           restore-keys: clamav-official-1.5.4-${{ runner.os }}-
       - name: Scan the release ZIP with ClamAV
+        id: antivirus
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           & .\.github\scripts\scan-windows-package.ps1 -PackagePath artifacts\Connector-Windows.zip -ReportPath reports\windows-antivirus-scan.json -DatabasePath "$env:RUNNER_TEMP\connector-clamav-databases"
+
+      - name: Record signed release verification status
+        if: always()
+        shell: pwsh
+        env:
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          CONFIGURATION_OUTCOME: ${{ steps.configuration.outcome }}
+          NODE_OUTCOME: ${{ steps.node.outcome }}
+          NATIVE_CHECKS_OUTCOME: ${{ steps.native-checks.outcome }}
+          DEPENDENCIES_OUTCOME: ${{ steps.dependencies.outcome }}
+          TESTS_OUTCOME: ${{ steps.tests.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          STAGE_OUTCOME: ${{ steps.stage.outcome }}
+          SIGNING_LOGIN_OUTCOME: ${{ steps.signing-login.outcome }}
+          SIGN_OUTCOME: ${{ steps.sign.outcome }}
+          SIGNATURES_OUTCOME: ${{ steps.signatures.outcome }}
+          EXTRACTED_PACKAGE_OUTCOME: ${{ steps.extracted-package.outcome }}
+          ANTIVIRUS_CACHE_DAY_OUTCOME: ${{ steps.antivirus-cache-day.outcome }}
+          ANTIVIRUS_CACHE_OUTCOME: ${{ steps.antivirus-cache.outcome }}
+          SCAN_OUTCOME: ${{ steps.antivirus.outcome }}
+          VERIFICATION_OUTCOME: ${{ job.status }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stepOutcomes = [ordered]@{
+            checkout = $env:CHECKOUT_OUTCOME
+            configuration = $env:CONFIGURATION_OUTCOME
+            node = $env:NODE_OUTCOME
+            nativeChecks = $env:NATIVE_CHECKS_OUTCOME
+            dependencies = $env:DEPENDENCIES_OUTCOME
+            tests = $env:TESTS_OUTCOME
+            build = $env:BUILD_OUTCOME
+            stage = $env:STAGE_OUTCOME
+            signingLogin = $env:SIGNING_LOGIN_OUTCOME
+            signing = $env:SIGN_OUTCOME
+            signatures = $env:SIGNATURES_OUTCOME
+            extractedPackage = $env:EXTRACTED_PACKAGE_OUTCOME
+            antivirusCacheDay = $env:ANTIVIRUS_CACHE_DAY_OUTCOME
+            antivirusCache = $env:ANTIVIRUS_CACHE_OUTCOME
+            antivirus = $env:SCAN_OUTCOME
+          }
+          foreach ($key in @($stepOutcomes.Keys)) {
+            if ($stepOutcomes[$key] -notin @('success', 'failure', 'cancelled', 'skipped')) { $stepOutcomes[$key] = 'not_run' }
+          }
+          $missingSigningVariables = @('AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID', 'SIGNING_ENDPOINT', 'SIGNING_ACCOUNT', 'SIGNING_CERTIFICATE_PROFILE') | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) }
+          $status = [ordered]@{
+            format = 1
+            workflow = 'Publish signed Windows release'
+            commit = $env:GITHUB_SHA
+            runId = $env:GITHUB_RUN_ID
+            runAttempt = $env:GITHUB_RUN_ATTEMPT
+            recordedAt = [DateTime]::UtcNow.ToString('o')
+            reportStage = 'pre-publication verification'
+            verificationOutcome = $env:VERIFICATION_OUTCOME
+            missingSigningVariables = @($missingSigningVariables)
+            steps = $stepOutcomes
+          }
+          New-Item -ItemType Directory -Path reports -Force | Out-Null
+          $status | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath reports\windows-release-status.json -Encoding utf8
+          '## Signed Windows release verification' >> $env:GITHUB_STEP_SUMMARY
+          '| Check | Outcome |' >> $env:GITHUB_STEP_SUMMARY
+          '| --- | --- |' >> $env:GITHUB_STEP_SUMMARY
+          foreach ($entry in $stepOutcomes.GetEnumerator()) { "| $($entry.Key) | $($entry.Value) |" >> $env:GITHUB_STEP_SUMMARY }
+          if ($missingSigningVariables.Count) { "Missing repository Actions variables: $($missingSigningVariables -join ', '). Complete docs/windows-signing.md before publishing." >> $env:GITHUB_STEP_SUMMARY }
+          'Download Windows-signed-release-reports for the status JSON and any completed verification reports. The runnable release is published only after all required signing, build and antivirus checks pass.' >> $env:GITHUB_STEP_SUMMARY
 
       - name: Save verification reports
         if: always()

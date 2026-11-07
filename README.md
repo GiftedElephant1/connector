@@ -2,6 +2,8 @@
 
 A self-hosted delivery connector for Claude, ChatGPT, Gemini, Cursor, Grok Bot, and other clients. Claude, ChatGPT, Gemini, and Cursor use MCP; the Grok Bot setup card prepares instructions for calling the HTTPS API from its cloud computer. Create and manage your content in your AI app; Connector authenticates your accounts and executes supported official platform API actions.
 
+**For an AI assistant helping you install, configure, or use Connector:** read the [LLM setup and use guide](docs/llm-setup-and-use.md). It is also included in the Windows package's `docs` folder.
+
 The dashboard guides you through setup, account connections, and AI-agent access. The MCP tools handle publishing, scheduling, supported comment/DM replies, analytics, campaign operations, conversion uploads, and spend reports. Each platform exposes a different subset; discover its exact actions with `list_actions`. Unsupported API features are not simulated.
 
 **Google Workspace** has a separate multi-account area: connect several Google accounts, then give each AI agent an explicit set of accounts and apps. **Obsidian** reads and writes Markdown notes in the vault on your PC that Obsidian Sync keeps up to date.
@@ -12,7 +14,7 @@ The dashboard guides you through setup, account connections, and AI-agent access
 
 ## Start on your Windows PC — no terminal commands
 
-1. Open [Windows releases](https://github.com/GiftedElephant1/connector/releases) and choose **Connector-Windows.zip** from a signed release, then choose **Extract All**. If no signed release is published yet, keep your existing installation. The **Package Windows app** workflow publishes verification reports only. Source archives and older unsigned development downloads are not a replacement for a blocked download. See [Windows download protection and signing](docs/windows-signing.md).
+1. Open [Windows releases](https://github.com/GiftedElephant1/connector/releases) and choose **Connector-Windows.zip** from a signed release, then choose **Extract All**. If no signed release is published yet, keep your existing installation. The **Verify Windows package** workflow publishes diagnostic reports, including failed build status; the Windows download comes from **Publish signed Windows release**. Source archives and older unsigned development downloads are not a replacement for a blocked download. See [Windows download protection and signing](docs/windows-signing.md).
 2. Double-click **Start Connector**. Its progress window downloads a verified private runtime, installs dependencies, prepares storage, and opens the dashboard. Once startup finishes, click **Hide to tray** or the window's **X** to leave Connector running in the Windows notification area beside the clock.
 3. Choose your workspace password in the welcome screen.
 4. Open **Settings**, follow the link to ngrok's **Your Authtoken** page, paste its token, and click **Start public access**. No separate ngrok installation or command is needed. Connector saves the token encrypted and reconnects on later launches until you stop public access.
