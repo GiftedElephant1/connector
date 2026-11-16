@@ -105,6 +105,46 @@ function observeSetupRequests(page: Page) {
   };
 }
 
+test("reconnection help copies a separate OAuth URL without resetting accounts or existing approvals", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  let connectorUrl = url;
+  let recoveryUrl = `${url}/recovery`;
+  await page.route("**/api/ai/connectors", route => route.fulfill({ json: { url: connectorUrl, recoveryUrl, grants: [existingGrant], clients: [] } }));
+  await login(page);
+  const assertReadOnlySetup = observeSetupRequests(page);
+  await page.getByRole("button", { name: "AI connections", exact: true }).click();
+  await expect(page.locator(".ai-grant")).toContainText(existingGrant.clientName);
+  const existingApproval = await page.locator(".ai-grants").innerText();
+  const help = page.locator(".ai-connection-recovery");
+  const recoveryField = page.getByLabel("Recovery Connector URL", { exact: true });
+  await expect(recoveryField).toBeHidden();
+  await page.getByText("Trouble reconnecting?", { exact: true }).click();
+  await expect(help).toContainText("invalid_client");
+  await expect(help).toContainText("Add a new custom connector");
+  await expect(help).toContainText("Choose OAuth");
+  await expect(help).toContainText("Your saved accounts and working AI connections stay connected");
+  await expect(help).toContainText("copying it does not grant access");
+  await expect(recoveryField).toHaveValue(recoveryUrl);
+  await page.getByRole("button", { name: "Copy Recovery Connector URL", exact: true }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(recoveryUrl);
+  await expect(page.getByLabel("Connector URL", { exact: true })).toHaveValue(connectorUrl);
+  connectorUrl = "https://updated-connector.example/mcp";
+  recoveryUrl = `${connectorUrl}/recovery`;
+  await page.getByRole("button", { name: "Refresh AI connections", exact: true }).click();
+  await expect(recoveryField).toHaveValue(recoveryUrl);
+  await page.getByRole("button", { name: "Copy Recovery Connector URL", exact: true }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(recoveryUrl);
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(await page.locator(".ai-grants").innerText()).toBe(existingApproval);
+  connectorUrl = "http://127.0.0.1:3000/mcp";
+  recoveryUrl = `${connectorUrl}/recovery`;
+  await page.getByRole("button", { name: "Refresh AI connections", exact: true }).click();
+  await expect(recoveryField).toHaveCount(0);
+  await expect(help).toContainText("Turn on public HTTPS access");
+  assertReadOnlySetup();
+});
+
 test("Gemini guides website and mobile setup without granting access, changing existing connections, or requesting API secrets", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await context.route("https://gemini.google.com/**", route => route.fulfill({ contentType: "text/html", body: "Gemini setup placeholder" }));

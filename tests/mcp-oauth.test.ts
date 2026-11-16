@@ -527,3 +527,126 @@ test('registration pressure evicts only the oldest inactive approved client, pre
   const saved = f.store.readSetting<{ clients: unknown[] }>('mcp.oauth.v1')!;
   assert.equal(saved.clients.length, 250);
 });
+
+function recoveryRequest(f: Fixture, client = f.oauth.register({ client_name: 'Recovery client', redirect_uris: ['https://ai.example/recovery-callback'] }, true)) {
+  const input = { client_id: client.client_id, redirect_uri: client.redirect_uris[0], response_type: 'code', code_challenge: challenge, code_challenge_method: 'S256', resource: f.oauth.resource(true), state: 'recovery-state' };
+  const id = new URL(f.oauth.start(input, true)).searchParams.get('authorize')!;
+  return { client, input, id };
+}
+function recoveryCode(f: Fixture, request: ReturnType<typeof recoveryRequest>) {
+  const consent = f.oauth.consent(request.id, f.session);
+  assert.equal(consent.resource, f.oauth.resource(true));
+  const callback = new URL(f.oauth.approve(request.id, f.session, { approve: true, platforms: true }).redirectUrl);
+  assert.equal(callback.origin + callback.pathname, request.client.redirect_uris[0]);
+  assert.equal(callback.searchParams.get('state'), 'recovery-state');
+  assert.equal(callback.searchParams.get('iss'), f.oauth.issuer(true));
+  return { grant_type: 'authorization_code', client_id: request.client.client_id, redirect_uri: request.client.redirect_uris[0], code: callback.searchParams.get('code')!, code_verifier: verifier };
+}
+
+test('recovery discovery supplies a distinct issuer and preserves standard discovery', t => {
+  const f = fixture(t);
+  assert.equal(f.oauth.resource(true), 'https://connector.example/mcp/recovery');
+  assert.equal(f.oauth.metadataUrl(true), 'https://connector.example/.well-known/oauth-protected-resource/mcp/recovery');
+  assert.deepEqual(f.oauth.resourceMetadata(true).authorization_servers, ['https://connector.example/oauth/recovery']);
+  assert.deepEqual(f.oauth.resourceMetadata().authorization_servers, ['https://connector.example']);
+  assert.equal(f.oauth.serverMetadata(true).issuer, 'https://connector.example/oauth/recovery');
+  for (const [name, route] of [['authorization_endpoint', 'authorize'], ['token_endpoint', 'token'], ['registration_endpoint', 'register'], ['revocation_endpoint', 'revoke']] as const) {
+    assert.equal(f.oauth.serverMetadata(true)[name], `https://connector.example/oauth/recovery/${route}`);
+    assert.equal(f.oauth.serverMetadata()[name], `https://connector.example/oauth/${route}`);
+  }
+  assert.equal(f.oauth.connections().recoveryUrl, f.oauth.resource(true));
+});
+
+test('recovery consent and tokens coexist with legacy access through cleanup and service recreation', t => {
+  const f = fixture(t);
+  const standard = exchange(f);
+  const standardPending = pending(f);
+  const recovery = recoveryRequest(f);
+  assert.equal(f.oauth.connections().clients.length, 2);
+  assert.doesNotThrow(() => f.oauth.consent(standardPending, f.session));
+  const recovered = f.oauth.token(recoveryCode(f, recovery), undefined, true);
+  const recoveredId = f.oauth.assertCurrent(recovered.access_token, f.oauth.resource(true)).grantId;
+  const restarted = new McpOAuth(f.config, f.store, f.workspace);
+  assert.ok(restarted.authenticate(standard.access_token));
+  assert.ok(restarted.authenticate(recovered.access_token, restarted.resource(true)));
+  assert.equal(restarted.connections().grants.length, 2);
+  restarted.setOutbound(recoveredId, true);
+  assert.equal(restarted.assertCurrent(recovered.access_token, restarted.resource(true)).outbound, true);
+  assert.equal(restarted.assertCurrent(standard.access_token).outbound, false);
+  restarted.recordUse(recovered.access_token, restarted.resource(true));
+  assert.ok(restarted.connections().grants.find(item => item.id === recoveredId)?.lastUsedAt);
+  restarted.resetClient(recovery.client.client_id, true);
+  assert.equal(restarted.authenticate(recovered.access_token, restarted.resource(true)), null);
+  assert.ok(restarted.authenticate(standard.access_token));
+  assert.doesNotThrow(() => restarted.consent(standardPending, f.session));
+});
+
+test('recovery rejects old and unknown client IDs and binds codes, tokens, refresh and revocation to their route', t => {
+  const f = fixture(t);
+  const standard = exchange(f);
+  const standardCode = code(f);
+  const recovery = recoveryRequest(f);
+  for (const input of [
+    { ...recovery.input, client_id: f.client.client_id, redirect_uri: f.client.redirect_uris[0] },
+    { ...recovery.input, client_id: `mcp_${'x'.repeat(43)}` },
+  ]) assert.throws(() => f.oauth.start(input, true), oauthError('invalid_client'));
+  assert.throws(() => f.oauth.start({ ...recovery.input, resource: f.oauth.resource() }), oauthError('invalid_client'));
+  assert.throws(() => f.oauth.start({ ...recovery.input, resource: f.oauth.resource() }, true), oauthError('invalid_target'));
+  assert.throws(() => f.oauth.start({ ...recovery.input, code_challenge_method: 'plain' }, true), oauthError('invalid_request'));
+  assert.throws(() => f.oauth.start({ ...recovery.input, redirect_uri: 'https://unregistered.example/callback' }, true), oauthError('invalid_redirect_uri'));
+  const exchangeBody = recoveryCode(f, recovery);
+  assert.throws(() => f.oauth.token(exchangeBody), oauthError('invalid_client'));
+  assert.throws(() => f.oauth.token({ ...exchangeBody, resource: f.oauth.resource() }, undefined, true), oauthError('invalid_target'));
+  assert.throws(() => f.oauth.token({ ...exchangeBody, code: standardCode }, undefined, true), oauthError('invalid_grant'));
+  assert.throws(() => f.oauth.token({ ...exchangeBody, code_verifier: 'w'.repeat(64) }, undefined, true), oauthError('invalid_grant'));
+  const recovered = f.oauth.token(exchangeBody, undefined, true);
+  assert.equal(f.oauth.authenticate(recovered.access_token), null);
+  assert.equal(f.oauth.authenticate(standard.access_token, f.oauth.resource(true)), null);
+  assert.throws(() => f.oauth.recordUse(recovered.access_token), /expired or was revoked/);
+  assert.throws(() => f.oauth.token({ client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: standard.refresh_token }, undefined, true), oauthError('invalid_client'));
+  assert.throws(() => f.oauth.token({ client_id: recovery.client.client_id, grant_type: 'refresh_token', refresh_token: recovered.refresh_token }), oauthError('invalid_client'));
+  assert.throws(() => f.oauth.token({ client_id: recovery.client.client_id, grant_type: 'refresh_token', refresh_token: standard.refresh_token }, undefined, true), oauthError('invalid_grant'));
+  const refreshed = f.oauth.token({ client_id: recovery.client.client_id, grant_type: 'refresh_token', refresh_token: recovered.refresh_token }, undefined, true);
+  assert.ok(f.oauth.authenticate(refreshed.access_token, f.oauth.resource(true)));
+  assert.throws(() => f.oauth.revoke({ client_id: recovery.client.client_id, token: refreshed.refresh_token }), oauthError('invalid_client'));
+  f.oauth.revoke({ client_id: recovery.client.client_id, token: standard.refresh_token }, undefined, true);
+  assert.ok(f.oauth.authenticate(standard.access_token));
+  f.oauth.revoke({ client_id: recovery.client.client_id, token: refreshed.refresh_token }, undefined, true);
+  assert.equal(f.oauth.authenticate(refreshed.access_token, f.oauth.resource(true)), null);
+  assert.ok(f.oauth.authenticate(standard.access_token));
+  assert.equal(f.oauth.connections().clients.length, 2, 'unknown IDs never create registrations');
+});
+
+test('approved recovery clients remain available after expiry and new origins invalidate both routes permanently', t => {
+  const f = fixture(t); let now = Date.now(); t.mock.method(Date, 'now', () => now);
+  const first = recoveryRequest(f);
+  const expired = f.oauth.token(recoveryCode(f, first), undefined, true);
+  now += 31 * 24 * 60 * 60_000;
+  assert.equal(f.oauth.authenticate(expired.access_token, f.oauth.resource(true)), null);
+  f.session = f.store.createSession();
+  const next = recoveryRequest(f, first.client);
+  const recovered = f.oauth.token(recoveryCode(f, next), undefined, true);
+  // The never-approved initial standard client expired independently.
+  f.client = f.oauth.register({ redirect_uris: ['https://ai.example/callback'] });
+  const standard = exchange(f);
+  const recoveryPending = recoveryRequest(f, first.client);
+  const previousOrigin = f.config.origin;
+  f.config.origin = 'https://new-connector.example';
+  assert.equal(f.oauth.authenticate(standard.access_token), null);
+  assert.equal(f.oauth.authenticate(recovered.access_token, f.oauth.resource(true)), null);
+  assert.throws(() => f.oauth.consent(recoveryPending.id, f.session), /expired/);
+  f.config.origin = previousOrigin;
+  assert.equal(f.oauth.authenticate(standard.access_token), null);
+  assert.equal(f.oauth.authenticate(recovered.access_token, f.oauth.resource(true)), null);
+  assert.equal(f.oauth.connections().grants.length, 0);
+  assert.doesNotThrow(() => recoveryRequest(f, first.client), 'retained registration may request fresh approval after an origin change');
+});
+
+test('recovery cannot expand the global registration capacity', t => {
+  const f = fixture(t);
+  const standard = exchange(f);
+  for (let index = 0; index < 249; index++) f.oauth.register({ redirect_uris: [`https://ai.example/callback/${index}`] }, index % 2 === 0);
+  assert.throws(() => f.oauth.register({ redirect_uris: ['https://ai.example/overflow'] }, true), oauthError('temporarily_unavailable'));
+  assert.throws(() => f.oauth.register({ redirect_uris: ['https://ai.example/overflow'] }), oauthError('temporarily_unavailable'));
+  assert.ok(f.oauth.authenticate(standard.access_token));
+});

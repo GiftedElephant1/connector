@@ -16,7 +16,7 @@ const SCOPES = ['mcp:tools', 'offline_access'];
 const random = () => randomBytes(32).toString('base64url');
 const same = (left: string, right: string) => timingSafeEqual(Buffer.from(hash(left)), Buffer.from(hash(right)));
 type AuthMethod = 'none' | 'client_secret_post' | 'client_secret_basic';
-interface Client { id: string; name: string; redirects: string[]; method: AuthMethod; secretHash?: string; created: number; refresh: boolean; approvedAt?: number }
+interface Client { id: string; name: string; redirects: string[]; method: AuthMethod; secretHash?: string; created: number; refresh: boolean; approvedAt?: number; recovery?: true }
 interface RequestBinding { clientId: string; redirectUri: string; challenge: string; state?: string; scope: string; issuer: string; resource: string }
 interface Pending extends RequestBinding { id: string; expires: number; sessionHash?: string }
 interface Code extends RequestBinding { hash: string; expires: number; grantId: string; used?: boolean }
@@ -60,14 +60,21 @@ function callback(binding: RequestBinding, params: Record<string, string>): stri
 /** Small, local authorization server. Only the signed-in owner may approve access. */
 export class McpOAuth {
   constructor(public readonly config: AppConfig, private readonly store: Store, private readonly workspace: WorkspaceAccounts) {}
+  // A second, fixed issuer lets clients register afresh when their backend keeps
+  // an obsolete registration for the original issuer. Neither route restores
+  // unknown client IDs, and the original route keeps its existing approvals.
+  issuer(recovery = false) { return `${this.config.origin}${recovery ? '/oauth/recovery' : ''}`; }
+  private validBinding(binding: { issuer: string; resource: string }): boolean {
+    return [false, true].some(recovery => binding.issuer === this.issuer(recovery) && binding.resource === this.resource(recovery));
+  }
   private state(): State {
     const saved = this.store.readSetting<State>(SETTING) || { clients: [], pending: [], codes: [], grants: [], access: [], refresh: [] };
     const countBefore = Object.values(saved).reduce((total, records) => total + records.length, 0);
     const now = Date.now();
     // Keep consumed refresh tokens until the grant expires so reuse revokes their family.
-    saved.pending = saved.pending.filter(item => item.expires > now && item.issuer === this.config.origin && item.resource === this.resource());
+    saved.pending = saved.pending.filter(item => item.expires > now && this.validBinding(item));
     saved.codes = saved.codes.filter(item => item.expires > now);
-    saved.grants = saved.grants.filter(item => item.expires > now && !item.revoked && item.issuer === this.config.origin && item.resource === this.resource() && (!item.workspaceProfileId || this.workspace.getAgent(item.workspaceProfileId)));
+    saved.grants = saved.grants.filter(item => item.expires > now && !item.revoked && this.validBinding(item) && (!item.workspaceProfileId || this.workspace.getAgent(item.workspaceProfileId)));
     const grants = new Set(saved.grants.map(item => item.id));
     saved.codes = saved.codes.filter(item => grants.has(item.grantId));
     saved.access = saved.access.filter(item => item.expires > now && grants.has(item.grantId));
@@ -83,16 +90,16 @@ export class McpOAuth {
     return saved;
   }
   private save(state: State) { this.store.writeSetting(SETTING, state); }
-  resource() { return `${this.config.origin}/mcp`; }
-  metadataUrl() { return `${this.config.origin}/.well-known/oauth-protected-resource/mcp`; }
-  resourceMetadata() { return { resource: this.resource(), authorization_servers: [this.config.origin], scopes_supported: SCOPES, bearer_methods_supported: ['header'], resource_name: 'Connector tools' }; }
-  serverMetadata() {
-    const origin = this.config.origin;
-    return { issuer: origin, authorization_endpoint: `${origin}/oauth/authorize`, token_endpoint: `${origin}/oauth/token`, registration_endpoint: `${origin}/oauth/register`, revocation_endpoint: `${origin}/oauth/revoke`,
+  resource(recovery = false) { return `${this.config.origin}/mcp${recovery ? '/recovery' : ''}`; }
+  metadataUrl(recovery = false) { return `${this.config.origin}/.well-known/oauth-protected-resource/mcp${recovery ? '/recovery' : ''}`; }
+  resourceMetadata(recovery = false) { return { resource: this.resource(recovery), authorization_servers: [this.issuer(recovery)], scopes_supported: SCOPES, bearer_methods_supported: ['header'], resource_name: 'Connector tools' }; }
+  serverMetadata(recovery = false) {
+    const endpoint = `${this.config.origin}/oauth${recovery ? '/recovery' : ''}`;
+    return { issuer: this.issuer(recovery), authorization_endpoint: `${endpoint}/authorize`, token_endpoint: `${endpoint}/token`, registration_endpoint: `${endpoint}/register`, revocation_endpoint: `${endpoint}/revoke`,
       response_types_supported: ['code'], grant_types_supported: ['authorization_code', 'refresh_token'], code_challenge_methods_supported: ['S256'], token_endpoint_auth_methods_supported: ['none', 'client_secret_post', 'client_secret_basic'],
       revocation_endpoint_auth_methods_supported: ['none', 'client_secret_post', 'client_secret_basic'], scopes_supported: SCOPES, authorization_response_iss_parameter_supported: true, client_id_metadata_document_supported: false };
   }
-  register(input: unknown) {
+  register(input: unknown, recovery = false) {
     const body = object(input);
     if (!Array.isArray(body.redirect_uris) || body.redirect_uris.length < 1 || body.redirect_uris.length > 10) throw new OAuthError('invalid_client_metadata', 'Register between one and ten redirect URIs.');
     const redirects = [...new Set(body.redirect_uris.map(redirectUri))];
@@ -113,32 +120,32 @@ export class McpOAuth {
     }
     const clientSecret = method === 'none' ? undefined : random();
     const client: Client = { id: `mcp_${random()}`, name: body.client_name === undefined ? 'Unnamed AI client' : value(body.client_name, 'client_name', 100), redirects, method,
-      ...(clientSecret ? { secretHash: hash(clientSecret) } : {}), created: Date.now(), refresh: grantTypes.includes('refresh_token') };
+      ...(clientSecret ? { secretHash: hash(clientSecret) } : {}), ...(recovery ? { recovery: true as const } : {}), created: Date.now(), refresh: grantTypes.includes('refresh_token') };
     state.clients.push(client); this.save(state);
     return { client_id: client.id, client_id_issued_at: Math.floor(client.created / 1000), ...(clientSecret ? { client_secret: clientSecret, client_secret_expires_at: 0 } : {}), client_name: client.name,
       redirect_uris: redirects, token_endpoint_auth_method: method, response_types: ['code'], grant_types: client.refresh ? ['authorization_code', 'refresh_token'] : ['authorization_code'], scope: scope(body.scope) };
   }
-  start(input: unknown): string {
+  start(input: unknown, recovery = false): string {
     const body = object(input);
     const state = this.state();
     const clientId = value(body.client_id, 'client_id', 256);
-    const client = state.clients.find(item => item.id === clientId);
+    const client = state.clients.find(item => item.id === clientId && (item.recovery === true) === recovery);
     if (!client) throw new OAuthError('invalid_client', 'Register this AI client before connecting.');
     const redirect = redirectUri(body.redirect_uri);
     if (!client.redirects.includes(redirect)) throw new OAuthError('invalid_redirect_uri', 'The redirect URI does not exactly match this client registration.');
     if (body.response_type !== 'code') throw new OAuthError('unsupported_response_type', 'Only authorization code responses are supported.');
     if (body.code_challenge_method !== 'S256' || typeof body.code_challenge !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(body.code_challenge)) throw new OAuthError('invalid_request', 'A SHA-256 PKCE code challenge is required.');
-    if (body.resource !== undefined && body.resource !== this.resource()) throw new OAuthError('invalid_target', 'This authorization is only for this Connector MCP endpoint.');
+    if (body.resource !== undefined && body.resource !== this.resource(recovery)) throw new OAuthError('invalid_target', 'This authorization is only for this Connector MCP endpoint.');
     if (body.response_mode !== undefined && body.response_mode !== 'query') throw new OAuthError('invalid_request', 'Only query authorization responses are supported.');
     if (state.pending.length >= 100) throw new OAuthError('temporarily_unavailable', 'Too many pending connection requests. Try again shortly.', 503);
     const pending: Pending = { id: random(), clientId, redirectUri: redirect, challenge: body.code_challenge, ...(body.state !== undefined ? { state: value(body.state, 'state', 2048) } : {}), scope: scope(body.scope),
-      issuer: this.config.origin, resource: this.resource(), expires: Date.now() + PENDING_MS };
+      issuer: this.issuer(recovery), resource: this.resource(recovery), expires: Date.now() + PENDING_MS };
     state.pending.push(pending); this.save(state);
     return `${this.config.origin}/?authorize=${pending.id}`;
   }
   private pending(state: State, id: string, session: string): Pending {
     if (!this.store.validSession(session)) throw new ProviderError('Sign in to approve this AI connection.', 401);
-    const pending = state.pending.find(item => item.id === id && item.issuer === this.config.origin && item.resource === this.resource());
+    const pending = state.pending.find(item => item.id === id && this.validBinding(item));
     if (!pending) throw new ProviderError('This AI connection request expired or has already been handled. Start the connection again.', 404);
     if (pending.sessionHash && !same(pending.sessionHash, hash(session))) throw new ProviderError('This connection request belongs to another browser session. Start the connection again.', 403);
     return pending;
@@ -174,7 +181,7 @@ export class McpOAuth {
     state.pending = state.pending.filter(item => item.id !== id); this.save(state);
     return { redirectUrl: callback(pending, { code }) };
   }
-  private client(state: State, body: Record<string, unknown>, authorization?: string): Client {
+  private client(state: State, body: Record<string, unknown>, authorization?: string, recovery = false): Client {
     let clientId = body.client_id;
     let secret = body.client_secret;
     let basic = false;
@@ -190,13 +197,13 @@ export class McpOAuth {
       } catch { throw new OAuthError('invalid_client', 'Invalid client authentication.', 401); }
       basic = true;
     }
-    const client = typeof clientId === 'string' ? state.clients.find(item => item.id === clientId) : undefined;
+    const client = typeof clientId === 'string' ? state.clients.find(item => item.id === clientId && (item.recovery === true) === recovery) : undefined;
     if (!client || (client.method === 'none' && (basic || secret !== undefined)) || (client.method === 'client_secret_basic' && !basic) || (client.method === 'client_secret_post' && basic) ||
       (client.method !== 'none' && (typeof secret !== 'string' || secret.length > 256 || !same(hash(secret), client.secretHash || '')))) throw new OAuthError('invalid_client', 'Invalid client authentication.', 401);
     return client;
   }
   private liveGrant(state: State, id: string): Grant | undefined {
-    const grant = state.grants.find(item => item.id === id && !item.revoked && item.expires > Date.now() && item.issuer === this.config.origin && item.resource === this.resource());
+    const grant = state.grants.find(item => item.id === id && !item.revoked && item.expires > Date.now() && this.validBinding(item));
     if (grant?.workspaceProfileId && !this.workspace.getAgent(grant.workspaceProfileId)) return undefined;
     return grant;
   }
@@ -208,16 +215,16 @@ export class McpOAuth {
     if (refreshToken) state.refresh.push({ hash: hash(refreshToken), grantId: grant.id, expires: grant.expires });
     return { access_token: accessToken, token_type: 'Bearer', expires_in: Math.floor(Math.min(ACCESS_MS, grant.expires - Date.now()) / 1000), scope: grant.scope, ...(refreshToken ? { refresh_token: refreshToken } : {}) };
   }
-  token(input: unknown, authorization?: string) {
+  token(input: unknown, authorization?: string, recovery = false) {
     const body = object(input);
     const state = this.state();
-    const client = this.client(state, body, authorization);
-    // Legacy MCP clients may omit resource; every code and token is still bound to this one resource.
-    if (body.resource !== undefined && body.resource !== this.resource()) throw new OAuthError('invalid_target', 'This token is only for this Connector MCP endpoint.');
+    const client = this.client(state, body, authorization, recovery);
+    // Clients may omit resource; codes and refresh tokens still belong to this exact issuer/resource pair.
+    if (body.resource !== undefined && body.resource !== this.resource(recovery)) throw new OAuthError('invalid_target', 'This token is only for this Connector MCP endpoint.');
     let grant: Grant | undefined;
     if (body.grant_type === 'authorization_code') {
       const code = state.codes.find(item => item.hash === hash(value(body.code, 'code', 256)));
-      if (!code || code.clientId !== client.id || code.redirectUri !== body.redirect_uri || code.issuer !== this.config.origin || code.resource !== this.resource()) throw new OAuthError('invalid_grant', 'The authorization code is invalid or expired.');
+      if (!code || code.clientId !== client.id || code.redirectUri !== body.redirect_uri || code.issuer !== this.issuer(recovery) || code.resource !== this.resource(recovery)) throw new OAuthError('invalid_grant', 'The authorization code is invalid or expired.');
       const verifier = typeof body.code_verifier === 'string' && /^[A-Za-z0-9._~-]{43,128}$/.test(body.code_verifier) ? body.code_verifier : '';
       if (!verifier || !same(createHash('sha256').update(verifier).digest('base64url'), code.challenge)) throw new OAuthError('invalid_grant', 'The PKCE verifier is invalid.');
       if (code.used) { const old = state.grants.find(item => item.id === code.grantId); if (old) old.revoked = true; this.save(state); throw new OAuthError('invalid_grant', 'This authorization code has already been used.'); }
@@ -228,7 +235,7 @@ export class McpOAuth {
       if (!client.refresh) throw new OAuthError('unauthorized_client', 'This client is not registered for refresh tokens.');
       const token = state.refresh.find(item => item.hash === hash(value(body.refresh_token, 'refresh_token', 256)));
       const matchedGrant = token && state.grants.find(item => item.id === token.grantId);
-      if (!token || !matchedGrant || matchedGrant.clientId !== client.id) throw new OAuthError('invalid_grant', 'The refresh token is invalid or expired.');
+      if (!token || !matchedGrant || matchedGrant.clientId !== client.id || matchedGrant.issuer !== this.issuer(recovery) || matchedGrant.resource !== this.resource(recovery)) throw new OAuthError('invalid_grant', 'The refresh token is invalid or expired.');
       if (token.used) { matchedGrant.revoked = true; this.save(state); throw new OAuthError('invalid_grant', 'Refresh token reuse was detected. Connect this AI client again.'); }
       grant = this.liveGrant(state, token.grantId);
       if (!grant) throw new OAuthError('invalid_grant', 'This AI connection has expired or been revoked.');
@@ -238,38 +245,38 @@ export class McpOAuth {
     const response = this.issue(state, grant, client.refresh && grant.scope.split(' ').includes('offline_access'));
     this.save(state); return response;
   }
-  authenticate(token: string): McpAuthorization | null {
+  authenticate(token: string, expectedResource = this.resource()): McpAuthorization | null {
     if (!/^mcp_at_[A-Za-z0-9_-]{43}$/.test(token)) return null;
     const state = this.state();
     const access = state.access.find(item => item.hash === hash(token));
     const grant = access && this.liveGrant(state, access.grantId);
     // Existing approvals predate task delegation; absence must never expand access.
-    return grant ? { grantId: grant.id, platforms: grant.platforms, outbound: grant.outbound === true, ...(grant.workspaceProfileId ? { workspaceProfileId: grant.workspaceProfileId } : {}) } : null;
+    return grant && grant.resource === expectedResource ? { grantId: grant.id, platforms: grant.platforms, outbound: grant.outbound === true, ...(grant.workspaceProfileId ? { workspaceProfileId: grant.workspaceProfileId } : {}) } : null;
   }
-  assertCurrent(token: string): McpAuthorization {
-    const current = this.authenticate(token);
+  assertCurrent(token: string, expectedResource = this.resource()): McpAuthorization {
+    const current = this.authenticate(token, expectedResource);
     if (!current) throw new ProviderError('This AI connection expired or was revoked. Connect it again from your AI app.', 401);
     return current;
   }
   /** Record an actual successful tool call, never a connection probe or discovery. */
-  recordUse(token: string): void {
-    this.assertCurrent(token);
+  recordUse(token: string, expectedResource = this.resource()): void {
+    this.assertCurrent(token, expectedResource);
     const state = this.state();
     const access = state.access.find(item => item.hash === hash(token));
     const grant = access && this.liveGrant(state, access.grantId);
-    if (!grant) throw new ProviderError('This AI connection expired or was revoked. Connect it again from your AI app.', 401);
+    if (!grant || grant.resource !== expectedResource) throw new ProviderError('This AI connection expired or was revoked. Connect it again from your AI app.', 401);
     grant.lastUsed = Date.now(); this.save(state);
   }
-  revoke(input: unknown, authorization?: string) {
-    const body = object(input); const state = this.state(); const client = this.client(state, body, authorization);
+  revoke(input: unknown, authorization?: string, recovery = false) {
+    const body = object(input); const state = this.state(); const client = this.client(state, body, authorization, recovery);
     const tokenHash = hash(value(body.token, 'token', 256));
     const token = state.access.find(item => item.hash === tokenHash) || state.refresh.find(item => item.hash === tokenHash);
-    const grant = token && state.grants.find(item => item.id === token.grantId && item.clientId === client.id);
+    const grant = token && state.grants.find(item => item.id === token.grantId && item.clientId === client.id && item.issuer === this.issuer(recovery) && item.resource === this.resource(recovery));
     if (grant) { grant.revoked = true; this.save(state); }
   }
   connections() {
     const state = this.state();
-    return { url: this.resource(), clients: state.clients.map(client => ({ id: client.id, name: client.name, redirectUris: client.redirects, createdAt: new Date(client.created).toISOString(),
+    return { url: this.resource(), recoveryUrl: this.resource(true), clients: state.clients.map(client => ({ id: client.id, name: client.name, redirectUris: client.redirects, createdAt: new Date(client.created).toISOString(),
       grants: state.grants.filter(grant => grant.clientId === client.id).length, pendingRequests: state.pending.filter(pending => pending.clientId === client.id).length })),
       grants: state.grants.filter(item => !!this.liveGrant(state, item.id)).map(item => ({ id: item.id, clientId: item.clientId, clientName: item.clientName, redirectUri: item.redirectUri, createdAt: new Date(item.created).toISOString(), expiresAt: new Date(item.expires).toISOString(), ...(item.lastUsed !== undefined ? { lastUsedAt: new Date(item.lastUsed).toISOString() } : {}), platforms: item.platforms, outbound: item.outbound === true,
       ...(item.workspaceProfileId ? { workspaceProfileId: item.workspaceProfileId, workspaceProfileName: this.workspace.getAgent(item.workspaceProfileId)?.name } : {}) })) };
@@ -330,15 +337,21 @@ export function mountOAuthPublic(app: express.Express, oauth: McpOAuth) {
   router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); res.setHeader('Pragma', 'no-cache'); next(); });
   router.use(rateLimit({ windowMs: 60_000, limit: 90, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'temporarily_unavailable', error_description: 'Too many OAuth requests. Try again in a minute.' } }));
   router.use(express.json({ limit: '16kb' }), express.urlencoded({ extended: false, limit: '16kb', parameterLimit: 30 }));
-  router.post('/register', rateLimit({ windowMs: 60 * 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'temporarily_unavailable', error_description: 'Too many client registrations. Try again later.' } }), (req, res) => { res.status(201).json(oauth.register(req.body)); });
-  router.get('/authorize', (req, res) => { res.redirect(oauth.start(req.query)); });
-  router.post('/token', (req, res) => { res.json(oauth.token(req.body, req.headers.authorization)); });
-  router.post('/revoke', (req, res) => { oauth.revoke(req.body, req.headers.authorization); res.status(200).end(); });
+  const registrationLimit = rateLimit({ windowMs: 60 * 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'temporarily_unavailable', error_description: 'Too many client registrations. Try again later.' } });
+  for (const recovery of [false, true]) {
+    const prefix = recovery ? '/recovery' : '';
+    router.post(`${prefix}/register`, registrationLimit, (req, res) => { res.status(201).json(oauth.register(req.body, recovery)); });
+    router.get(`${prefix}/authorize`, (req, res) => { res.redirect(oauth.start(req.query, recovery)); });
+    router.post(`${prefix}/token`, (req, res) => { res.json(oauth.token(req.body, req.headers.authorization, recovery)); });
+    router.post(`${prefix}/revoke`, (req, res) => { oauth.revoke(req.body, req.headers.authorization, recovery); res.status(200).end(); });
+  }
   router.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => replyError(error, res));
   app.use('/oauth', router);
   const discovery = (_req: express.Request, res: express.Response, body: unknown) => { res.setHeader('Cache-Control', 'no-store'); res.setHeader('Access-Control-Allow-Origin', '*'); res.json(body); };
   for (const path of ['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp']) app.get(path, (req, res) => discovery(req, res, oauth.resourceMetadata()));
   app.get('/.well-known/oauth-authorization-server', (req, res) => discovery(req, res, oauth.serverMetadata()));
+  app.get('/.well-known/oauth-protected-resource/mcp/recovery', (req, res) => discovery(req, res, oauth.resourceMetadata(true)));
+  app.get('/.well-known/oauth-authorization-server/oauth/recovery', (req, res) => discovery(req, res, oauth.serverMetadata(true)));
 }
 /** Mount after the dashboard session and same-origin JSON request protection. */
 export function mountOAuthOwner(app: express.Express, oauth: McpOAuth, sessionToken: (request: express.Request) => string) {

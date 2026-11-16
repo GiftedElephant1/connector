@@ -100,20 +100,20 @@ async function fixture(t: TestContext, options: { execute?: ActionAdapter['execu
   const owner = (cookie: string, path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST') => request(path, { method,
     headers: { cookie, 'content-type': 'application/json', 'x-connector-request': '1' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   let rpcId = 0;
-  const rpc = (key: string, method = 'tools/list', params: unknown = {}) => request('/mcp', { method: 'POST',
+  const rpc = (key: string, method = 'tools/list', params: unknown = {}, path = '/mcp') => request(path, { method: 'POST',
     headers: { authorization: `Bearer ${key}`, accept: 'application/json, text/event-stream', 'content-type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method, params }) });
   return { config, store, base, localFetch, request, login, owner, rpc, accounts, work, personal, calls: () => calls };
 }
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 
-async function pending(f: Fixture, provider: MemoryOAuthClient) {
+async function pending(f: Fixture, provider: MemoryOAuthClient, path = '/mcp') {
   assert.ok(provider.authorizationUrl);
   const authorization = provider.authorizationUrl;
   assert.equal(authorization.origin, f.base);
   assert.equal(authorization.searchParams.get('code_challenge_method'), 'S256');
   assert.equal(authorization.searchParams.get('code_challenge'), createHash('sha256').update(provider.verifier).digest('base64url'));
-  assert.equal(authorization.searchParams.get('resource'), `${f.base}/mcp`);
+  assert.equal(authorization.searchParams.get('resource'), `${f.base}${path}`);
   const response = await f.localFetch(authorization);
   assert.equal(response.status, 302);
   const dashboard = new URL(response.headers.get('location')!, f.base);
@@ -123,8 +123,8 @@ async function pending(f: Fixture, provider: MemoryOAuthClient) {
   return id;
 }
 
-async function approve(f: Fixture, provider: MemoryOAuthClient, selection: { platforms: boolean; workspaceProfileId?: string }) {
-  const id = await pending(f, provider);
+async function approve(f: Fixture, provider: MemoryOAuthClient, selection: { platforms: boolean; workspaceProfileId?: string; outbound?: boolean }, path = '/mcp') {
+  const id = await pending(f, provider, path);
   assert.equal((await f.request(`/api/ai/authorize/${id}`)).status, 401, 'approval metadata requires owner login');
   const cookie = await f.login();
   const reviewResponse = await f.owner(cookie, `/api/ai/authorize/${id}`);
@@ -132,7 +132,7 @@ async function approve(f: Fixture, provider: MemoryOAuthClient, selection: { pla
   const review = await reviewResponse.json() as { clientName: string; redirectUri: string; resource: string; workspaceProfiles: unknown[] };
   assert.equal(review.clientName, provider.clientMetadata.client_name);
   assert.equal(review.redirectUri, provider.redirectUrl);
-  assert.equal(review.resource, `${f.base}/mcp`);
+  assert.equal(review.resource, `${f.base}${path}`);
   const approval = await f.owner(cookie, `/api/ai/authorize/${id}`, { approve: true, ...selection });
   assert.equal(approval.status, 200);
   const callback = new URL((await approval.json() as { redirectUrl: string }).redirectUrl);
@@ -143,15 +143,15 @@ async function approve(f: Fixture, provider: MemoryOAuthClient, selection: { pla
   return { code, cookie, id };
 }
 
-async function connect(t: TestContext, f: Fixture, selection = { platforms: true } as { platforms: boolean; workspaceProfileId?: string }, method: ClientMethod = 'none') {
-  const provider = new MemoryOAuthClient(method);
+async function connect(t: TestContext, f: Fixture, selection = { platforms: true } as { platforms: boolean; workspaceProfileId?: string; outbound?: boolean }, method: ClientMethod = 'none', path = '/mcp', cachedProvider?: MemoryOAuthClient) {
+  const provider = cachedProvider || new MemoryOAuthClient(method);
   const firstClient = new Client({ name: 'official-sdk-auth-test', version: '1.0.0' });
-  const firstTransport = new StreamableHTTPClientTransport(new URL(`${f.base}/mcp`), { authProvider: provider, fetch: f.localFetch });
+  const firstTransport = new StreamableHTTPClientTransport(new URL(`${f.base}${path}`), { authProvider: provider, fetch: f.localFetch });
   await assert.rejects(firstClient.connect(firstTransport), UnauthorizedError);
   await firstClient.close();
   assert.ok(provider.information?.client_id, 'SDK must perform dynamic client registration');
-  const approval = await approve(f, provider, selection);
-  const transport = new StreamableHTTPClientTransport(new URL(`${f.base}/mcp`), { authProvider: provider, fetch: f.localFetch });
+  const approval = await approve(f, provider, selection, path);
+  const transport = new StreamableHTTPClientTransport(new URL(`${f.base}${path}`), { authProvider: provider, fetch: f.localFetch });
   await transport.finishAuth(approval.code);
   assert.ok(provider.savedTokens?.access_token);
   assert.ok(provider.savedTokens?.refresh_token);
@@ -338,6 +338,68 @@ test('AI client reset requires owner authentication, same-origin protection and 
   assert.equal((await f.rpc(masterKey)).status, 200, 'reset leaves the separate shared key intact');
   assert.equal(f.store.credential('x')?.accessToken, platformKey);
   assert.equal((await f.owner(first.cookie, path)).status, 404);
+});
+
+test('recovery issuer replaces a cached missing registration through SDK discovery while preserving working connections', async t => {
+  const f = await fixture(t);
+  const stale = await connect(t, f);
+  const working = await connect(t, f);
+  const staleId = stale.provider.information!.client_id;
+  assert.equal(stale.provider.information!.issuer, f.base);
+  assert.equal((await f.owner(stale.cookie, `/api/ai/clients/${staleId}/reset`, { confirmed: true })).status, 200);
+  const oldBrowserRequest = await f.localFetch(stale.provider.authorizationUrl!);
+  assert.equal(oldBrowserRequest.status, 400);
+  assert.equal((await oldBrowserRequest.json() as { error: string }).error, 'invalid_client');
+  assert.equal(oldBrowserRequest.headers.get('location'), null, 'unknown clients must not be redirected to an unregistered callback');
+
+  const path = '/mcp/recovery';
+  const unauthenticated = await f.request(path);
+  assert.equal(unauthenticated.status, 401);
+  assert.equal(unauthenticated.headers.get('www-authenticate'), `Bearer resource_metadata="${f.base}/.well-known/oauth-protected-resource/mcp/recovery"`);
+  const metadata = await (await f.request('/.well-known/oauth-protected-resource/mcp/recovery')).json() as { resource: string; authorization_servers: string[] };
+  assert.equal(metadata.resource, `${f.base}${path}`);
+  assert.deepEqual(metadata.authorization_servers, [`${f.base}/oauth/recovery`]);
+
+  // Keep the original provider's saved client ID and tokens. The SDK must replace
+  // the old registration because discovery identifies a different issuer.
+  const recovered = await connect(t, f, { platforms: true, outbound: true }, 'none', path, stale.provider);
+  assert.notEqual(recovered.provider.information!.client_id, staleId);
+  assert.equal(recovered.provider.information!.issuer, `${f.base}/oauth/recovery`);
+  assert.equal(recovered.provider.authorizationUrl!.pathname, '/oauth/recovery/authorize');
+  const tools = await recovered.client.listTools();
+  assert.ok(tools.tools.some(tool => tool.name === 'list_connections'));
+  assert.ok(tools.tools.some(tool => tool.name === 'start_ai_task'));
+  const listed = await recovered.client.callTool({ name: 'list_connections', arguments: {} });
+  assert.notEqual(listed.isError, true);
+  const connections = await (await f.owner(recovered.cookie, '/api/ai/connectors')).json() as { recoveryUrl: string; grants: { clientId: string; lastUsedAt?: string }[] };
+  assert.equal(connections.recoveryUrl, `${f.base}${path}`);
+  assert.equal(connections.grants.length, 2);
+  assert.ok(connections.grants.find(grant => grant.clientId === recovered.provider.information!.client_id)?.lastUsedAt);
+  assert.equal((await f.rpc(working.provider.savedTokens!.access_token)).status, 200);
+  assert.equal((await f.rpc(masterKey)).status, 200);
+  assert.equal(f.store.credential('x')?.accessToken, platformKey);
+
+  // Each bearer token remains valid only for the exact resource it was issued for.
+  assert.equal((await f.rpc(recovered.provider.savedTokens!.access_token)).status, 401);
+  assert.equal((await f.rpc(working.provider.savedTokens!.access_token, 'tools/list', {}, path)).status, 401);
+  assert.equal((await f.rpc(recovered.provider.savedTokens!.access_token, 'tools/list', {}, '/MCP/Recovery/')).status, 200);
+});
+
+test('recovery sign-in requires fresh owner approval and retains revocation and issuer binding', async t => {
+  const f = await fixture(t);
+  const { provider, client, cookie } = await connect(t, f, { platforms: true }, 'client_secret_basic', '/mcp/recovery');
+  const token = provider.savedTokens!.access_token;
+  const id = provider.information!.client_id;
+  const grantList = await (await f.owner(cookie, '/api/ai/connectors')).json() as { grants: { id: string; clientId: string }[] };
+  const grant = grantList.grants.find(item => item.clientId === id)!;
+  assert.equal((await f.owner(cookie, `/api/ai/connectors/${grant.id}`, undefined, 'DELETE')).status, 200);
+  assert.equal((await f.rpc(token, 'tools/list', {}, '/mcp/recovery')).status, 401);
+  await client.close();
+  const restarted = await connect(t, f, { platforms: true }, 'client_secret_basic', '/mcp/recovery');
+  f.config.origin = 'https://changed-public-address.example.test';
+  assert.equal((await f.rpc(restarted.provider.savedTokens!.access_token, 'tools/list', {}, '/mcp/recovery')).status, 401);
+  const connections = await (await f.owner(cookie, '/api/ai/connectors')).json() as { grants: unknown[] };
+  assert.equal(connections.grants.length, 0);
 });
 
 test('disconnecting an AI during a platform read suppresses its pending private result and challenges the next MCP request', async t => {

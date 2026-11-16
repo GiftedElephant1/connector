@@ -24,7 +24,7 @@ type AiGrant = {
 };
 type AiClient = { id: string; name: string; redirectUris: string[]; grants: number; pendingRequests: number };
 type AiResetPreview = AiClient & { authorizationCodes: number; accessTokens: number; refreshTokens: number };
-type AiConnectors = { url: string; grants: AiGrant[]; clients?: AiClient[] };
+type AiConnectors = { url: string; recoveryUrl?: string; grants: AiGrant[]; clients?: AiClient[] };
 type ConsentRequest = {
   id: string;
   clientName: string;
@@ -189,6 +189,15 @@ export function AiConnections({ request, onSettings, onAuthError }: {
     {data && <>
       {!publicReady && <div className="ai-public-notice" role="status"><strong>First, turn on public access.</strong><p>These AI apps need a public HTTPS address to reach Connector on your PC. Keep Connector running while you use them.</p>{onSettings && <button className="button button-primary" onClick={onSettings}>Set up public address →</button>}</div>}
       <CopyValue label="Connector URL" value={data.url} />
+      {data.recoveryUrl && <details className="ai-connection-recovery">
+        <summary>Trouble reconnecting?</summary>
+        <p>If you still see <code>invalid_client</code> or “Register this AI client before connecting” after adding Connector again, your AI app may be keeping an old registration.</p>
+        <p>Add a new custom connector in that AI app using the recovery URL below. Choose OAuth, leave optional client ID and secret fields blank, then sign in to Connector and approve the new access request.</p>
+        {publicReady && data.recoveryUrl.startsWith("https://")
+          ? <CopyValue key={data.recoveryUrl} label="Recovery Connector URL" value={data.recoveryUrl} />
+          : <p className="setup-help">Turn on public HTTPS access above to get a recovery URL your AI app can reach.</p>}
+        <p className="setup-help">Your saved accounts and working AI connections stay connected. This URL uses a separate sign-in registration; copying it does not grant access. Keep using this recovery URL for the new connection. After approval, ask your AI to list your connected accounts to verify the connection.</p>
+      </details>}
       <div className="ai-setup-steps">
         <h3>Add Connector in {app.name}</h3>
         <ol><li>{app.instructions}</li><li>{app.name === "Grok Bot" ? "When the Bot requests access, expand Advanced: connect with a Connector API key below, click Show Connector API key, and copy it into the Bot’s masked secret request or private takeover prompt. Use your Google Workspace agent profile’s key for Google access. Keep keys out of the conversation. No xAI developer key is needed." : "On Connector’s approval screen, choose your platform access and, optionally, a Google Workspace agent profile. Approve only the client and return address you recognize."}</li><li>{app.name === "Grok Bot" ? "After the Bot configures the connection, ask it: " : app.name === "Gemini" ? "In a Gemini chat, type @ and select Connector, then ask: " : app.name === "Cursor" ? "In Cursor Agent, enable Connector’s tools and ask: " : "After adding the connector in your AI app, enable it in a new chat and ask: "}<strong>“List my connected accounts. Do not publish or change anything.”</strong> A successful tool result verifies the connection.</li></ol>

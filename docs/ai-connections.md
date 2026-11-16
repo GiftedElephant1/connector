@@ -6,7 +6,7 @@ The MCP connection uses OAuth: you paste one public Connector URL into the AI ap
 
 Social networks, advertising platforms, Google, and other destination services still have their own API permissions and application setup requirements. Their costs and approvals are separate from the AI connection.
 
-To remove incorrect or stale connection details, use **Disable and reset** in **AI connections**. Registered OAuth clients can be reset individually, including unfinished attempts. The advanced shared API key has a separate reset affecting every AI client using that key. Follow the [reset guide](reset-connectors.md#claude-chatgpt-grok-bot-and-other-ai-clients) before adding the connection again.
+To deliberately remove a client's saved registration and access, use **Disable and reset** in **AI connections**. Registered OAuth clients can be reset individually, including unfinished attempts. The advanced shared API key has a separate reset affecting every AI client using that key. Follow the [reset guide](reset-connectors.md#claude-chatgpt-grok-bot-and-other-ai-clients) before adding the connection again. If the AI app repeatedly shows `invalid_client`, follow [registration recovery](#recover-a-missing-ai-registration) instead of resetting working connections.
 
 ## 1. Start Connector and make it reachable
 
@@ -191,11 +191,25 @@ The app retains optional developer API integrations for existing users. The opti
 | Gemini has no **Custom apps** option | Google's current requirements are US availability, English, age 18+, a personal Google Account, and Keep Activity on. Add the app on the Gemini website before using it on mobile. |
 | **Add to Cursor** does not open the app | Install/open Cursor, allow the browser's external-app prompt, or use the card's configuration in your existing `mcp.json` as described above. |
 | Invalid or expired authorization | Restart the connection from the AI app; do not reuse an old authorization-page bookmark. Check that the public address has not changed. |
+| `invalid_client`: “Register this AI client before connecting.”, including after removing and re-adding the app | Connector does not recognize the supplied registration ID. Follow [registration recovery](#recover-a-missing-ai-registration); reconnecting or renaming an entry may reuse the same saved ID. |
 | No tools for the expected account | Check the grant in **AI connections**, the destination's connection status, and any selected Google profile's account/app permissions. Refresh/reconnect the AI app's tool list after changing access if required. |
 | Google asks you to sign in again | Google consent/token expiry is separate from AI OAuth. Reauthorize that Google account in **Google Workspace**; retain its existing agent profile. |
 | A new ngrok address after restarting | Copy the new URL from **AI connections** and reconnect the affected AI apps. Update destination OAuth redirect addresses where needed. A stable public domain avoids this change. |
 
 See also [the MCP protocol guide](pipeline.md), [Windows update instructions](windows.md#update-without-reconnecting-your-accounts), and [Google Workspace permissions](providers-workspace.md).
+
+### Recover a missing AI registration
+
+`invalid_client` means the running Connector cannot find the client registration supplied by the AI app. It does not explain why that registration is missing. Some AI apps retain OAuth registration details after an entry is removed and recreated. Changing the entry's name or adding a URL query parameter may still reuse those details.
+
+1. Open **AI connections → Trouble reconnecting?** in Connector and copy **Recovery Connector URL**. If that control is missing, update Connector first using the [account-preserving update instructions](windows.md#update-without-reconnecting-your-accounts).
+2. Add a new custom connector in the affected AI app using that URL, which ends in `/mcp/recovery`. Select **OAuth** and leave optional client ID and secret fields blank for automatic registration.
+3. Complete Connector's sign-in and approval screen. Select the access this AI should have, including **Send tasks to AI agents** if it should delegate work.
+4. Keep the recovery URL in that entry and run the read-only account-list check in section 4. Approval alone does not verify tool access.
+
+The recovery endpoint advertises a separate OAuth authorization-server identity at `/oauth/recovery`. It still requires a registered client, PKCE, and explicit owner consent. Existing `/mcp` connections and destination accounts remain saved; there is no need to replace shared keys or reset Google, social, advertising, or outbound AI accounts. Tokens issued for the recovery endpoint are bound to that endpoint.
+
+This route supports clients that refresh their registration when the authorization-server identity changes. It is not a guarantee that every AI app clears its cache, or a claim that your Grok account has been tested. If the recovery flow still sends the old `client_id`, the AI app must clear its stored OAuth registration. For diagnosis, compare only the `client_id` values, not full authorization URLs or credentials. Connector continues to reject unknown IDs rather than restoring access from an unverified browser request.
 
 ## Reference guides
 

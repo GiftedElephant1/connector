@@ -103,8 +103,10 @@ export function mountPipeline(app: express.Express, config: AppConfig, store: St
   const accounts = workspaceServices.accounts || new WorkspaceAccounts(config, store, env);
   const workspace = workspaceServices.pipeline || new WorkspacePipeline(store, accounts, env);
   const oauth = workspaceServices.oauth;
-  const challenge = () => `Bearer resource_metadata="${oauth?.metadataUrl() || `${config.origin}/.well-known/oauth-protected-resource/mcp`}"`;
-  type MachineContext = { kind: 'legacy'; key: string } | { kind: 'workspace'; profileId: string; key: string } | { kind: 'oauth'; token: string };
+  const isRecovery = (req: express.Request) => req.path.toLowerCase().replace(/\/$/, '') === '/mcp/recovery';
+  const resource = (req: express.Request) => oauth?.resource(isRecovery(req)) || `${config.origin}/mcp`;
+  const challenge = (req: express.Request) => `Bearer resource_metadata="${oauth?.metadataUrl(isRecovery(req)) || `${config.origin}/.well-known/oauth-protected-resource/mcp`}"`;
+  type MachineContext = { kind: 'legacy'; key: string } | { kind: 'workspace'; profileId: string; key: string } | { kind: 'oauth'; token: string; resource: string };
   const contexts = new WeakMap<express.Request, MachineContext>();
   const authenticate: express.RequestHandler = (req, res, next) => {
     const headerKey = req.headers['x-api-key'];
@@ -112,16 +114,16 @@ export function mountPipeline(app: express.Express, config: AppConfig, store: St
       || (typeof headerKey === 'string' && /^[A-Za-z0-9_.~-]{32,256}$/.test(headerKey) ? headerKey : undefined);
     const legacy = supplied && config.pipelineKey && timingSafeEqual(createHash('sha256').update(supplied).digest(), createHash('sha256').update(config.pipelineKey).digest());
     const profile = supplied && !legacy ? accounts.resolveAgentKey(supplied) : null;
-    const grant = supplied && !legacy && !profile ? oauth?.authenticate(supplied) : null;
+    const grant = supplied && !legacy && !profile ? oauth?.authenticate(supplied, resource(req)) : null;
     res.setHeader('Cache-Control', 'no-store');
     if (!legacy && !profile && !grant) {
       if (!oauth && !config.pipelineKey && accounts.listProfiles().length === 0) return void res.status(503).json({ error: 'Configure a pipeline or AI profile key to enable this connector endpoint.' });
-      res.setHeader('WWW-Authenticate', challenge());
+      res.setHeader('WWW-Authenticate', challenge(req));
       return void res.status(401).json({ error: 'Authorize this AI app with Connector, or supply a valid Connector key.' });
     }
     // Browser origins are not permitted to use the machine connector API across sites.
     if (req.headers.origin && req.headers.origin !== config.origin) return void res.status(403).json({ error: 'Cross-origin connector requests are not allowed.' });
-    contexts.set(req, legacy ? { kind: 'legacy', key: supplied! } : profile ? { kind: 'workspace', profileId: profile.id, key: supplied! } : { kind: 'oauth', token: supplied! });
+    contexts.set(req, legacy ? { kind: 'legacy', key: supplied! } : profile ? { kind: 'workspace', profileId: profile.id, key: supplied! } : { kind: 'oauth', token: supplied!, resource: resource(req) });
     next();
   };
   const limit = rateLimit({ windowMs: 60_000, limit: 90, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'Connector request limit reached. Try again in a minute.' } });
@@ -134,8 +136,8 @@ export function mountPipeline(app: express.Express, config: AppConfig, store: St
   const currentProfile = (context: Extract<MachineContext, { kind: 'workspace' }>) => {
     if (accounts.resolveAgentKey(context.key)?.id !== context.profileId) throw new MachineAccessError('This AI profile key has been revoked or rotated. Reconnect this AI using its current key.', 401);
   };
-  const currentGrant = (token: string) => {
-    const grant = oauth?.authenticate(token);
+  const currentGrant = (context: Extract<MachineContext, { kind: 'oauth' }>) => {
+    const grant = oauth?.authenticate(context.token, context.resource);
     if (!grant) throw new MachineAccessError('This AI connection expired or was disconnected. Authorize it again in your AI app.', 401);
     return grant;
   };
@@ -151,15 +153,15 @@ export function mountPipeline(app: express.Express, config: AppConfig, store: St
       };
     }
     if (context.kind === 'oauth') {
-      const grant = currentGrant(context.token);
-      const assertOutbound = () => { if (!currentGrant(context.token).outbound) throw new MachineAccessError('This AI connection cannot delegate tasks. Enable AI delegation for this connection in Approved AI connections.', 403); };
-      const standard = connectorTools(pipeline, store, () => { currentGrant(context.token); }, false, {authentication: 'oauth', platforms: grant.platforms,
-        ...(workspaceServices.outbound ? {outbound: new OutboundActions(workspaceServices.outbound, `oauth:${grant.grantId}`, grant.outbound, grant.outbound ? assertOutbound : () => { currentGrant(context.token); })} : {}),
+      const grant = currentGrant(context);
+      const assertOutbound = () => { if (!currentGrant(context).outbound) throw new MachineAccessError('This AI connection cannot delegate tasks. Enable AI delegation for this connection in Approved AI connections.', 403); };
+      const standard = connectorTools(pipeline, store, () => { currentGrant(context); }, false, {authentication: 'oauth', platforms: grant.platforms,
+        ...(workspaceServices.outbound ? {outbound: new OutboundActions(workspaceServices.outbound, `oauth:${grant.grantId}`, grant.outbound, grant.outbound ? assertOutbound : () => { currentGrant(context); })} : {}),
       });
       return {
         ...(grant.platforms ? standard : grant.outbound && workspaceServices.outbound ? {list_connections: standard.list_connections, list_actions: standard.list_actions, run_action: standard.run_action} : {}),
         ...(grant.outbound && workspaceServices.outbound ? outboundTools(workspaceServices.outbound, `oauth:${grant.grantId}`, assertOutbound) : {}),
-        ...(grant.workspaceProfileId ? workspaceTools(workspace, grant.workspaceProfileId, () => { currentGrant(context.token); }) : {}),
+        ...(grant.workspaceProfileId ? workspaceTools(workspace, grant.workspaceProfileId, () => { currentGrant(context); }) : {}),
       };
     }
     currentProfile(context);
@@ -226,7 +228,7 @@ export function mountPipeline(app: express.Express, config: AppConfig, store: St
   router.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => { const result = publicError(error); res.status(result.status).json({ error: result.message }); });
   app.use('/api/v1', authenticate, limit, express.json({ limit: '30mb' }), router);
 
-  app.post('/mcp', authenticate, limit, express.json({ limit: '30mb' }), async (req, res) => {
+  app.post(['/mcp', '/mcp/recovery'], authenticate, limit, express.json({ limit: '30mb' }), async (req, res) => {
     const server = new McpServer({ name: 'connector', version: installation.version });
     for (const [name, tool] of Object.entries(requestTools(req))) {
       const context = contexts.get(req)!;
@@ -238,12 +240,12 @@ export function mountPipeline(app: express.Express, config: AppConfig, store: St
         try {
           const result = await execute(req, name, args);
           if (context.kind === 'oauth') {
-            currentGrant(context.token);
-            oauth!.recordUse(context.token);
+            currentGrant(context);
+            oauth!.recordUse(context.token, context.resource);
           }
           return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], structuredContent: result as Record<string, unknown> };
         } catch (error) {
-          return { content: [{ type: 'text' as const, text: publicError(error).message }], isError: true, ...(error instanceof MachineAccessError && error.status === 401 ? { _meta: { 'mcp/www_authenticate': [challenge()] } } : {}) };
+          return { content: [{ type: 'text' as const, text: publicError(error).message }], isError: true, ...(error instanceof MachineAccessError && error.status === 401 ? { _meta: { 'mcp/www_authenticate': [challenge(req)] } } : {}) };
         }
       });
     }
@@ -252,5 +254,5 @@ export function mountPipeline(app: express.Express, config: AppConfig, store: St
     try { await server.connect(transport); await transport.handleRequest(req, res, req.body); }
     catch { if (!res.headersSent) res.status(500).json({ jsonrpc: '2.0', id: null, error: { code: -32603, message: 'Connector protocol request failed.' } }); }
   });
-  app.all('/mcp', authenticate, (_req, res) => res.status(405).json({ error: 'Use Streamable HTTP POST for this MCP endpoint.' }));
+  app.all(['/mcp', '/mcp/recovery'], authenticate, (_req, res) => res.status(405).json({ error: 'Use Streamable HTTP POST for this MCP endpoint.' }));
 }

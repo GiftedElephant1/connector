@@ -8,6 +8,9 @@
 .ai-app-symbol { font-size: 28px; }
 .ai-public-notice { margin: 20px 0; padding: 18px; background: #fff7e7; border-radius: 10px; color: #674f22; }
 .ai-public-notice p { line-height: 1.6; }
+.ai-connection-recovery { margin: 18px 0; padding: 16px 18px; border: 1px solid #dce5df; border-radius: 10px; }
+.ai-connection-recovery summary { cursor: pointer; font-weight: 600; }
+.ai-connection-recovery p { line-height: 1.65; overflow-wrap: anywhere; }
 .ai-setup-steps { margin-top: 25px; }
 .ai-setup-steps ol { padding-left: 22px; line-height: 1.7; color: #495b52; }
 .ai-setup-steps li { margin-bottom: 12px; }
