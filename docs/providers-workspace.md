@@ -22,14 +22,24 @@ Google may require app verification for sensitive or restricted scopes, particul
 
 ## Add a Google account
 
-1. In Connector, open **Google Workspace**.
-2. Select the apps you want to enable and choose the button to add a Google account.
+1. In Connector, open **Google Workspace**. If Google returns to your public Connector address, choose **Open public workspace** and sign in there first. The local and public dashboards have separate browser sessions.
+2. Choose **Connect Google account**, select the apps you want to enable, then click **Continue to Google**.
 3. Google's sign-in page opens. Choose the intended account, or choose **Use another account**.
 4. Review the requested permissions and approve the apps you selected.
 5. Google returns you to Connector. Check the email address on the account card.
 6. Repeat these steps for another Google account.
 
 Connector records the permissions Google actually granted. If you deselect a permission on Google's consent page, the affected app appears as needing authorization and cannot be assigned to an agent. To add permissions later, use that account's authorization control and select the additional apps. Existing permissions are included in that request. Selecting a different Google account during reauthorization produces an error and preserves the original connection; use the add-account flow for a new account.
+
+### If Continue to Google appears to do nothing
+
+When the dashboard is open at a local address such as `127.0.0.1`, but Google's callback uses the public Connector address, Connector asks you to sign in at the public address first. Use **Open public workspace** beside the Google connection controls, sign in, then choose **Connect Google account** and select the apps there. This keeps the sign-in request and Google's return in the same browser session. Older versions show this explanation only near the top of the Workspace page; scroll up after clicking if no inline message is visible. You can also open the public workspace from **Settings**.
+
+### Use a different Google email address
+
+For a different Google account, choose **Connect Google account**, then **Use another account** on Google's account picker. After consent, check the returned email address. In **AI agent access**, edit the existing profile, select the new account and its intended apps, and update the default account if needed. Remove that profile's old account selection if the agent should no longer use it. Saving the profile preserves its key and existing AI authorizations; ask the AI to refresh its Workspace account list to verify the new access.
+
+If the same Google account was renamed by its administrator, reauthorizing that account updates its email while retaining its stable account identity and profile bindings. An email alias does not necessarily represent a separate Google account; Connector displays the verified identity returned by Google. Changing the connected account or its email does not require replacing the Google application's client ID or secret.
 
 ## Update an existing connection for expanded actions
 

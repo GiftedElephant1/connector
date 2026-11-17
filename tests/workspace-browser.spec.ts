@@ -357,6 +357,10 @@ test("Google authorization selects apps, reports public-address problems, and Ma
   await expect(page.getByRole("alert")).toContainText(
     "Open Connector at its public address",
   );
+  await expect(form.getByRole("alert")).toBeInViewport();
+  await expect(form.getByRole("alert")).toBeFocused();
+  await expect(form.getByRole("link", { name: "Open public workspace", exact: true }))
+    .toHaveAttribute("href", "https://connector.example/?workspace=connect");
   expect(writes[0].body).toEqual({ apps: ["sheets"] });
   await form.getByRole("button", { name: "Cancel account connection" }).click();
   const account = page.getByRole("article", {
@@ -394,6 +398,45 @@ test("Google authorization selects apps, reports public-address problems, and Ma
       .getByRole("group", { name: "personal@example.com", exact: true })
       .getByLabel("Google Maps", { exact: false }),
   ).toBeDisabled();
+});
+
+test("Google sign-in shows progress and an inline failure, then retries the selected apps without replacing an account", async ({ page, baseURL }) => {
+  const { snapshot, writes } = await mockWorkspace(page);
+  snapshot.google.callbackUrl = `${baseURL}/api/workspace/google/callback`;
+  const accountsBefore = structuredClone(snapshot.accounts);
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  const requests: unknown[] = [];
+  const googleUrl = "https://accounts.google.com/o/oauth2/v2/auth?fixture=workspace-signin";
+  await page.route("https://accounts.google.com/**", route => route.fulfill({
+    contentType: "text/html", body: "<h1>Mock Google account chooser</h1>",
+  }));
+  await page.route("**/api/workspace/google/start", async route => {
+    requests.push(route.request().postDataJSON());
+    if (requests.length === 1) {
+      await pending;
+      return route.fulfill({ status: 503, json: { error: "Google sign-in could not start. Please try again." } });
+    }
+    return route.fulfill({ json: { url: googleUrl } });
+  });
+  await openWorkspace(page);
+  await page.getByRole("button", { name: "Connect Google account", exact: true }).click();
+  const form = page.getByRole("form", { name: "Choose Google apps" });
+  await expect(form.getByRole("link", { name: "Open public workspace", exact: true })).toHaveCount(0);
+  await form.getByLabel("Google Sheets", { exact: false }).check();
+  await form.getByRole("button", { name: "Continue to Google" }).click();
+  await expect(form.getByRole("button", { name: "Opening Google…" })).toBeDisabled();
+  expect(requests).toEqual([{ apps: ["sheets"] }]);
+  release();
+  await expect(form.getByRole("alert")).toContainText("Google sign-in could not start");
+  await expect(form.getByRole("alert")).toBeInViewport();
+  await expect(form.getByRole("alert")).toBeFocused();
+  await expect(form.getByLabel("Google Sheets", { exact: false })).toBeChecked();
+  await form.getByRole("button", { name: "Continue to Google" }).click();
+  await expect(page).toHaveURL(googleUrl);
+  expect(requests).toEqual([{ apps: ["sheets"] }, { apps: ["sheets"] }]);
+  expect(writes).toEqual([]);
+  expect(snapshot.accounts).toEqual(accountsBefore);
 });
 
 test("existing Drive accounts can approve downloads without replacing their account or agent access", async ({ page }) => {

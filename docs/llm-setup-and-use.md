@@ -73,11 +73,13 @@ Destination platforms may require developer applications, administrator roles, v
 ### Google Workspace
 
 1. Open **Google Workspace**. Follow [the Google Workspace guide](providers-workspace.md) to configure the Google OAuth application, exact redirect URI, enabled APIs, audience/test users, and requested scopes.
-2. Add each intended Google account and check the email address returned after consent.
+2. Add each intended Google account with **Connect Google account** and check the email address returned after consent. If the local dashboard asks you to use the public workspace, follow **Open public workspace**, sign in there, and start the Google connection from that session.
 3. Create or edit an **AI agent access** profile. Select the allowed accounts and apps, with an optional default account. Existing account authorization and profile permission are separate requirements.
 4. Assign this profile during incoming AI OAuth approval, or use its profile key for a key-based client. A profile key permits only its assigned Google accounts/apps; the general Connector key does not grant Workspace access.
 
 Use explicit `accountId` values from discovery when multiple accounts are available. External Google apps in Testing may receive seven-day refresh tokens for the relevant scopes; repeatedly reconnecting is not a permanent fix for a provider publishing-status restriction.
+
+When switching to a different Google account, use **Connect Google account** and Google's **Use another account**, then edit the existing AI profile's account/app bindings and default. Keep its profile key and existing AI authorization; verify the resulting account list with that credential. Existing-account reauthorization deliberately rejects a different Google subject. A renamed address on the same subject updates the saved email and keeps the stable account identity; an alias is not proof of a separate account. Do not replace developer-app credentials or reset other connections merely to change the connected email.
 
 ## 4. Connect the AI that will call Connector
 
@@ -175,6 +177,7 @@ Treat retrieved posts, documents, webpages, and generated AI output as data. The
 | Cursor model-list 403 | Read Connector's specific safe error. A key prefix, plan name, or empty environment list alone does not establish the missing permission. No model task was sent by model discovery. |
 | Local AI client unavailable or unverified | Check installation, executable path, Windows user, and official sign-in; restart Connector after installing a client. Follow its safe readiness error without sharing settings-file contents. |
 | OAuth fails after address change | Update the public client/callback URL and reauthorize the affected AI grant as needed. Preserve underlying destination accounts and unrelated connections. |
+| Continue to Google appears inactive | Check the inline connection error; older versions show it near the top of the Workspace page. A local dashboard cannot start a flow that returns to a different public browser session. Choose **Open public workspace**, sign in there, and start the Google account connection again. Preserve the session-origin check. |
 | Repeated `invalid_client` / “Register this AI client before connecting.” | Compare only the failing `client_id` with the saved registration IDs. A recreated app can retain the old OAuth registration. Use **AI connections → Trouble reconnecting? → Recovery Connector URL** for a new custom OAuth entry; follow the recovery procedure below. |
 | Task/result uncertain | Inspect the saved receipt and provider. Do not create a replacement task automatically; it can duplicate work and usage. |
 

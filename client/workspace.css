@@ -235,6 +235,26 @@
 .google-workspace .setup-button-row {
   flex-wrap: wrap;
 }
+.workspace-public-handoff {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid #c9dcd0;
+  border-radius: 8px;
+  background: #eff8f2;
+}
+.workspace-public-handoff p {
+  margin: 8px 0 12px;
+  line-height: 1.6;
+}
+.workspace-connect-error {
+  margin: 16px 0;
+  border-radius: 6px;
+  scroll-margin: 18px;
+}
+.workspace-connect-error:focus {
+  outline: 2px solid #a75836;
+  outline-offset: 4px;
+}
 @media (max-width: 760px) {
   .workspace-intro h1 {
     font-size: 27px;

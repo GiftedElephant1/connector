@@ -73,6 +73,20 @@ function permittedApps(account: GoogleAccount) {
   ]);
 }
 
+function publicGoogleWorkspace(callbackUrl: string | undefined, currentOrigin: string): string | null {
+  if (!callbackUrl) return null;
+  try {
+    const callback = new URL(callbackUrl);
+    if (callback.protocol !== "https:" || callback.username || callback.password ||
+        callback.pathname !== "/api/workspace/google/callback" ||
+        callbackUrl.includes("?") || callbackUrl.includes("#") ||
+        callback.origin === currentOrigin) return null;
+    return `${callback.origin}/?workspace=connect`;
+  } catch {
+    return null;
+  }
+}
+
 export function GoogleWorkspace({
   api,
   onSettings,
@@ -96,6 +110,9 @@ export function GoogleWorkspace({
     accountId?: string;
     apps: string[];
   } | null>(null);
+  const [connectionError, setConnectionError] = useState<{ message: string } | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const connectionFeedback = useRef<HTMLDivElement>(null);
   const [mapsAccount, setMapsAccount] = useState<string | null>(null);
   const [mapsKey, setMapsKey] = useState("");
   const [profile, setProfile] = useState<ProfileDraft | null>(null);
@@ -106,6 +123,7 @@ export function GoogleWorkspace({
   const [pending, setPending] = useState<PendingAction>(null);
   const confirmation = useRef<HTMLElement>(null);
   const id = useId();
+  const publicWorkspaceUrl = publicGoogleWorkspace(data?.google.callbackUrl, window.location.origin);
 
   const refresh = useCallback(async () => {
     const result = await api<WorkspaceData>(endpoint);
@@ -137,6 +155,12 @@ export function GoogleWorkspace({
       confirmation.current?.focus();
     }
   }, [pending]);
+  useEffect(() => {
+    if (connectionError) {
+      connectionFeedback.current?.focus({ preventScroll: true });
+      connectionFeedback.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [connectionError]);
 
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -178,8 +202,13 @@ export function GoogleWorkspace({
   }
   async function connect(event: FormEvent) {
     event.preventDefault();
-    if (!connection) return;
-    await run(async () => {
+    if (!connection || busy) return;
+    setBusy(true);
+    setConnecting(true);
+    setConnectionError(null);
+    setError("");
+    setNotice("");
+    try {
       const result = await api<{ url: string }>(`${endpoint}/google/start`, {
         method: "POST",
         body: JSON.stringify(connection),
@@ -190,7 +219,13 @@ export function GoogleWorkspace({
           "Google returned an unexpected sign-in address. Please try again.",
         );
       window.location.assign(url.href);
-    });
+    } catch (cause) {
+      // A new object also refocuses repeated failures with the same message.
+      setConnectionError({ message: message(cause) });
+    } finally {
+      setBusy(false);
+      setConnecting(false);
+    }
   }
   function changeBinding(accountId: string, appId: string, selected: boolean) {
     setProfile((current) => {
@@ -258,6 +293,7 @@ export function GoogleWorkspace({
           "Google account disabled and reset. Its saved tokens, Maps key, and agent permissions were removed. Use Connect Google account to start again, then assign agent access again.",
         );
         setConnection(null);
+        setConnectionError(null);
         setMapsAccount(null);
         setMapsKey("");
         setProfile(null);
@@ -499,6 +535,7 @@ export function GoogleWorkspace({
                 disabled={busy || !data.google.configured}
                 onClick={() => {
                   setConnection({ apps: [] });
+                  setConnectionError(null);
                   setError("");
                 }}
               >
@@ -570,7 +607,9 @@ export function GoogleWorkspace({
                       type="button"
                       className="button button-secondary"
                       disabled={busy}
-                      onClick={() =>
+                      onClick={() => {
+                        setConnectionError(null);
+                        setError("");
                         setConnection({
                           accountId: account.id,
                           apps: [
@@ -586,8 +625,8 @@ export function GoogleWorkspace({
                                 app.available,
                             ),
                           ),
-                        })
-                      }
+                        });
+                      }}
                     >
                       Change connected apps
                     </button>
@@ -798,19 +837,42 @@ export function GoogleWorkspace({
                     ))}
                   </ul>
                 </details>
+                <p className="setup-help">
+                  {connection.accountId
+                    ? "Choose this same Google account to update its apps. Use Connect Google account to add a different account."
+                    : <>Choose the Google account you want to connect. Select <strong>Use another account</strong> on Google if it is not listed.</>}
+                </p>
+                {publicWorkspaceUrl && (
+                  <div className="workspace-public-handoff">
+                    <strong>Continue from your public workspace</strong>
+                    <p>Google needs to return to the same signed-in workspace. Open your public Connector address, sign in with your Connector password, then select your apps and continue to Google there.</p>
+                    <a className="button button-secondary" href={publicWorkspaceUrl}>
+                      Open public workspace
+                    </a>
+                  </div>
+                )}
+                {connectionError && (
+                  <div ref={connectionFeedback} className="workspace-connect-error" role="alert" tabIndex={-1}>
+                    <p className="inline-error">{connectionError.message}</p>
+                  </div>
+                )}
                 <div className="setup-button-row">
                   <button
                     className="button button-primary"
                     type="submit"
                     disabled={busy || !connection.apps.length}
+                    aria-busy={connecting}
                   >
-                    Continue to Google
+                    {connecting ? "Opening Google…" : "Continue to Google"}
                   </button>
                   <button
                     className="button button-secondary"
                     type="button"
                     disabled={busy}
-                    onClick={() => setConnection(null)}
+                    onClick={() => {
+                      setConnection(null);
+                      setConnectionError(null);
+                    }}
                   >
                     Cancel account connection
                   </button>
