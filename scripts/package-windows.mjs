@@ -24,7 +24,7 @@ if (stage && (signed || destinationArgument)) throw new Error('--stage cannot be
 if (signed && !source) throw new Error('--signed requires the explicitly staged --source directory.');
 const root = resolve(source ?? repository);
 const output = resolve(destinationArgument ?? join(repository, 'artifacts'));
-const rootFiles = ['Start Connector.vbs', 'Update Connector.vbs', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', '.env.example', 'README.md'];
+const rootFiles = ['Start Connector.vbs', 'Update Connector.vbs', 'Setup 1Password.vbs', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', '.env.example', 'README.md'];
 const directories = ['client', 'server', 'scripts', 'docs'];
 const bannedNames = new Set(['node_modules', 'data', '.git', '.codex', '.agents', 'dist', 'artifacts']);
 const files = [];
@@ -60,7 +60,7 @@ if (stage) {
   for (const file of files) {
     const name = file.name.slice('Connector/'.length);
     let contents = file.contents;
-    if (name === 'Start Connector.vbs' || name === 'Update Connector.vbs') {
+    if (name === 'Start Connector.vbs' || name === 'Update Connector.vbs' || name === 'Setup 1Password.vbs') {
       const text = contents.toString('utf8');
       if (!text.includes('-ExecutionPolicy Bypass -WindowStyle Hidden') || !text.includes('shell.Run(command, 0, False)')) {
         throw new Error(`Unexpected launcher format in ${name}; cannot prepare signed release.`);

@@ -20,6 +20,7 @@ import { GoogleWorkspace } from "./Workspace";
 import { AiAuthorization } from "./AiConnections";
 import { TikTokPublish } from "./TikTokPublish";
 import { ConnectorReset } from "./ConnectorReset";
+import { OnePassword } from "./OnePassword";
 
 type Category =
   | "ai"
@@ -662,12 +663,14 @@ function ApiKeyDialog({
   provider,
   onClose,
   onReset,
+  onOnePassword,
   onSubmit,
   busy,
 }: {
   provider: Provider;
   onClose: () => void;
   onReset: () => void;
+  onOnePassword: () => void;
   onSubmit: (key: string, fields: Record<string, string>) => Promise<void>;
   busy: boolean;
 }) {
@@ -730,6 +733,7 @@ function ApiKeyDialog({
               ? "In Mailchimp, open Account & billing → Extras → API keys. Create an API key, name it Connector, then copy it here. Keep the server suffix, such as -us21."
               : `Add ${apiKey ? "an API key" : "an access token"} from your ${provider.name} developer account. Use the link below to create or select a key, then copy it here. Connector verifies access before saving.`}
       </p>
+      {!localVault && <button type="button" className="button button-secondary" onClick={onOnePassword} disabled={busy}>Use 1Password</button>}
       {provider.id === "whatsapp" && (
         <div className="info-note">
           <p>
@@ -1265,6 +1269,8 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
             }} />
           ) : page === "settings" ? (
             settings ? (
+              <>
+              <div className="onepassword-jump"><a href="#onepassword">Manage 1Password credentials ↓</a></div>
               <WorkspaceSetup
                 settings={settings}
                 providers={providers}
@@ -1283,6 +1289,8 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
                   void refreshSettings().catch(fail);
                 }}
               />
+              <OnePassword request={api} onApplied={() => { void Promise.all([refresh(), refreshSettings()]).catch(fail); }} onAuthError={fail} />
+              </>
             ) : (
               <section className="settings-loading">
                 <p role={settingsError ? "alert" : "status"}>
@@ -1741,6 +1749,10 @@ function Dashboard({ onLogout }: { onLogout: (message?: string) => void }) {
           busy={busy === dialogProvider.id}
           onClose={() => setDialog(null)}
           onReset={() => setDialog({ type: "reset", provider: dialogProvider })}
+          onOnePassword={() => {
+            setDialog(null); setPage("settings");
+            window.requestAnimationFrame(() => document.getElementById("onepassword")?.scrollIntoView({ block: "start" }));
+          }}
           onSubmit={(key, fields) => connectKey(dialogProvider, key, fields)}
         />
       )}

@@ -20,7 +20,7 @@ const source = resolve(process.argv[2]);
 const temporary = await mkdtemp(join(tmpdir(), 'connector-update-smoke-'));
 const target = join(temporary, 'Existing Connector');
 const sourceManifest = JSON.parse(await readFile(join(source, 'package.json'), 'utf8'));
-const rootFiles = ['Start Connector.vbs', 'Update Connector.vbs', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', '.env.example', 'README.md'];
+const rootFiles = ['Start Connector.vbs', 'Update Connector.vbs', 'Setup 1Password.vbs', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', '.env.example', 'README.md'];
 const directories = ['client', 'server', 'scripts', 'docs'];
 const processEnv = { ...process.env };
 // Real user/workspace configuration must never become part of this fixture.

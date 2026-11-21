@@ -74,6 +74,14 @@ export class PublicTunnel {
     this.url = undefined;
   }
 
+  /** Import an owner-selected secret without restarting or changing the public address. */
+  saveAuthtoken(value: string) {
+    if (this.changing) throw new ProviderError('Public access is changing. Wait a moment and try again.', 409);
+    const authtoken = parseAuthtoken(value);
+    const saved = this.store.readSetting<SavedTunnel>('public-tunnel');
+    this.store.writeSetting('public-tunnel', { ...saved, authtoken, autoStart: saved?.autoStart ?? false });
+  }
+
   async start(input: { authtoken?: unknown; domain?: unknown } = {}) {
     if (this.changing) throw new ProviderError('Public access is changing. Wait a moment and try again.', 409);
     if (this.listener || this.activeDriver || this.opening) throw new ProviderError('Stop the current public connection before changing it.', 409);

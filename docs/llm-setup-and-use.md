@@ -70,6 +70,18 @@ npm start
 
 Destination platforms may require developer applications, administrator roles, verification, or paid API access. An AI subscription does not supply those permissions. Use the [capability list](connector-capabilities.md) and provider guides linked there; do not promise website features absent from the live action catalog. For existing OAuth accounts needing new scopes, use **View connection → Update permissions** where available instead of resetting the connection.
 
+### Retrieve credentials through 1Password
+
+When the user wants to use credentials saved in 1Password, follow [the 1Password guide](onepassword.md). On the Connector PC, the Windows package includes `Setup 1Password.vbs` to install the official CLI and guide desktop integration. The user must unlock/approve the local 1Password app; a cloud development workspace cannot complete their Windows Hello prompt.
+
+The owner configures **Settings → 1Password**: select the account, vault, and item; map fields to a supported fixed destination; save a named link; and optionally authorize specific AI credentials to use it. New links grant no AI access. Never ask the user to paste vault passwords, API keys, their 1Password password, or their Secret Key into chat. The owner interface returns item/field metadata without values; raw values travel only between the CLI and Connector's credential application code.
+
+An authorized AI calls `list_onepassword_connections` to discover only its permitted links, then `use_onepassword_connection` with `{ "id": "LINK_ID_FROM_DISCOVERY", "confirmed": true }` when applying that link is covered by the user's task. The established connection/action interface also exposes provider `1password` with `list-connections` and `use-connection`; inspect its live schema before supplying arguments. Neither path returns secrets or permits arbitrary vault reads, changed mappings, or unapproved destinations. Permission belongs to the actual calling credential; all Bots holding a shared key share its link access.
+
+**Use now** and the AI tool read the currently mapped values and apply them to existing encrypted Connector storage. Subsequent platform requests use that saved credential; this is not continuous vault synchronization. After a rotation in 1Password, apply the link again. If the app is locked or desktop authorization has expired, report that the owner must approve locally. Do not bypass the prompt, extract session credentials, or claim unattended access is permanent. Pausing 1Password access blocks new retrievals while leaving already imported provider credentials intact.
+
+Importing OAuth application credentials does not sign in an account: follow the provider's official consent flow afterward. Verify the actual resulting account/readiness before claiming it works. The 1Password Environments MCP Server is a separate tool for managing Environment names/variables and supported local mounts; it does not return stored secrets or read arbitrary vault login items. Windows local `.env` mounts are unsupported. Do not substitute an Environment MCP setup for the vault retrieval workflow or overwrite the user's existing `.env`/MCP configuration.
+
 ### Google Workspace
 
 1. Open **Google Workspace**. Follow [the Google Workspace guide](providers-workspace.md) to configure the Google OAuth application, exact redirect URI, enabled APIs, audience/test users, and requested scopes.

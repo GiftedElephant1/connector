@@ -16,6 +16,14 @@ If an AI assistant is helping you, have it read the [LLM setup and use guide](ll
 
 The local app runs at `http://127.0.0.1:3000`. The launcher uses a private, short-lived browser sign-in handoff; it never puts your saved provider credentials into that address. A cloud AI service needs the dashboard's remote-access setup before it can reach an app running on your PC.
 
+## Retrieve credentials from 1Password
+
+Open **Setup 1Password** (`Setup 1Password.vbs`) in your extracted Connector folder. Its **Install 1Password CLI** button installs the exact official `AgileBits.1Password.CLI` package with Windows Package Manager for your Windows user. If the desktop app is missing, **Get 1Password desktop** opens its official download page. The helper asks for no passwords or keys and does not access your vault.
+
+In the 1Password desktop app, enable Windows Hello and **Settings → Developer → Integrate with 1Password CLI**. Restart Connector after installing the CLI, then open **Settings → 1Password** to select an item and map its fields to a supported destination. Approve the local 1Password prompt when asked. **Use now** retrieves the chosen values into Connector's existing encrypted credential storage; it does not expose them to the AI. See [the complete 1Password guide](onepassword.md) for saved links, explicit AI access, and current CLI/MCP limitations.
+
+1Password must run under the same Windows user as Connector. Vault access may require approval again after inactivity or locking 1Password. Existing destination credentials already imported into Connector remain saved; the integration does not continuously refresh them from the vault or replace provider OAuth consent.
+
 ## Run in the background, stop, and reopen
 
 1. Find Connector's icon in the notification area beside the Windows clock. If it is hidden, click the **Show hidden icons** arrow first.

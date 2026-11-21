@@ -7,7 +7,7 @@ import { parseEnv } from 'node:util';
 
 // The update package contains code only. Private configuration and account storage
 // always stay in the original installation, even while an update is rolled back.
-export const rootFiles = ['Start Connector.vbs', 'Update Connector.vbs', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', '.env.example', 'README.md'];
+export const rootFiles = ['Start Connector.vbs', 'Update Connector.vbs', 'Setup 1Password.vbs', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', '.env.example', 'README.md'];
 const sourceDirectories = ['client', 'server', 'scripts', 'docs'];
 const managedNames = [...rootFiles, ...sourceDirectories, 'node_modules', 'dist'];
 const transactionName = '.connector-update';

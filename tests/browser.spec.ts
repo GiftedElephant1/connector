@@ -1,5 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 
+async function catalogSize(page: Page, category?: string) {
+  const response = await page.request.get("/api/providers");
+  expect(response.ok()).toBe(true);
+  const { providers } = await response.json() as { providers: { category: string }[] };
+  return providers.filter(provider => category ? provider.category === category : provider.category !== "ai").length;
+}
+
 async function login(page: Page) {
   await page.goto("/");
   await page
@@ -27,7 +34,7 @@ async function login(page: Page) {
   await expect(
     page.getByRole("heading", { name: "Your accounts, connected." }),
   ).toBeVisible();
-  await expect(page.locator(".provider-card")).toHaveCount(25);
+  await expect(page.locator(".provider-card")).toHaveCount(await catalogSize(page));
 }
 
 test("real login, full provider catalog, filters, setup callback and logout work", async ({
@@ -38,7 +45,7 @@ test("real login, full provider catalog, filters, setup callback and logout work
   await login(page);
   await page.screenshot({ path: "test-results/desktop-dashboard.png" });
   await page.getByRole("button", { name: "Analytics", exact: true }).click();
-  await expect(page.locator(".provider-card")).toHaveCount(2);
+  await expect(page.locator(".provider-card")).toHaveCount(await catalogSize(page, "analytics"));
   await page.getByRole("button", { name: /All platforms/ }).click();
   await page.getByLabel("Search platforms").fill("Instagram");
   const instagram = page.locator(".provider-card").filter({
@@ -136,7 +143,7 @@ test("mobile dashboard fits viewport and supports category navigation", async ({
     ),
   ).toBe(true);
   await page.getByRole("button", { name: "Advertising", exact: true }).click();
-  await expect(page.locator(".provider-card")).toHaveCount(7);
+  await expect(page.locator(".provider-card")).toHaveCount(await catalogSize(page, "advertising"));
   await page.screenshot({
     path: "test-results/mobile-dashboard.png",
     fullPage: true,
@@ -149,7 +156,7 @@ test("AI connections explain subscription access and schedule shows actual empty
   await login(page);
   await page.getByRole("button", { name: "AI connections", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Claude, ChatGPT, and Grok Bot", exact: true }),
+    page.getByRole("heading", { name: "Connect your AI apps", exact: true }),
   ).toBeVisible();
   await expect(page.getByLabel("Connector URL", { exact: true })).toHaveValue(
     /\/mcp$/,

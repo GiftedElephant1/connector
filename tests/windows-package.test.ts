@@ -17,12 +17,12 @@ async function fixture(t: TestContext) {
   const temp = await mkdtemp(join(tmpdir(), 'connector-package-'));
   t.after(() => rm(temp, { recursive: true, force: true }));
   const source = join(temp, 'source');
-  for (const name of ['Start Connector.vbs', 'Update Connector.vbs']) {
+  for (const name of ['Start Connector.vbs', 'Update Connector.vbs', 'Setup 1Password.vbs']) {
     await write(join(source, name), await readFile(join(repository, name)));
   }
   for (const name of ['package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', '.env.example', 'README.md',
     'client/index.tsx', 'server/index.ts', 'scripts/windows-launcher.ps1', 'scripts/windows-update.ps1',
-    'scripts/windows-common.ps1', 'scripts/windows-background.ps1', 'docs/windows.md']) {
+    'scripts/windows-common.ps1', 'scripts/windows-background.ps1', 'scripts/windows-onepassword-setup.ps1', 'docs/windows.md', 'docs/onepassword.md']) {
     await write(join(source, name), `fixture ${name}\n`);
   }
   return { temp, source, stage: join(temp, 'stage'), output: join(temp, 'output') };
@@ -108,6 +108,13 @@ test('Windows status writers report early failures without including environment
   }
 });
 
+test('1Password Windows setup initializes and handles installed or missing CLI without vault access', { skip: process.platform !== 'win32' }, () => {
+  const result = spawnSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File',
+    join(repository, 'tests/windows-onepassword-setup.ps1')], { encoding: 'utf8', timeout: 30_000 });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /without vault access/);
+});
+
 test('release staging preserves source and excludes private data; ZIP preserves staged bytes', async t => {
   const f = await fixture(t);
   const original = await readFile(join(f.source, 'Start Connector.vbs'));
@@ -117,7 +124,7 @@ test('release staging preserves source and excludes private data; ZIP preserves 
   const stage = run(['--source', f.source, '--stage', f.stage]);
   assert.equal(stage.status, 0, stage.stderr);
   assert.deepEqual(await readFile(join(f.source, 'Start Connector.vbs')), original);
-  for (const name of ['Start Connector.vbs', 'Update Connector.vbs']) {
+  for (const name of ['Start Connector.vbs', 'Update Connector.vbs', 'Setup 1Password.vbs']) {
     const launcher = await readFile(join(f.stage, name), 'utf8');
     assert.match(launcher, /-ExecutionPolicy AllSigned -WindowStyle Normal/);
     assert.match(launcher, /-HideLaunchConsole/);
@@ -134,6 +141,9 @@ test('release staging preserves source and excludes private data; ZIP preserves 
   const entries = zipEntries(await readFile(join(f.output, 'Connector-Windows.zip')));
   assert.deepEqual(entries.get('Connector/scripts/windows-launcher.ps1'), contents);
   assert.equal(entries.has('Connector/.env.example'), true);
+  for (const name of ['Setup 1Password.vbs', 'scripts/windows-onepassword-setup.ps1', 'docs/onepassword.md']) {
+    assert.equal(entries.has(`Connector/${name}`), true, `${name} must ship with the Windows package`);
+  }
   for (const [name, value] of entries) {
     assert.equal(value.includes('private fixture must not ship'), false, name);
   }

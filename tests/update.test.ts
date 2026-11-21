@@ -22,7 +22,7 @@ async function write(path: string, text: string) {
 async function bundle(root: string, version: string, existing = false) {
   await mkdir(root, { recursive: true });
   for (const name of rootFiles as string[]) {
-    if (existing && name === 'Update Connector.vbs') continue;
+    if (existing && ['Update Connector.vbs', 'Setup 1Password.vbs'].includes(name)) continue;
     await write(join(root, name), `${version}: ${name}\n`);
   }
   await write(join(root, 'package.json'), JSON.stringify({ name: 'connector', private: true, version }));
@@ -94,6 +94,7 @@ for (const dataPath of ['./data', '../my private accounts', './private/accounts'
     assert.deepEqual(await snapshot(f.data), privateBefore);
     assert.equal(await readFile(join(f.target, 'my-notes.txt'), 'utf8'), 'unmanaged root files stay');
     assert.equal(await readFile(join(f.target, 'dist/index.html'), 'utf8'), 'new dashboard');
+    assert.equal(await readFile(join(f.target, 'Setup 1Password.vbs'), 'utf8'), '0.4.0: Setup 1Password.vbs\n');
     await assert.rejects(() => readFile(join(f.target, 'node_modules/old-package/index.js')), /ENOENT/);
     await assert.rejects(() => readFile(join(f.target, 'server/private.sqlite')), /ENOENT/);
     await assert.rejects(() => readFile(join(f.target, 'client/.env.local')), /ENOENT/);
