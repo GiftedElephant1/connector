@@ -11,6 +11,7 @@ import type {
   OnePasswordVault,
 } from "../server/onepassword-types";
 import type { ApiRequest } from "./Setup";
+import { ManagedBrowser } from "./ManagedBrowser";
 import "./onepassword.css";
 
 const endpoint = "/api/onepassword";
@@ -38,6 +39,7 @@ export function OnePassword({ request, onApplied, onAuthError }: {
   const [fields, setFields] = useState<OnePasswordField[]>([]);
   const [link, setLink] = useState<OnePasswordLinkInput>(emptyLink);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [browserRefresh, setBrowserRefresh] = useState(0);
   const editor = useRef<HTMLFormElement>(null);
   const feedback = useRef<HTMLDivElement>(null);
   const target = data?.targets.find(item => item.id === link.targetId);
@@ -80,7 +82,8 @@ export function OnePassword({ request, onApplied, onAuthError }: {
     await run("save", async () => {
       const next = await request<OnePasswordSnapshot>(endpoint, { method: "PUT", body: JSON.stringify({ enabled, executable: executable.trim() }) });
       snapshot(next); clearSelection(); setCheck(null);
-      setNotice(next.enabled ? "1Password setup saved. Check the CLI, then load your accounts." : "New 1Password reads are disabled. Previously connected accounts remain connected.");
+      setBrowserRefresh(previous => previous + 1);
+      setNotice(next.enabled ? "1Password setup saved. Check the CLI, then enable browser access below or link a credential for a Connector connection." : "New 1Password reads and browser access are disabled. Previously connected accounts remain connected.");
     });
   }
   async function loadAccounts() {
@@ -165,7 +168,7 @@ export function OnePassword({ request, onApplied, onAuthError }: {
         <div><div className="eyebrow">SAVED CREDENTIALS</div><h2 id={`${id}-title`}>1Password</h2></div>
         {data && <span className={`setup-status ${data.enabled ? "ready" : ""}`}>{data.enabled ? "Enabled" : "Off"}</span>}
       </div>
-      <p className="setup-description">Choose a saved login or API credential once, then let Connector retrieve it from 1Password. Passwords and API keys stay on the Connector server and are never returned to AI agents.</p>
+      <p className="setup-description">Use live 1Password logins across your accessible vaults in Connector’s browser, or link a saved credential to a specific Connector connection. Password and API key values are kept out of AI tool responses.</p>
       <div ref={feedback} tabIndex={-1} className={error ? "onepassword-feedback error" : "onepassword-feedback"} role={error ? "alert" : "status"}>
         {error || notice || (busy === "loading" ? "Loading 1Password setup…" : "")}
       </div>
@@ -176,7 +179,7 @@ export function OnePassword({ request, onApplied, onAuthError }: {
           <ol>
             <li>Install the <a href="https://1password.com/downloads" target="_blank" rel="noopener noreferrer">1Password desktop app</a> and <a href="https://developer.1password.com/docs/cli/get-started/" target="_blank" rel="noopener noreferrer">1Password CLI</a> on the computer running Connector.</li>
             <li>Sign in to 1Password and unlock it. Open <strong>Settings → Developer → Integrate with 1Password CLI</strong>. {data.windows && <>Enable Windows Hello in 1Password’s security settings.</>}</li>
-            <li>Save the setup below, click <strong>Check 1Password CLI</strong>, then <strong>Load 1Password accounts</strong>. Approve any access request in the 1Password desktop app.</li>
+            <li>Save the setup below and click <strong>Check 1Password CLI</strong>. Enable <strong>Browser access for AI agents</strong> for live website logins, or click <strong>Load 1Password accounts</strong> to link a specific Connector credential. Approve any access request in the 1Password desktop app.</li>
           </ol>
           {data.windows && <p className="setup-help">For guided Windows installation, run <strong>Setup 1Password.vbs</strong> from your Connector installation folder.</p>}
           <a className="text-link" href="onepassword://settings/developers">Open 1Password developer settings ↗</a>
@@ -194,8 +197,9 @@ export function OnePassword({ request, onApplied, onAuthError }: {
           {dirty && <p className="setup-help">Save your changes before loading 1Password.</p>}
           {check && <p className="onepassword-check" role="status">{check.message}{check.version && <> Version {check.version}.</>}</p>}
         </form>
+        <ManagedBrowser request={request} refreshKey={browserRefresh} onAuthError={onAuthError} />
         <div className="onepassword-section-heading"><h3>Link a credential</h3><button className="button button-secondary" disabled={!canRead} onClick={() => void loadAccounts()}>{busy === "accounts" ? "Waiting for 1Password…" : "Load 1Password accounts"}</button></div>
-        <p className="setup-help">Only account, vault, item, and field names appear here. Select fields by name; their secret values are read on the server. Account names, usernames, client IDs, and URLs may appear in ordinary connection settings.</p>
+        <p className="setup-help">Use individual links for Connector connection settings and API keys. Browser logins above do not need these links. Only account, vault, item, and field names appear here. Select fields by name; their secret values are read on the server. Account names, usernames, client IDs, and URLs may appear in ordinary connection settings.</p>
         {accounts.length > 0 && <form ref={editor} className="setup-form onepassword-link-form" aria-label="Link a 1Password credential" onSubmit={saveLink}>
           <fieldset disabled={!canRead}>
             <label htmlFor={`${id}-account`}>1Password account</label>

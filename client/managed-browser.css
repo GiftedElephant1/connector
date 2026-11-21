@@ -1,0 +1,18 @@
+.managed-browser-panel { border: 1px solid #bcd7cb; border-radius: 9px; background: #f6faf7; padding: 20px; margin: 24px 0 30px; }
+.managed-browser-heading, .managed-browser-session-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; margin-bottom: 12px; }
+.managed-browser-heading h3 { font-size: 17px; margin-top: 6px; }
+.managed-browser-panel .setup-description { margin-bottom: 10px; }
+.managed-browser-form { margin-top: 18px; }
+.managed-browser-form select { width: 100%; }
+.managed-browser-form .onepassword-agent-access { background: #fff; }
+.managed-browser-feedback:not(:empty), .managed-browser-prerequisite { padding: 12px 14px; border-radius: 7px; background: #e7f2ec; color: #23634e; margin: 14px 0; font-size: 13px; line-height: 1.6; }
+.managed-browser-feedback.error { background: #fff5ed; color: #8c4820; border: 1px solid #f0cbb1; }
+.managed-browser-feedback:focus-visible { outline: 2px solid #8c4820; outline-offset: 3px; }
+.managed-browser-check { color: #365b4a; font-size: 13px; line-height: 1.6; margin-top: 14px; }
+.managed-browser-session-heading { align-items: center; margin-top: 24px; }
+.managed-browser-session-heading h4 { font-size: 14px; }
+.managed-browser-sessions { display: grid; gap: 10px; margin: 12px 0; }
+.managed-browser-session { border: 1px solid var(--line); border-radius: 7px; padding: 13px; background: #fff; overflow-wrap: anywhere; }
+.managed-browser-session h5 { font-size: 13px; margin-bottom: 5px; }
+.managed-browser-session > p { font-size: 13px; line-height: 1.6; }
+@media (max-width: 700px) { .managed-browser-panel { padding: 14px; } .managed-browser-heading, .managed-browser-session-heading { flex-direction: column; } }

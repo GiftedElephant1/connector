@@ -6,6 +6,8 @@ Open **AI connections** for guided setup, the public endpoint, and access revoca
 
 Connector can also start tasks in configured AI agents. This requires separate outbound setup and delegation permission; approving an AI to use platform tools does not grant it that permission. See [Send tasks from Connector to AI agents](outbound-ai.md) for Claude Code, Codex, Gemini through Antigravity, Cursor Cloud Agents, and Grok Bot routines.
 
+The owner can separately authorize [a local browser with live 1Password sign-in](local-browser.md). Authorized credentials discover provider `browser` and the `browser_open`, `browser_snapshot`, `browser_navigate`, `browser_click`, `browser_type`, `browser_sign_in`, and `browser_close` tools. Browser permissions are off by default, apply to selected current general-key/OAuth credentials, and are not inherited by Google Workspace profile keys. Browser actions are not scheduled publications and do not use API request-ID receipts; inspect state before retrying an uncertain browser write.
+
 ## MCP configuration
 
 Use **Streamable HTTP**, URL `https://YOUR_HOST/mcp`, and **OAuth** authentication. The server publishes OAuth discovery metadata and supports dynamic client registration, authorization code flow with PKCE S256, and refresh tokens. A compatible client registers and exchanges credentials automatically; you do not create a model-provider developer application or manually register guessed callback URLs. Gemini Apps uses its custom-app setup; Cursor supports the remote URL in `mcpServers.connector.url`. Follow the client-specific [setup steps](ai-connections.md) instead of adding a model API key.

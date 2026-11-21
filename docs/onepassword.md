@@ -1,8 +1,8 @@
 # Use credentials from 1Password
 
-Connector can retrieve credentials from a 1Password item and apply them to a supported connection. Choose the item and field mapping once in **Settings → 1Password**. After that, use the saved link to retrieve the current values without copying passwords or API keys into a form.
+Connector supports two workflows in **Settings → 1Password**. For website sign-in, **Browser access for AI agents** retrieves live matching logins across all accessible vaults without individual links. See [the local browser guide](local-browser.md). For a supported Connector API destination, choose an item and field mapping once, then use its saved credential link to retrieve and apply the current values.
 
-Only the Connector owner can browse 1Password and create links. An AI may use a saved link only when the owner has granted that AI access to that link. The AI receives a status result, never the retrieved secret values. Links do not give an AI permission to browse the vault or choose arbitrary destinations.
+Only the Connector owner can browse 1Password in Settings and create links. An AI may use a saved link only when the owner has granted that AI access to that link. The AI receives a status result, never the retrieved secret values. Links do not give an AI permission to browse the vault or choose arbitrary destinations. The separate browser permission allows matching website logins across accessible vaults and use of the resulting local browser session.
 
 ## Set up the Connector PC
 

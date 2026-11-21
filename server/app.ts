@@ -25,6 +25,9 @@ import { mountOutboundOwner } from './outbound-http';
 import { OnePasswordService, type OnePasswordCliAccess } from './onepassword';
 import { onePasswordTargets } from './onepassword-targets';
 import { mountOnePasswordOwner } from './onepassword-http';
+import { ManagedBrowserService } from './browser';
+import { mountBrowserOwner } from './browser-http';
+import type { BrowserRuntime, BrowserVault } from './browser-types';
 
 export type ProviderService = Pick<typeof providers, 'providerCatalog' | 'getProvider' | 'getProviderSetup' | 'createOAuthRequest' | 'exchangeOAuthCode' | 'refreshCredential' | 'verifyConnection'>;
 
@@ -55,6 +58,8 @@ export interface AppOptions {
   tunnel?: PublicTunnel;
   outbound?: OutboundAI;
   onePasswordCli?: OnePasswordCliAccess;
+  browserVault?: BrowserVault;
+  browserRuntime?: BrowserRuntime;
 }
 
 export function createApp(config: AppConfig, store: Store, service: ProviderService = providers, env: NodeJS.ProcessEnv = process.env, pipeline = new Pipeline(store, env), options: AppOptions = {}) {
@@ -88,17 +93,22 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
   const workspaceAccounts = new WorkspaceAccounts(config, store, env);
   const mcpOAuth = new McpOAuth(config, store, workspaceAccounts);
   const outbound = options.outbound || new OutboundAI(store, config.databasePath);
-  const onepassword = new OnePasswordService(store, onePasswordTargets(config, store, service, env, workspaceAccounts, outbound, options.tunnel, localOrigin), () => [
+  const credentialPrincipals = () => [
     ...(config.pipelineKey ? [{ id: `key:${digest(config.pipelineKey).toString('hex')}`, label: 'Shared Connector API key (all clients holding this key)' }] : []),
     ...mcpOAuth.connections().grants.map(grant => ({ id: `oauth:${grant.id}`, label: `${grant.clientName} · approved ${grant.createdAt}` })),
-  ], options.onePasswordCli);
+  ];
+  const onepassword = new OnePasswordService(store, onePasswordTargets(config, store, service, env, workspaceAccounts, outbound, options.tunnel, localOrigin), credentialPrincipals, options.onePasswordCli);
+  const browser = new ManagedBrowserService(store, credentialPrincipals,
+    () => store.readSetting<{ enabled: boolean; executable: string; revision: string }>('onepassword-v1') || { enabled: false, executable: '', revision: '' },
+    options.browserVault, options.browserRuntime);
   app.locals.outboundAI = outbound;
+  app.locals.managedBrowser = browser;
   const legal = new LegalPages(config, store);
   const tiktokVerification = new TikTokVerification(config, store);
   mountLegalPublic(app, legal);
   mountTikTokVerificationPublic(app, tiktokVerification);
   mountOAuthPublic(app, mcpOAuth);
-  mountPipeline(app, config, store, pipeline, env, { accounts: workspaceAccounts, oauth: mcpOAuth, outbound, onepassword });
+  mountPipeline(app, config, store, pipeline, env, { accounts: workspaceAccounts, oauth: mcpOAuth, outbound, onepassword, browser });
   app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
   const smallJson = express.json({ limit: '24kb' });
   app.use((req, res, next) => {
@@ -139,6 +149,7 @@ export function createApp(config: AppConfig, store: Store, service: ProviderServ
   app.get('/api/installation', (_req, res) => res.json(installation));
   mountOutboundOwner(app, outbound);
   mountOnePasswordOwner(app, onepassword, store, sessionToken);
+  mountBrowserOwner(app, browser, store, sessionToken);
   mountLegalOwner(app, legal);
   mountTikTokVerificationOwner(app, tiktokVerification);
   mountOAuthOwner(app, mcpOAuth, sessionToken);

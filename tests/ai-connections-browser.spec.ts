@@ -60,6 +60,10 @@ test("AI setup targets Grok Bot, exposes no developer key prompt, and never clai
   expect(setupMessage).toContain("MCP OAuth tokens work only at /mcp, not at the REST API");
   expect(setupMessage).toContain(`MCP server URL: ${url}`);
   expect(setupMessage).toContain("list_connections");
+  expect(setupMessage).toContain("browser_open, browser_snapshot, browser_sign_in");
+  expect(setupMessage).toContain("all accessible vaults without individual credential links");
+  expect(setupMessage).toContain("separate browser window on my PC");
+  expect(setupMessage).toContain("Browser clicks and submissions have no retry receipt");
   expect(setupMessage).toContain("Do not publish, send, edit, schedule, or delete anything during setup.");
   await expect(page.getByRole("status").filter({ hasText: "Copied. Paste the instructions" })).toBeVisible();
   await expect(page.locator(".ai-grants")).toContainText("No AI app has been approved yet");

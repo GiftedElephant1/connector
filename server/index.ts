@@ -18,9 +18,10 @@ try {
   const outbound = new OutboundAI(store, config.databasePath);
   const tunnel = new PublicTunnel(config, store, origin => updatePublicOrigin(config, store, env, origin));
   let stopScheduler = async () => {};
-  const server = createApp(config, store, undefined, env, pipeline, {
+  const app = createApp(config, store, undefined, env, pipeline, {
     desktopToken, ...(desktopToken ? { localOrigin: `http://127.0.0.1:${config.port}` } : {}), tunnel, outbound,
-  }).listen(config.port, config.host, () => {
+  });
+  const server = app.listen(config.port, config.host, () => {
     stopScheduler = pipeline.startScheduler();
     console.log(`Connector is listening on port ${config.port}.`);
     void tunnel.restore().catch(() => console.error('Public access could not restart. Open Settings to reconnect.'));
@@ -30,7 +31,7 @@ try {
   const shutdown = () => {
     if (closing) return;
     closing = true;
-    const stopped = Promise.all([stopScheduler(), outbound.close(), tunnel.stop(true).catch(() => {})]);
+    const stopped = Promise.all([stopScheduler(), outbound.close(), app.locals.managedBrowser.close(), tunnel.stop(true).catch(() => {})]);
     server.close(() => { void stopped.then(() => { store.close(); process.exit(0); }); });
   };
   process.on('SIGINT', shutdown);

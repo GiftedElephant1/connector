@@ -5,6 +5,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { ProviderError } from './provider-types';
 import type { OnePasswordAccount, OnePasswordCheck, OnePasswordField, OnePasswordItem, OnePasswordSelection, OnePasswordVault } from './onepassword-types';
+import type { BrowserCredential, BrowserLogin } from './browser-types';
 
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const APPROVAL_TIMEOUT_MS = 90_000;
@@ -98,6 +99,25 @@ function fieldId(field: JsonObject): string {
   return `f_${Buffer.from(JSON.stringify([section, field.id]), 'utf8').toString('base64url')}`;
 }
 
+/** Match the stored website itself, never an item title, URL path, or hostname suffix. */
+function websiteOrigin(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length > 8192 || !/^https:\/\//i.test(value) || /[\s\\\u0000-\u001f\u007f]/.test(value)) return undefined;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.username || url.password || url.port) return undefined;
+    return url.origin;
+  } catch { return undefined; }
+}
+function websiteOrigins(item: JsonObject): string[] {
+  if (item.urls === undefined) return [];
+  const urls = rows(item.urls, 100);
+  return [...new Set(urls.map(url => websiteOrigin(url.href)).filter((origin): origin is string => !!origin))];
+}
+function activeLogin(item: JsonObject): boolean {
+  return item.category === 'LOGIN' && (item.archived === undefined || item.archived === false) &&
+    (item.trashed === undefined || item.trashed === false) && (item.state === undefined || item.state === 'ACTIVE');
+}
+
 export class OnePasswordCli {
   private readonly run: OnePasswordRunner;
   private readonly env: NodeJS.ProcessEnv;
@@ -169,6 +189,67 @@ export class OnePasswordCli {
   async items(executable: string, accountId: string, vaultId: string): Promise<OnePasswordItem[]> {
     const entries = rows(await this.json(executable, ['item', 'list', '--account', identifier(accountId, 'account'), '--vault', identifier(vaultId, 'vault')]), 5000);
     return entries.map(row => ({ id: identifier(row.id, 'item'), title: text(row.title, '1Password item'), category: text(row.category, 'UNKNOWN', 80) }));
+  }
+  /** Search every accessible vault without retrieving any item's credential fields. */
+  async browserLogins(executable: string, origin: string, assertCurrent: () => void = () => {}): Promise<BrowserLogin[]> {
+    const expectedOrigin = websiteOrigin(origin);
+    if (!expectedOrigin || expectedOrigin !== origin) throw new ProviderError('Open a public HTTPS website before looking for a matching 1Password login.');
+    assertCurrent();
+    const accounts = await this.accounts(executable);
+    assertCurrent();
+    if (new Set(accounts.map(account => account.id)).size !== accounts.length) throw new ProviderError('1Password returned duplicate accounts. Refresh the desktop connection and try again.', 502);
+    const matches: BrowserLogin[] = [];
+    let totalItems = 0;
+    for (const account of accounts) {
+      assertCurrent();
+      // Omitting --vault asks the desktop-authenticated account for all readable
+      // vaults. Do not silently fall back to only Personal or a previously used vault.
+      const entries = rows(await this.json(executable, ['item', 'list', '--account', account.id]), 5000);
+      assertCurrent();
+      totalItems += entries.length;
+      if (totalItems > 25_000) throw new ProviderError('The accessible 1Password item catalog is too large to search completely. No login was selected.', 413);
+      const seen = new Set<string>();
+      for (const row of entries) {
+        if (!activeLogin(row)) continue;
+        const itemId = identifier(row.id, 'item');
+        if (!object(row.vault)) throw new ProviderError('1Password returned a login without a valid vault. Refresh the desktop connection and try again.', 502);
+        const vaultId = identifier(row.vault.id, 'vault');
+        const identity = `${vaultId}:${itemId}`;
+        if (seen.has(identity)) throw new ProviderError('1Password returned duplicate logins. Refresh the desktop connection and try again.', 502);
+        seen.add(identity);
+        const origins = websiteOrigins(row);
+        if (!origins.includes(expectedOrigin)) continue;
+        matches.push({ accountId: account.id, vaultId, itemId, title: text(row.title, '1Password login'),
+          accountName: account.name, vaultName: text(row.vault.name, '1Password vault'), origins });
+        if (matches.length > 1000) throw new ProviderError('Too many 1Password logins match this website. No login was selected.', 413);
+      }
+    }
+    assertCurrent();
+    return matches;
+  }
+  /** Server-only live read. Website binding and field values come from this one snapshot. */
+  async browserCredential(executable: string, selection: OnePasswordSelection): Promise<BrowserCredential> {
+    const accountId = identifier(selection.accountId, 'account');
+    const vaultId = identifier(selection.vaultId, 'vault');
+    const itemId = identifier(selection.itemId, 'item');
+    const item = await this.json(executable, ['item', 'get', itemId, '--account', accountId, '--vault', vaultId]);
+    if (!object(item) || item.id !== itemId || !object(item.vault) || item.vault.id !== vaultId) throw new ProviderError('1Password returned a different login. Search this website again.', 502);
+    if (!activeLogin(item)) throw new ProviderError('This 1Password item is no longer an active Login. Search this website again.', 409);
+    const origins = websiteOrigins(item);
+    if (!origins.length) throw new ProviderError('This 1Password login has no supported HTTPS website. Add the website to its saved login before using it here.', 422);
+    const fields = rows(item.fields, 500);
+    const ids = fields.map(fieldId);
+    if (new Set(ids).size !== ids.length) throw new ProviderError('This 1Password login has ambiguous fields. Review its username and password in 1Password.', 422);
+    const builtin = (purpose: 'USERNAME' | 'PASSWORD', id: string): string => {
+      const candidates = fields.filter(field => field.section === undefined && field.purpose === purpose);
+      const field = candidates[0];
+      if (candidates.length !== 1 || field.id !== id || typeof field.value !== 'string' || !field.value || field.value.length > 8192 || /[\u0000\r\n]/.test(field.value) ||
+        (purpose === 'USERNAME' ? !['STRING', 'EMAIL'].includes(String(field.type)) : !['CONCEALED', 'PASSWORD'].includes(String(field.type)))) {
+        throw new ProviderError('This 1Password login needs one supported built-in username and password. Review the saved login in 1Password.', 422);
+      }
+      return field.value;
+    };
+    return { origins, username: builtin('USERNAME', 'username'), password: builtin('PASSWORD', 'password') };
   }
   private async item(executable: string, selection: OnePasswordSelection): Promise<JsonObject[]> {
     const accountId = identifier(selection.accountId, 'account');
