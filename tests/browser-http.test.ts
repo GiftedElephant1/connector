@@ -104,6 +104,8 @@ test('an approved REST caller opens a browser and signs in without per-item link
   const connections = await (await f.machine(key, '/api/v1/connections')).json();
   assert.ok(connections.connections.some((row: { provider: string }) => row.provider === 'browser'));
   assert.equal((await f.machine(key, '/api/v1/tools/browser_open', { url: 'https://example.com' })).status, 400);
+  const vaultPage = await f.machine(key, '/api/v1/tools/browser_open', { url: 'https://my.1password.com', confirmed: true });
+  assert.equal(vaultPage.status, 400); assert.match(await vaultPage.text(), /vault websites are unavailable/); assert.equal(f.counters.launches, 0);
   const opened = await f.machine(key, '/api/v1/tools/browser_open', { url: 'https://example.com', confirmed: true });
   assert.equal(opened.status, 200); const { sessionId } = await opened.json();
   const signed = await f.machine(key, '/api/v1/tools/browser_sign_in', { sessionId, confirmed: true });

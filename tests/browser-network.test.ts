@@ -89,6 +89,22 @@ test('browser proxy requires authentication before resolving or connecting and r
   } finally { await proxy.close(); }
 });
 
+test('browser tools cannot browse the 1Password vault website through URLs or proxy tunnels', async () => {
+  let resolutions = 0;
+  const proxy = await startBrowserProxy({ resolve: async () => { resolutions++; return []; } });
+  try {
+    for (const host of ['1password.com', 'my.1password.com', 'TEAM.1PASSWORD.COM', '1password.eu', 'team.1password.eu', '1password.ca', 'team.1password.ca']) {
+      assert.throws(() => validateBrowserUrl(`https://${host}/`), /vault websites are unavailable/);
+      const result = await tunnel(proxy, `${host}:443`);
+      assert.equal(result.status, 403, host); result.socket.destroy();
+    }
+    assert.equal(resolutions, 0);
+    for (const host of ['1password.dev', 'support.1password.dev', '1password.com.example.org', 'my1password.com']) {
+      assert.equal(validateBrowserUrl(`https://${host}/`), `https://${host}/`);
+    }
+  } finally { await proxy.close(); }
+});
+
 test('browser proxy refuses malformed CONNECT destinations and forbidden literal addresses before DNS', { timeout: 5000 }, async () => {
   let resolutions = 0;
   const proxy = await startBrowserProxy({ resolve: async () => { resolutions++; return []; } });

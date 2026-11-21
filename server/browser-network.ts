@@ -38,6 +38,11 @@ export function isPublicBrowserAddress(address: string): boolean {
 
 function hostname(value: string): string {
   const host = value.startsWith('[') && value.endsWith(']') ? value.slice(1, -1) : value;
+  // Vault web pages can reveal unrelated stored secrets as ordinary text. Keep
+  // credential use on the server-side CLI path, including after manual sign-in.
+  if (/(?:^|\.)1password\.(?:com|eu|ca)$/i.test(host)) {
+    throw new ProviderError('1Password vault websites are unavailable to browser tools. Use browser_sign_in to fill saved logins on their matching websites.');
+  }
   if (isIP(host)) {
     if (!isPublicBrowserAddress(host)) throw new ProviderError(INVALID_URL);
     return host;

@@ -34,6 +34,8 @@ General-key REST clients call `POST /api/v1/tools/TOOL_NAME`. OAuth clients use 
 
 Connector reads the selected login internally and fills only a matching website. Tool results omit input values and do not provide secret-reading, JavaScript execution, screenshots, cookies, network traces, or file access. Page text and labels are filtered for the login values used by that session. Browser passwords are not copied into Connector's saved platform credential database.
 
+1Password's account websites (`1password.com`, `1password.eu`, and `1password.ca`, including their subdomains) are blocked in this browser. Browsing those vault pages could reveal other stored secrets as ordinary webpage text. Use the desktop app to manage the vault and `browser_sign_in` to use a saved login on its matching website.
+
 The website receiving a login necessarily receives its credentials. These controls do not make a malicious website trustworthy or guarantee that a site cannot transform and expose data through its content. Use the browser only for intended sites and accounts. The owner and an application with separate operating-system access can also inspect the local browser. This feature is not a security boundary against unrelated access to the PC.
 
 The browser supports public HTTPS sites on the standard port. Local network addresses, localhost, direct file access, downloads, and unsupported navigation are blocked. Some sites may not work with the available browser actions or these restrictions. Connector does not bypass site policies, 1Password approvals, or account eligibility.
